@@ -1,0 +1,10 @@
+alpaca-py==0.28.0
+pandas==2.2.2
+numpy==1.26.4
+ta==0.11.0
+httpx==0.27.0
+python-dotenv==1.0.1
+requests==2.31.0
+pydantic==2.7.1
+pytest==8.2.0
+pytest-mock==3.14.0
