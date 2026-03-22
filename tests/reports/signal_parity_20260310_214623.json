@@ -1,0 +1,49 @@
+{
+  "test_date": "2026-03-10T21:46:23.620390",
+  "test_type": "C1_Signal_Parity",
+  "dataset": "AAPL 2023-2024 (502 bars)",
+  "strategies_tested": 5,
+  "overall_pass": false,
+  "results": [
+    {
+      "strategy": "ma_crossover",
+      "total_bars": 500,
+      "matches": 500,
+      "mismatches": 0,
+      "mismatch_details": []
+    },
+    {
+      "strategy": "rsi_mean_reversion",
+      "total_bars": 0,
+      "matches": 0,
+      "mismatches": 0,
+      "error": "'RSI'"
+    },
+    {
+      "strategy": "momentum_breakout",
+      "total_bars": 0,
+      "matches": 0,
+      "mismatches": 0,
+      "error": "'ATR'"
+    },
+    {
+      "strategy": "bollinger_breakout",
+      "total_bars": 500,
+      "matches": 491,
+      "mismatches": 9,
+      "mismatch_details": [
+        {
+          "bar_index": 101,
+          "timestamp": "2022-05-24 00:00:00",
+          "alphalab_signal": "HOLD",
+          "alphalive_signal": "SELL",
+          "price": 148.34542318661997,
+          "alphalive_indicators": {
+            "price": 148.34542318661997,
+            "bb_upper": 161.80708074565277,
+            "bb_middle": 155.56940225212438,
+            "bb_lower": 149.33172375859598,
+            "volume": 79653896.0,
+            "volume_ma_20": 81419040.15
+          },
+          "warmup_complete": 

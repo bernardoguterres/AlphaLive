@@ -6,12 +6,211 @@ Export a backtested strategy from AlphaLab → deploy to Railway → it trades a
 
 ---
 
+## AlphaLab vs AlphaLive: What's the Difference?
+
+**AlphaLab** and **AlphaLive** are two separate platforms that work together:
+
+| Platform | Purpose | When to Run | Where to Run |
+|----------|---------|-------------|--------------|
+| **AlphaLab** | Strategy development & backtesting | As needed (not 24/7) | Locally on your computer |
+| **AlphaLive** | Live trading execution | 24/7 during trading hours | Railway (recommended) or locally |
+
+### AlphaLab (Development Platform)
+
+**What it does**:
+- Develop trading strategies (code signal logic)
+- Backtest on 5 years of historical data
+- Optimize parameters (walk-forward validation, grid search)
+- Export strategies as JSON for AlphaLive
+
+**When you use it**:
+- Creating new strategies
+- Testing strategy ideas
+- Monthly re-backtesting on new data
+- Analyzing why live performance differs from backtest
+
+**Run it**: Only when developing/testing strategies (NOT 24/7)
+
+### AlphaLive (Execution Platform)
+
+**What it does**:
+- Load strategy JSON from AlphaLab
+- Connect to Alpaca broker (paper or live account)
+- Generate buy/sell signals in real-time
+- Execute trades automatically
+- Monitor positions for stop loss / take profit
+- Send Telegram alerts
+
+**When you use it**:
+- 24/7 during trading hours (9:30 AM - 4:00 PM ET, Mon-Fri)
+- Runs continuously even when you're asleep/away
+
+**Run it**: 24/7 on Railway (recommended) or locally
+
+### Complete Workflow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                   AlphaLab (Local, As Needed)                   │
+└─────────────────────────────────────────────────────────────────┘
+         │
+         │ 1. Develop strategy
+         │ 2. Backtest on historical data
+         │ 3. Optimize parameters
+         │ 4. Export as JSON
+         ↓
+┌─────────────────────────────────────────────────────────────────┐
+│              AlphaLive (Railway or Local, 24/7)                 │
+└─────────────────────────────────────────────────────────────────┘
+         │
+         │ 5. Load strategy JSON
+         │ 6. Run dry run (1 week)
+         │ 7. Run paper trading (2-4 weeks)
+         │ 8. Run live trading (gradual scale up)
+         ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                  Monitor & Analyze Results                      │
+└─────────────────────────────────────────────────────────────────┘
+         │
+         │ 9. Compare live vs backtest performance
+         │ 10. If performance degrades: back to AlphaLab
+         │ 11. Re-optimize and re-export
+         └──────────────┐
+                        │ (loop back to step 1)
+```
+
+**You need BOTH platforms** — AlphaLab develops strategies, AlphaLive executes them.
+
+---
+
+## Deployment Options: Local vs Railway
+
+AlphaLive can run **locally on your computer** (FREE) or **on Railway** (~$5-20/month).
+
+### Running Locally
+
+**Best for**:
+- ✅ Testing (dry run, paper trading)
+- ✅ Saving money (~$5-20/month)
+- ✅ Full control over environment
+
+**Requirements**:
+- Your computer must be **ON 24/7** during trading hours (9:30 AM - 4:00 PM ET)
+- Stable internet connection
+- No sleep/hibernate during trading hours
+
+**Risks**:
+- ❌ Power outage = missed trades
+- ❌ Computer restart = bot stops until you manually restart it
+- ❌ Internet outage = no trading
+- ❌ You must be available to restart bot if it crashes
+
+**How to run locally**:
+```bash
+# Foreground (blocks terminal, Ctrl+C to stop)
+python run.py --config configs/your_strategy.json
+
+# Background (keeps running after closing terminal)
+nohup python run.py --config configs/your_strategy.json > alphalive.log 2>&1 &
+
+# Check if running
+ps aux | grep "run.py"
+
+# Stop background process
+pkill -f "run.py"
+```
+
+### Running on Railway (Recommended for Live Trading)
+
+**Best for**:
+- ✅ Live trading with real money
+- ✅ 24/7 reliability (professional infrastructure)
+- ✅ Auto-restart on crashes
+- ✅ Deploy updates from anywhere (git push)
+
+**Benefits**:
+- Bot runs even when your computer is off
+- Auto-restart if process crashes
+- View logs from anywhere (phone, laptop)
+- No need to manage servers
+
+**Cost**: ~$5-20/month (Hobby plan or pay-as-you-go)
+
+**How to deploy**: See [SETUP.md](SETUP.md) for complete guide
+
+### Comparison Table
+
+| Feature | Local | Railway |
+|---------|-------|---------|
+| **Cost** | FREE | ~$5-20/month |
+| **Uptime** | Only when your computer is on | 24/7 professional infrastructure |
+| **Auto-restart on crash** | No (manual) | Yes (automatic) |
+| **Deploy updates** | Local only | From anywhere (git push) |
+| **View logs** | Local terminal only | From anywhere (dashboard) |
+| **Power outage protection** | No | Yes |
+| **Best for** | Testing, development | Live trading |
+
+### Our Recommendation
+
+| Phase | Recommended Deployment |
+|-------|------------------------|
+| **Phase 1: Dry Run** (1 week) | Local (free) |
+| **Phase 2: Paper Trading** (2-4 weeks) | Local or Railway (your choice) |
+| **Phase 3-4: Live Trading** | Railway (reliability is worth $5-20/month) |
+
+**Bottom line**: Test locally for free, deploy to Railway when going live.
+
+---
+
+## What You Need to Run
+
+### For Development & Backtesting
+
+**Platform**: AlphaLab (separate repository)
+
+**Run it**:
+- Locally on your computer
+- As needed (not 24/7)
+- When developing new strategies or re-backtesting
+
+**Cost**: FREE
+
+### For Testing (Dry Run & Paper Trading)
+
+**Platform**: AlphaLive (this repository)
+
+**Run it**:
+- Locally: `python run.py --dry-run` (dry run mode)
+- Locally: `python run.py` (paper trading mode)
+- Railway: Deploy with `DRY_RUN=true` or `ALPACA_PAPER=true`
+
+**Cost**: FREE (local) or ~$5-20/month (Railway)
+
+### For Live Trading
+
+**Platform**: AlphaLive (this repository)
+
+**Run it**:
+- Railway (recommended): See [SETUP.md](SETUP.md)
+- Or locally: `python run.py` with `ALPACA_PAPER=false`
+
+**Requirements**:
+- Alpaca live account (FREE, but real money at risk)
+- Optional: Market data subscription (~$15-30/month for real-time SIP data)
+- Railway subscription (~$5-20/month) if using Railway
+
+**Total cost for live trading**:
+- Minimum: $0/month (local + free Alpaca + IEX data)
+- Recommended: $5-50/month (Railway $5-20 + optional SIP data $15-30)
+
+---
+
 ## How It Works
 
 1. **Backtest strategies in AlphaLab** until you find ones you like
 2. **Click "Export to AlphaLive"** → saves a JSON config with your strategy parameters
 3. **Commit the JSON** to `configs/` in this repo
-4. **Push to GitHub** → Railway auto-deploys
+4. **Deploy to Railway** (or run locally for testing)
 5. **AlphaLive runs 24/7**: sleeps when market is closed, trades when open
 6. **Get Telegram alerts** for every trade, exit, and daily summary
 
@@ -128,6 +327,42 @@ Options:
   --config PATH         Path to strategy JSON (default: STRATEGY_CONFIG env var)
   --dry-run             Log trades without executing (for testing)
   --validate-only       Test config and connections, then exit
+  --replay-mode         Test on historical data (FREE - no subscription needed)
+  --replay-start DATE   Start date for replay (YYYY-MM-DD, default: 2015-01-01)
+  --replay-end DATE     End date for replay (YYYY-MM-DD, default: 2019-12-31)
+```
+
+---
+
+## Replay Mode: Test Before You Trade (FREE)
+
+Before paying for Alpaca premium, test your strategy on **9+ years of historical data** for FREE:
+
+```bash
+# Test on 2015-2019 (pre-COVID normal markets)
+python run.py \
+  --config configs/your_strategy.json \
+  --replay-mode \
+  --replay-start 2015-01-01 \
+  --replay-end 2019-12-31 \
+  --dry-run
+```
+
+**What you get:**
+- ✅ Test on 5-9 years of historical data (100% FREE)
+- ✅ See signals, trades, P&L, win rate
+- ✅ Verify strategy works before upgrading to premium
+- ✅ Smart defaults avoid COVID-19 market anomalies
+
+**Recommended testing:**
+1. **Pre-COVID** (2015-2019): 5 years of normal markets
+2. **Post-COVID** (2022-2024): 3 years of recovery
+
+**Cost:** $0 (historical data is free on Alpaca)
+
+**Use the interactive test script:**
+```bash
+./test_replay_mode.sh
 ```
 
 ---

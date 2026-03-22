@@ -375,6 +375,295 @@ Before switching to **live trading**, complete this checklist:
 
 ---
 
+## Deployment Phases
+
+**Safe progression: DRY_RUN → PAPER → LIVE (never skip steps)**
+
+This section provides a comprehensive deployment roadmap with specific success criteria for each phase. Following this progression minimizes risk and ensures your strategy behaves as expected before risking real capital.
+
+### Pre-Deployment Requirements
+
+Before deploying to ANY mode (even dry-run), ensure:
+
+- [ ] **Signal parity test (C1) passes with ZERO mismatches**
+  - Run: `pytest tests/test_signal_parity.py -v`
+  - ALL strategies must show "0 mismatches"
+
+- [ ] **Full pipeline dry run (C2) completes successfully**
+  - Local dry run completes without errors
+  - All integration tests pass (AlphaLab + AlphaLive)
+
+- [ ] **Rollback procedures (C3) documented and tested**
+  - Read this guide's "Rollback & Emergency Procedures" section
+  - Test kill switch (TRADING_PAUSED=true)
+  - Verify you can pause/resume from Railway dashboard
+
+- [ ] **Walk-forward validation passes** (see below)
+
+- [ ] **Security audit passes**
+  - Run: `./scripts/security_audit.sh`
+  - Exit code must be 0
+
+- [ ] **Performance regression tests pass**
+  - All AlphaLab benchmarks within limits
+  - Signal generation < 5 seconds
+
+### Walk-Forward Validation (MANDATORY)
+
+**CRITICAL**: Before deploying ANY strategy to live trading, run walk-forward optimization to verify it's not overfit to the backtest period.
+
+**In AlphaLab, run walk-forward optimization**:
+
+1. Use **5 folds** covering the full 5-year backtest period
+2. Optimize parameters on training folds, validate on test folds
+3. Compare in-sample vs out-of-sample Sharpe ratio:
+   - **PASS**: Out-of-sample Sharpe > backtest Sharpe - 0.5
+   - **FAIL**: Out-of-sample Sharpe < backtest Sharpe - 0.5
+
+**Example**:
+- Backtest Sharpe (2020-2024): 1.5
+- Walk-forward out-of-sample Sharpe: 1.3 → **PASS** (within 0.2)
+- Walk-forward out-of-sample Sharpe: 0.8 → **FAIL** (degraded by 0.7)
+
+**If walk-forward FAILS**:
+- **DO NOT DEPLOY** to live trading
+- Investigate: overfitting, regime change, insufficient data
+- Consider reducing parameter count or simplifying strategy
+- Re-run backtest on different out-of-sample period (2025+)
+
+**Document walk-forward results** in strategy JSON metadata:
+```json
+{
+  "metadata": {
+    "walk_forward_validation": {
+      "in_sample_sharpe": 1.6,
+      "out_of_sample_sharpe": 1.3,
+      "degradation": 0.3,
+      "passed": true,
+      "tested_on": "2026-03-14"
+    }
+  }
+}
+```
+
+---
+
+### Phase 1: Dry Run (Minimum 1 Week)
+
+**Setup**:
+- Deploy to Railway with `DRY_RUN=true`
+- Start with **ONE strategy only** (not multi-strategy)
+- Monitor Railway logs daily
+
+**Success Criteria** (ALL must pass):
+
+- [ ] Signal checks run correctly at expected times (9:35 AM ET for 1Day strategies)
+- [ ] Telegram alerts work (startup, signals, EOD summary)
+- [ ] No crashes or unhandled exceptions for **7 consecutive days**
+- [ ] Data staleness checks work (verify by temporarily breaking data feed)
+- [ ] Kill switch works (set `TRADING_PAUSED=true`, verify no new entries)
+- [ ] Logs show `"DRY RUN: Would BUY/SELL"` messages (not real orders)
+- [ ] EOD summary shows accurate P&L (even though no real trades)
+- [ ] Cost safety limits work (artificially trigger `max_trades_per_day`)
+- [ ] Degraded mode triggers (mock broker failures)
+
+**If ANY criterion fails**: Fix the issue and restart Phase 1 (7 days again).
+
+---
+
+### Kill Switch Test Procedure (Run During Phase 1)
+
+**Purpose**: Verify you can halt trading instantly from anywhere (Railway dashboard or phone).
+
+#### Test 1: Railway Dashboard Kill Switch (5 minutes)
+
+1. Deploy to Railway with `DRY_RUN=false`, `ALPACA_PAPER=true`
+2. Wait for morning signal check to complete (watch Railway logs at 9:35 AM ET)
+3. In Railway dashboard → your service → **Variables** tab → Add new variable:
+   - Name: `TRADING_PAUSED`
+   - Value: `true`
+   - Click "Add" → Railway automatically deploys changes
+4. Railway will restart the service (~15-30 seconds)
+5. Watch logs for: `"Trading paused via TRADING_PAUSED env var"`
+6. Send Telegram command from your phone: `/status`
+7. Expected response: `"Status: PAUSED 🛑 | No new signals will fire."`
+8. If a signal would normally fire, logs should show:
+   `"Signal check skipped - trading is paused"`
+9. To resume: Change `TRADING_PAUSED` value to `false` → Deploy
+10. Logs should show: `"Trading resumed - signals active"`
+11. `/status` should respond: `"Status: ACTIVE ✅"`
+
+**Expected behavior**:
+- ✅ No NEW orders placed while paused
+- ✅ Exit monitoring CONTINUES for existing positions (stop-loss/take-profit still work)
+- ✅ EOD summary still sent
+- ✅ Telegram commands still work (`/status`, `/pause`, `/resume`)
+
+#### Test 2: Telegram Command Kill Switch (30 seconds)
+
+1. While bot is running (`TRADING_PAUSED=false`)
+2. From your phone, send Telegram message: `/pause`
+3. Bot responds: `"Trading paused. No new signals until /resume."`
+4. Bot logs: `"Trading paused via Telegram command"`
+5. Send `/status` → should show: `"Status: PAUSED 🛑"`
+6. Send `/resume`
+7. Bot responds: `"Trading resumed."`
+8. Send `/status` → should show: `"Status: ACTIVE ✅"`
+
+**Note**: Telegram commands provide **INSTANT** pause (<2 seconds). Railway env var method requires a service restart (~15-30 seconds). Use Telegram for emergencies during market hours.
+
+#### Test 3: Mid-Trade Kill Switch (Verify Exit Monitoring Continues)
+
+1. Wait for bot to open a position (or simulate one in paper trading)
+2. Activate kill switch (either method above)
+3. Manually change the stock price to trigger stop-loss (in paper mode: use Alpaca dashboard)
+4. Verify bot **STILL** closes the position (exit monitoring continues)
+5. Logs should show: `"EXIT: AAPL stop-loss hit at $150.00 (even though paused)"`
+
+**Pass criteria**:
+- All 3 tests pass without errors
+- Pause latency: <2s (Telegram) or <30s (Railway)
+- Exit monitoring continues while paused
+- Resume works immediately
+
+**If test fails**:
+- Check `risk_manager.can_trade()` checks `TRADING_PAUSED` flag
+- Check Telegram command handler sets/clears pause flag
+- Check exit checks run independently of pause flag
+
+---
+
+### Phase 2: Paper Trading (Minimum 2-4 Weeks)
+
+**Setup**:
+- Set `DRY_RUN=false`, keep `ALPACA_PAPER=true` (Alpaca paper account)
+- Still **ONE strategy only**
+- Reduce `max_position_size_pct` to **5%** initially (not 10%)
+- Monitor **DAILY** (not weekly)
+
+**Success Criteria**:
+
+- [ ] Real orders placed on Alpaca paper account
+- [ ] Order fills match expected prices (slippage <1% on liquid stocks)
+- [ ] No partial fills (or partial fills handled correctly if they occur)
+- [ ] Daily P&L in Telegram matches Alpaca paper account equity
+- [ ] Position reconciliation catches any drift (test by manually closing a position in Alpaca dashboard, verify bot detects it within 30 min)
+- [ ] Stop loss and take profit trigger correctly
+- [ ] Trailing stops work (if enabled — verify `position_highs` persist across restarts)
+- [ ] No duplicate orders after Railway restarts
+- [ ] Run C1 signal parity test weekly — still **ZERO mismatches**
+
+**Compare backtest vs paper**:
+- Paper Sharpe ratio should be within **±0.3** of backtest Sharpe
+  - Example: backtest Sharpe = 1.5, paper Sharpe should be **1.2-1.8**
+- If paper Sharpe < backtest Sharpe - 0.5: **investigate before going live**
+  - Possible causes: slippage, commission not accounted for in backtest, signal parity drift, overfitting to backtest period
+
+**If paper results diverge significantly from backtest**:
+- **DO NOT go live**
+- Run C1 signal parity test again
+- Check for overfitting (run backtest on out-of-sample period)
+- Verify commission settings match reality
+
+---
+
+### Phase 3: Live Trading — Micro Capital (Minimum 2 Weeks)
+
+**⚠️ REAL MONEY RISK — Proceed with extreme caution**
+
+**Setup**:
+- Set `ALPACA_PAPER=false` (switches to Alpaca live account)
+- Start with **$500-$1000 ONLY** (not full capital)
+- Keep `max_position_size_pct` ≤ **2%** (not 5% or 10%)
+- Keep `max_open_positions` = **1** (not 5)
+- Still **ONE strategy only**
+
+**Success Criteria**:
+
+- [ ] Real money fills match paper trading behavior (±0.2% slippage)
+- [ ] No surprises (commissions, fees, taxes if applicable)
+- [ ] Sharpe ratio aligns with paper (±0.3 tolerance)
+- [ ] No emotional panic when seeing real money P&L fluctuate
+- [ ] Rollback procedures tested in live mode (set `TRADING_PAUSED` mid-day, verify bot stops cleanly without losing positions)
+
+**After 2 weeks, if results match paper**:
+- Gradually increase capital ($1k → $2k → $5k over weeks, not days)
+- Gradually increase `max_position_size_pct` (2% → 3% → 5% over weeks)
+- Optionally add a second strategy (run C1 parity test first)
+
+---
+
+### Phase 4: Full Production (After 1-2 Months Total)
+
+**Only proceed if**:
+- [ ] Dry run: 7+ days, zero crashes
+- [ ] Paper: 2-4 weeks, Sharpe within ±0.3 of backtest
+- [ ] Live micro: 2+ weeks, no issues, Sharpe matches paper
+
+**Full production**:
+- Use full intended capital
+- `max_position_size_pct` up to **10%** (if comfortable)
+- Multi-strategy (if desired — re-run C1 for each strategy)
+- `portfolio_max_positions` enforced across strategies
+
+---
+
+### DO NOT Go Live If:
+
+- ❌ Signal parity test (C1) has ANY mismatches (even 1 is a red flag)
+- ❌ Dry run crashed in the last 7 days
+- ❌ Backtest Sharpe < 1.0 (strategy isn't robust enough for real money)
+- ❌ You haven't tested the rollback procedures (C3)
+- ❌ Paper trading Sharpe < backtest Sharpe - 0.5 (significant divergence)
+- ❌ You don't understand WHY a strategy works (overfitting risk)
+- ❌ Strategy was only backtested on <2 years of data (insufficient sample)
+- ❌ You're uncomfortable losing the allocated capital (risk too high)
+- ❌ Walk-forward validation failed (out-of-sample Sharpe degraded >0.5)
+- ❌ Security audit (B16) has any unresolved findings
+- ❌ Performance regression tests have any benchmarks exceeding limits
+
+---
+
+### Tax & Compliance Considerations
+
+- Keep records of all trades (Alpaca provides trade history exports)
+- Short-term capital gains apply to positions held <1 year (US)
+- Wash sale rule applies if you sell at a loss and rebuy within 30 days (US)
+- Consult a tax professional before deploying significant capital
+- Some brokerages report automated trading activity differently — verify with Alpaca
+
+---
+
+### Ongoing Monitoring & Maintenance
+
+**After going live**:
+
+**Daily**:
+- [ ] Check Telegram alerts (don't ignore them)
+- [ ] Review Railway logs for WARNING/ERROR entries
+- [ ] Verify positions in Alpaca dashboard match bot's tracking
+- [ ] Confirm no position drift alerts
+
+**Weekly**:
+- [ ] Analyze trading performance (P&L, win rate, Sharpe)
+- [ ] Compare live results to backtest expectations
+- [ ] Adjust risk parameters if needed (e.g., tighter stop loss)
+- [ ] Review any error alerts or circuit breaker triggers
+
+**Monthly**:
+- [ ] Run C1 signal parity test (verify no drift)
+- [ ] Compare live Sharpe vs backtest
+  - If live Sharpe degrades >0.5 below backtest, investigate or pause
+- [ ] Re-run backtests on new data (markets change — strategies degrade over time)
+
+**Quarterly**:
+- [ ] Re-run security audit: `./scripts/security_audit.sh`
+- [ ] Dependency review (`requirements.txt` — security patches)
+- [ ] Strategy performance evaluation (is it still working?)
+- [ ] Consider parameter optimization in AlphaLab
+
+---
+
 ## Enable Live Trading
 
 **⚠️ WARNING**: Live trading uses real money. Proceed only after completing production checklist.
@@ -1150,6 +1439,367 @@ Before deploying with trailing stops:
 2. Trigger a Railway restart (push new commit)
 3. Check logs: bot should load position_highs from state file
 4. Verify trailing stop still works correctly
+
+---
+
+## Rollback & Emergency Procedures
+
+**CRITICAL**: Bookmark this section. In an emergency, you need fast access to these procedures.
+
+### Quick Reference Card
+
+| Emergency | Action | Time to Effect | Impact |
+|-----------|--------|----------------|--------|
+| **Stop all new trades** | Set `TRADING_PAUSED=true` | 15-30s | Blocks new entries, exits still monitored |
+| **Log only (no orders)** | Set `DRY_RUN=true` | 15-30s | Logs trades but doesn't execute |
+| **Immediate shutdown** | Pause service in Railway | <5s | Stops bot completely |
+| **Revert bad deploy** | Redeploy previous version | 2-3 min | Restores last working code |
+
+---
+
+### 1. Emergency Kill Switch (Fastest — 15-30 seconds)
+
+**Use when**: You need to stop all new trades immediately but keep monitoring existing positions.
+
+**Steps**:
+1. Go to Railway dashboard → Your service → **Variables** tab
+2. Find `TRADING_PAUSED`
+3. Change value to `true`
+4. Click **Update Variables**
+5. Railway auto-restarts the service (~15-30 seconds)
+
+**What happens**:
+- ✅ Bot blocks ALL new entry signals (BUY/SELL)
+- ✅ Bot continues monitoring open positions for exits (stop loss, take profit)
+- ✅ Logs show: `"⚠️ Trading paused via TRADING_PAUSED env var"`
+
+**To resume trading**:
+1. Set `TRADING_PAUSED=false`
+2. Railway restarts
+3. Bot resumes normal operation
+
+**Example use case**: Market behaving erratically (flash crash, news event) but you want to let existing positions hit their stops naturally.
+
+---
+
+### 2. Dry-Run Mode (No Real Orders)
+
+**Use when**: You want the bot to run but NOT place any real orders (testing, debugging).
+
+**Steps**:
+1. Railway dashboard → Variables tab
+2. Set `DRY_RUN=true`
+3. Update variables
+4. Railway restarts (~15-30s)
+
+**What happens**:
+- ✅ Bot runs normally (signal generation, risk checks, etc.)
+- ✅ Logs show: `"[DRY RUN] Would execute: BUY 50 AAPL @ $150.00"`
+- ❌ NO real orders sent to Alpaca
+
+**To resume real trading**:
+1. Set `DRY_RUN=false`
+2. Railway restarts
+3. Bot places real orders again
+
+**Example use case**: Testing a new strategy configuration without risking real money.
+
+---
+
+### 3. Immediate Shutdown (Fastest — <5 seconds)
+
+**Use when**: You need to stop the bot completely RIGHT NOW (suspected bug, runaway trading).
+
+**Steps**:
+1. Railway dashboard → Your service → **Settings** tab
+2. Scroll to bottom → Click **Pause Service**
+3. Service stops immediately
+
+**What happens**:
+- ❌ Bot process terminates
+- ❌ No signal checks
+- ❌ No position monitoring
+- ❌ No Telegram alerts
+
+**To resume**:
+1. Settings → Click **Resume Service**
+2. Bot restarts from scratch
+
+**⚠️ Warning**: This stops ALL monitoring including exit checks. Use only in true emergencies. Prefer `TRADING_PAUSED=true` instead.
+
+**Example use case**: Critical bug detected, bot is placing orders incorrectly, need to stop NOW.
+
+---
+
+### 4. Rollback to Previous Deployment
+
+**Use when**: A recent code deploy introduced a bug, need to revert to last stable version.
+
+**Steps**:
+1. Railway dashboard → **Deployments** tab
+2. Find the last **stable deployment** (before the bad one)
+   - Look for green "Success" status
+   - Check the commit message/timestamp
+3. Click the **three dots (⋯)** next to that deployment
+4. Click **"Redeploy"**
+5. Railway rebuilds and deploys the old code (~2-3 minutes)
+
+**What reverts**:
+- ✅ Code (Python files, logic)
+- ✅ Docker image
+
+**What does NOT revert**:
+- ❌ Environment variables (stay the same)
+- ❌ Railway volumes (state persists)
+
+**Example use case**: Deployed a fix for signal engine but it broke position sizing. Revert to previous working version.
+
+---
+
+### 5. Git Rollback Procedure
+
+**Use when**: You pushed bad code to GitHub and need to undo it.
+
+#### Option A: Revert a Bad Commit (Safe)
+
+```bash
+cd /path/to/AlphaLive
+
+# View recent commits
+git log --oneline -10
+
+# Find the bad commit hash (e.g., abc1234)
+# Revert it (creates new commit that undoes the bad one)
+git revert abc1234
+
+# Push the revert
+git push origin main
+
+# Railway auto-deploys the revert in ~2-3 minutes
+```
+
+**Effect**: Creates a new commit that undoes the bad changes. Safe for shared repositories.
+
+#### Option B: Hard Reset (Destructive — use with caution)
+
+```bash
+# Find the last known-good commit
+git log --oneline -10
+
+# Hard reset to that commit (e.g., def5678)
+git reset --hard def5678
+
+# Force push (DANGEROUS — destroys history)
+git push --force origin main
+
+# Railway auto-deploys the old code
+```
+
+**⚠️ Warning**: `--force` rewrites git history. Only use if you're the only developer or if you've coordinated with your team.
+
+---
+
+### 6. State Recovery After Crash
+
+**Scenario**: Railway crashed mid-day, bot restarted, but state is lost (daily P&L, position tracking).
+
+#### Check Current Positions
+
+```bash
+# Verify what positions Alpaca actually has
+curl -X GET "https://paper-api.alpaca.markets/v2/positions" \
+  -H "APCA-API-KEY-ID: YOUR_API_KEY" \
+  -H "APCA-API-SECRET-KEY: YOUR_SECRET_KEY"
+```
+
+**Expected**: JSON array of positions (or empty `[]` if none).
+
+#### Position Reconciliation
+
+AlphaLive automatically reconciles positions:
+- **On startup**: Compares Alpaca positions vs bot's internal tracking
+- **Every 30 minutes**: Runs position reconciliation check
+- **If drift detected**: AUTO-HALTS trading, sends Telegram alert
+
+**Manual recovery**:
+1. Check Railway logs for: `"Position reconciliation check"`
+2. If positions drifted:
+   - Review Alpaca dashboard to verify positions
+   - Close positions manually if needed (Alpaca dashboard)
+   - Set `TRADING_PAUSED=false` to resume
+
+#### Daily P&L Reconstruction
+
+After a restart, AlphaLive reconstructs daily P&L from Alpaca's fills:
+
+```bash
+# Check today's fills manually
+curl -X GET "https://paper-api.alpaca.markets/v2/account/activities/FILL?date=2026-03-14" \
+  -H "APCA-API-KEY-ID: YOUR_API_KEY" \
+  -H "APCA-API-SECRET-KEY: YOUR_SECRET_KEY"
+```
+
+**Sum the P&L manually** to verify the daily loss limit isn't incorrectly triggered.
+
+**Railway logs will show**:
+```
+INFO: Daily P&L reconstructed: $-450.00 (3 fills)
+```
+
+If reconstruction failed:
+```
+WARNING: Daily P&L reconstruction failed — defaulting to 0.0. Monitor manually today.
+```
+
+**Action**: If you see the warning, manually track P&L for the rest of the day to ensure daily loss limit is respected.
+
+---
+
+### 7. Testing Rollback Procedures (Pre-Production Checklist)
+
+**BEFORE going live**, test each rollback procedure in paper trading mode:
+
+- [ ] **Test TRADING_PAUSED=true**
+  - Set env var → verify bot blocks new entries
+  - Check logs: `"⚠️ Trading paused via TRADING_PAUSED env var"`
+  - Verify existing positions still monitored
+  - Set back to `false` → verify trading resumes
+
+- [ ] **Test DRY_RUN=true**
+  - Set env var → verify logs show `"[DRY RUN] Would execute..."`
+  - Confirm NO real orders placed in Alpaca dashboard
+  - Set back to `false` → verify real orders work
+
+- [ ] **Test Railway Redeploy**
+  - Deploy a harmless change (add a log line)
+  - Use Deployments → Redeploy previous version
+  - Verify rollback works, log line disappears
+
+- [ ] **Test Service Pause**
+  - Pause service in Railway Settings
+  - Verify bot stops (logs stop streaming)
+  - Resume service → verify bot restarts cleanly
+
+- [ ] **Test Position Reconciliation**
+  - Manually close a position in Alpaca dashboard (while bot running)
+  - Wait 30 minutes OR restart service
+  - Check logs for position drift detection
+  - Verify bot sends Telegram alert
+
+**Documentation**: Record the results of these tests in your deployment notes.
+
+---
+
+### 8. Emergency Contact Information
+
+**Before deploying to production**, ensure you have:
+
+- ✅ Railway dashboard bookmarked
+- ✅ Alpaca dashboard bookmarked
+- ✅ This SETUP.md file accessible on phone (bookmark GitHub raw URL)
+- ✅ Telegram bot active (test with `/status` command)
+- ✅ Phone notifications enabled for Telegram
+
+**If something goes wrong at 3 AM**, you need to access these without searching.
+
+---
+
+### 9. Common Emergency Scenarios
+
+#### Scenario: Bot is placing too many orders
+
+**Symptoms**: Telegram spam, Alpaca dashboard shows 10+ orders in 5 minutes
+
+**Action**:
+1. **IMMEDIATE**: Set `TRADING_PAUSED=true` (15-30s)
+2. Check Railway logs for root cause (signal logic bug? market anomaly?)
+3. If bug: Pause service completely
+4. If market anomaly: Let paused mode monitor positions, resume after market calms
+
+---
+
+#### Scenario: Daily loss limit hit but positions still losing
+
+**Symptoms**: Daily P&L at -3%, but position still open and dropping
+
+**Action**:
+1. Circuit breaker should have triggered already (check logs)
+2. If not blocked: **EMERGENCY SHUTDOWN** (Pause service)
+3. Manually close positions in Alpaca dashboard
+4. Investigate why circuit breaker failed (logs, code review)
+
+---
+
+#### Scenario: Railway deployment fails (build error)
+
+**Symptoms**: Railway shows "Build failed", service not running
+
+**Action**:
+1. Railway → Deployments → Find last successful deployment
+2. Redeploy that version (3-dot menu → Redeploy)
+3. Fix the build error in a new branch, test locally, then redeploy
+
+---
+
+#### Scenario: Alpaca API down (500 errors)
+
+**Symptoms**: Logs show `"Alpaca server error (500)"`, orders failing
+
+**Action**:
+1. Check Alpaca status: https://status.alpaca.markets
+2. If Alpaca is down: **DRY_RUN=true** (bot keeps running but doesn't trade)
+3. Wait for Alpaca to recover
+4. Set **DRY_RUN=false** when Alpaca is back
+
+---
+
+#### Scenario: Suspected position drift (bot thinks it has position, Alpaca doesn't)
+
+**Symptoms**: Bot logs "Closing position" but Alpaca shows no position
+
+**Action**:
+1. Check position reconciliation logs (runs every 30 minutes)
+2. Compare bot's logs vs Alpaca positions API (curl command above)
+3. If drift confirmed: **TRADING_PAUSED=true**, manually reconcile
+4. Restart service to trigger startup reconciliation
+
+---
+
+### 10. Rollback Decision Tree
+
+```
+                 ┌─── Is trading behaving incorrectly? ───┐
+                 │                                         │
+                YES                                       NO
+                 │                                         │
+        Is it an emergency?                         Keep monitoring
+                 │
+        ┌────────┴────────┐
+       YES               NO
+        │                 │
+   PAUSE SERVICE      TRADING_PAUSED=true
+   (<5 seconds)       (15-30 seconds)
+        │                 │
+   Fix manually      Investigate in logs
+        │                 │
+   Resume when        Deploy fix when ready
+   safe                   │
+                    Test with DRY_RUN=true first
+```
+
+---
+
+### 11. Post-Incident Checklist
+
+After using any rollback procedure:
+
+- [ ] Document what went wrong (timestamp, symptoms, root cause)
+- [ ] Document what action was taken (which rollback method, when)
+- [ ] Verify positions are correct in Alpaca dashboard
+- [ ] Verify daily P&L is accurate (compare bot logs vs Alpaca fills)
+- [ ] Check for any missed exit signals during the incident
+- [ ] Review logs for 24 hours post-recovery
+- [ ] Update runbook if new failure mode discovered
 
 ---
 

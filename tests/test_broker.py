@@ -299,3 +299,102 @@ def test_base_broker_is_abstract():
     """Test that BaseBroker cannot be instantiated directly."""
     with pytest.raises(TypeError, match="Can't instantiate abstract class"):
         BaseBroker()
+
+
+@pytest.mark.skipif(
+    True,
+    reason="Requires alpaca-py library and API credentials"
+)
+@patch('alphalive.broker.alpaca_broker.StockHistoricalDataClient')
+def test_get_historical_bars(mock_data_client):
+    """Test get_historical_bars method returns proper DataFrame."""
+    import pandas as pd
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from alphalive.broker.alpaca_broker import AlpacaBroker
+
+    ET = ZoneInfo("America/New_York")
+    broker = AlpacaBroker(api_key="test", secret_key="test", paper=True)
+    broker.connected = True
+    broker.data_client = mock_data_client.return_value
+
+    # Mock the response
+    mock_bars = Mock()
+    mock_df = pd.DataFrame({
+        'open': [150.0, 151.0, 152.0],
+        'high': [151.0, 152.0, 153.0],
+        'low': [149.0, 150.0, 151.0],
+        'close': [150.5, 151.5, 152.5],
+        'volume': [1000000, 1100000, 1200000]
+    }, index=pd.DatetimeIndex([
+        datetime(2024, 1, 2, 9, 30, tzinfo=ET),
+        datetime(2024, 1, 3, 9, 30, tzinfo=ET),
+        datetime(2024, 1, 4, 9, 30, tzinfo=ET)
+    ]))
+    mock_bars.df = mock_df
+    broker.data_client.get_stock_bars.return_value = mock_bars
+
+    # Call method
+    start = datetime(2024, 1, 1, tzinfo=ET)
+    end = datetime(2024, 1, 5, tzinfo=ET)
+    df = broker.get_historical_bars("AAPL", "1Day", start, end)
+
+    # Verify result
+    assert isinstance(df, pd.DataFrame)
+    assert len(df) == 3
+    assert 'open' in df.columns
+    assert 'close' in df.columns
+    assert 'volume' in df.columns
+    assert df.index.tz is not None  # Timezone-aware
+    assert df['close'].iloc[0] == 150.5
+
+
+@pytest.mark.skipif(
+    True,
+    reason="Requires alpaca-py library and API credentials"
+)
+def test_get_historical_bars_invalid_timeframe():
+    """Test get_historical_bars raises error for invalid timeframe."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from alphalive.broker.alpaca_broker import AlpacaBroker
+
+    ET = ZoneInfo("America/New_York")
+    broker = AlpacaBroker(api_key="test", secret_key="test", paper=True)
+    broker.connected = True
+    broker.data_client = Mock()
+
+    start = datetime(2024, 1, 1, tzinfo=ET)
+    end = datetime(2024, 1, 5, tzinfo=ET)
+
+    with pytest.raises(ValueError, match="Unsupported timeframe"):
+        broker.get_historical_bars("AAPL", "invalid", start, end)
+
+
+@pytest.mark.skipif(
+    True,
+    reason="Requires alpaca-py library and API credentials"
+)
+@patch('alphalive.broker.alpaca_broker.StockHistoricalDataClient')
+def test_get_historical_bars_empty_data(mock_data_client):
+    """Test get_historical_bars raises error when no data returned."""
+    import pandas as pd
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from alphalive.broker.alpaca_broker import AlpacaBroker
+
+    ET = ZoneInfo("America/New_York")
+    broker = AlpacaBroker(api_key="test", secret_key="test", paper=True)
+    broker.connected = True
+    broker.data_client = mock_data_client.return_value
+
+    # Mock empty response
+    mock_bars = Mock()
+    mock_bars.df = pd.DataFrame()
+    broker.data_client.get_stock_bars.return_value = mock_bars
+
+    start = datetime(2024, 1, 1, tzinfo=ET)
+    end = datetime(2024, 1, 5, tzinfo=ET)
+
+    with pytest.raises(ValueError, match="No historical data returned"):
+        broker.get_historical_bars("AAPL", "1Day", start, end)

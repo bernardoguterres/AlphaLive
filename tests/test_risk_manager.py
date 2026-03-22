@@ -36,12 +36,13 @@ def sample_execution_config():
 
 
 @pytest.fixture
-def risk_manager(sample_risk_config, sample_execution_config):
+def risk_manager(sample_risk_config, sample_execution_config, sample_strategy_config):
     """Create a RiskManager instance."""
     return RiskManager(
         risk_config=sample_risk_config,
         execution_config=sample_execution_config,
-        strategy_name="test_strategy"
+        strategy_name="test_strategy",
+        safety_limits=sample_strategy_config.safety_limits
     )
 
 
@@ -167,13 +168,13 @@ def test_check_trailing_stop_disabled(risk_manager):
     assert risk_manager.check_trailing_stop(100.0, 110.0, 108.0, "long") is False
 
 
-def test_check_trailing_stop_long(sample_risk_config, sample_execution_config):
+def test_check_trailing_stop_long(sample_risk_config, sample_execution_config, sample_strategy_config):
     """Test trailing stop for long positions."""
     # Enable trailing stop
     sample_risk_config.trailing_stop_enabled = True
     sample_risk_config.trailing_stop_pct = 3.0  # 3% trailing stop
 
-    rm = RiskManager(sample_risk_config, sample_execution_config, "test")
+    rm = RiskManager(sample_risk_config, sample_execution_config, "test", sample_strategy_config.safety_limits)
 
     # Entry: $100, High: $110, Trailing stop: $106.70 (110 * 0.97)
     # Should NOT trigger at $106.71
@@ -409,20 +410,25 @@ def test_global_risk_manager_register_strategy(risk_manager):
 
 def test_global_check_daily_loss_no_loss():
     """Test global daily loss check with no losses."""
+    from alphalive.strategy_schema import SafetyLimits
     grm = GlobalRiskManager()
+
+    safety_limits = SafetyLimits()  # Use defaults
 
     # Create and register strategies
     rm1 = RiskManager(
         Risk(stop_loss_pct=2.0, take_profit_pct=5.0, max_position_size_pct=10.0,
              max_daily_loss_pct=3.0, max_open_positions=5, portfolio_max_positions=10),
         Execution(order_type="market", cooldown_bars=1),
-        "strategy_1"
+        "strategy_1",
+        safety_limits
     )
     rm2 = RiskManager(
         Risk(stop_loss_pct=2.0, take_profit_pct=5.0, max_position_size_pct=10.0,
              max_daily_loss_pct=3.0, max_open_positions=5, portfolio_max_positions=10),
         Execution(order_type="market", cooldown_bars=1),
-        "strategy_2"
+        "strategy_2",
+        safety_limits
     )
 
     grm.register_strategy("strategy_1", rm1)
@@ -437,20 +443,25 @@ def test_global_check_daily_loss_no_loss():
 
 def test_global_check_daily_loss_limit_exceeded():
     """Test global daily loss check with limit exceeded."""
+    from alphalive.strategy_schema import SafetyLimits
     grm = GlobalRiskManager()
+
+    safety_limits = SafetyLimits()  # Use defaults
 
     # Create and register strategies
     rm1 = RiskManager(
         Risk(stop_loss_pct=2.0, take_profit_pct=5.0, max_position_size_pct=10.0,
              max_daily_loss_pct=3.0, max_open_positions=5, portfolio_max_positions=10),
         Execution(order_type="market", cooldown_bars=1),
-        "strategy_1"
+        "strategy_1",
+        safety_limits
     )
     rm2 = RiskManager(
         Risk(stop_loss_pct=2.0, take_profit_pct=5.0, max_position_size_pct=10.0,
              max_daily_loss_pct=3.0, max_open_positions=5, portfolio_max_positions=10),
         Execution(order_type="market", cooldown_bars=1),
-        "strategy_2"
+        "strategy_2",
+        safety_limits
     )
 
     # Set losses

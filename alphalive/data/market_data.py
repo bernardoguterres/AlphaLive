@@ -100,7 +100,8 @@ class MarketDataFetcher:
                 symbol_or_symbols=ticker,
                 timeframe=tf,
                 start=start_date,
-                end=end_date
+                end=end_date,
+                feed="iex"
             )
 
             # Fetch with retry logic
