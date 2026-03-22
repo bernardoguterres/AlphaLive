@@ -342,3 +342,39 @@ class BaseBroker(ABC):
             If both limit and start/end are specified, limit takes precedence.
         """
         pass
+
+    @abstractmethod
+    def get_historical_bars(
+        self,
+        symbol: str,
+        timeframe: str,
+        start: datetime,
+        end: datetime
+    ):
+        """
+        Get historical bars for replay mode (returns pandas DataFrame).
+
+        Optimized for fetching large date ranges for backtesting and replay
+        simulation. Uses broker's free historical data API where available.
+
+        Args:
+            symbol: Stock ticker symbol (e.g., "AAPL")
+            timeframe: "1Min", "5Min", "15Min", "1Hour", "1Day"
+            start: Start datetime (timezone-aware recommended)
+            end: End datetime (timezone-aware recommended)
+
+        Returns:
+            pandas DataFrame with:
+            - Index: timezone-aware datetime
+            - Columns: open, high, low, close, volume (lowercase)
+
+        Raises:
+            BrokerError: If bars fetch fails
+            ValueError: If timeframe is invalid or no data returned
+
+        Note:
+            This method is specifically designed for replay mode and returns
+            data as a DataFrame (unlike get_bars which returns list of dicts).
+            The data is free on most brokers (only real-time data requires subscription).
+        """
+        pass

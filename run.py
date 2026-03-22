@@ -21,7 +21,13 @@ def print_banner(args, paper):
     print(" ╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═══╝  ╚══════╝")
     print("=" * 80)
     print(f"  Config: {args.config}")
-    print(f"  Mode: {'DRY RUN (no real orders)' if args.dry_run else ('PAPER TRADING' if paper else '🔴 LIVE TRADING 🔴')}")
+
+    if hasattr(args, 'replay_mode') and args.replay_mode:
+        print(f"  Mode: 🎬 REPLAY MODE (Historical Data Testing - FREE)")
+        print(f"  Period: {args.replay_start} to {args.replay_end}")
+    else:
+        print(f"  Mode: {'DRY RUN (no real orders)' if args.dry_run else ('PAPER TRADING' if paper else '🔴 LIVE TRADING 🔴')}")
+
     print(f"  Platform: {'Railway' if os.environ.get('RAILWAY_ENVIRONMENT') else 'Local'}")
     print("=" * 80)
 
@@ -76,6 +82,34 @@ Environment Variables:
         "--validate-only",
         action="store_true",
         help="Validate config and connections, then exit"
+    )
+
+    # Replay mode arguments
+    parser.add_argument(
+        "--replay-mode",
+        action="store_true",
+        help="Run in replay mode using historical data (FREE - no subscription needed)"
+    )
+
+    parser.add_argument(
+        "--replay-start",
+        type=str,
+        default="2015-01-01",
+        help="Replay start date (YYYY-MM-DD) - Default: 2015-01-01 (pre-COVID)"
+    )
+
+    parser.add_argument(
+        "--replay-end",
+        type=str,
+        default="2019-12-31",
+        help="Replay end date (YYYY-MM-DD) - Default: 2019-12-31 (pre-COVID)"
+    )
+
+    parser.add_argument(
+        "--replay-speed",
+        type=int,
+        default=0,
+        help="Replay speed multiplier (0=instant, 1=1sec per day, etc.) - Default: 0"
     )
 
     args = parser.parse_args()
@@ -199,7 +233,11 @@ Environment Variables:
         run_main(
             config_path=args.config,
             dry_run=args.dry_run,
-            paper=paper
+            paper=paper,
+            replay_mode=args.replay_mode,
+            replay_start=args.replay_start,
+            replay_end=args.replay_end,
+            replay_speed=args.replay_speed
         )
     except KeyboardInterrupt:
         print()

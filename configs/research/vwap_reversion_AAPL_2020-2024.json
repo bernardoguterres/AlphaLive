@@ -1,0 +1,4 @@
+{
+  "message": "Export validation failed: 1 validation error for StrategyExportSchema\n  Value error, VWAP strategies require intraday timeframe (1Hour or 15Min) [type=value_error, input_value={'schema_version': '1.0',... 'calmar_ratio': 0.82}}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.7/v/value_error",
+  "status": "error"
+}

@@ -3,10 +3,14 @@
   "strategy": {
     "name": "ma_crossover",
     "parameters": {
-      "fast_period": 10,
-      "slow_period": 20
+      "short_window": 20,
+      "long_window": 50,
+      "volume_confirmation": false,
+      "volume_avg_period": 20,
+      "min_separation_pct": 0.0,
+      "cooldown_days": 0
     },
-    "description": "Fast/slow MA crossover with trend confirmation"
+    "description": "Ma Crossover strategy for AAPL"
   },
   "ticker": "AAPL",
   "timeframe": "1Day",
@@ -24,7 +28,7 @@
   "execution": {
     "order_type": "market",
     "limit_offset_pct": 0.1,
-    "cooldown_bars": 1
+    "cooldown_bars": 0
   },
   "safety_limits": {
     "max_trades_per_day": 20,
@@ -34,22 +38,22 @@
   },
   "metadata": {
     "exported_from": "AlphaLab",
-    "exported_at": "2026-03-08T10:00:00Z",
-    "alphalab_version": "0.2.0",
-    "backtest_id": "bt_example_001",
+    "exported_at": "2026-03-14T14:31:34.821028Z",
+    "alphalab_version": "0.1.0",
+    "backtest_id": "cca93296",
     "backtest_period": {
       "start": "2020-01-01",
       "end": "2024-12-31"
     },
     "performance": {
-      "sharpe_ratio": 1.45,
-      "sortino_ratio": 1.82,
-      "total_return_pct": 32.5,
-      "max_drawdown_pct": -12.3,
-      "win_rate_pct": 58.2,
-      "profit_factor": 1.75,
-      "total_trades": 47,
-      "calmar_ratio": 2.64
+      "sharpe_ratio": -0.02,
+      "sortino_ratio": -0.03,
+      "total_return_pct": 20.63,
+      "max_drawdown_pct": 0.0,
+      "win_rate_pct": 53.85,
+      "profit_factor": 3.87,
+      "total_trades": 27,
+      "calmar_ratio": 0.58
     }
   }
 }

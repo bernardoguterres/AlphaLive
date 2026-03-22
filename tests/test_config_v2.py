@@ -99,6 +99,20 @@ def test_app_config_validation():
 
 def test_load_env_with_required_vars(monkeypatch):
     """Test load_env with required environment variables."""
+    from unittest.mock import Mock
+
+    # Mock load_dotenv to prevent loading from .env file
+    mock_load_dotenv = Mock(return_value=None)
+    monkeypatch.setattr("alphalive.config.load_dotenv", mock_load_dotenv)
+
+    # Clear all env vars first
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+    monkeypatch.delenv("ALPACA_PAPER", raising=False)
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+    monkeypatch.delenv("ALPACA_API_KEY", raising=False)
+    monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
+
     # Set required env vars
     monkeypatch.setenv("ALPACA_API_KEY", "test_key_123")
     monkeypatch.setenv("ALPACA_SECRET_KEY", "test_secret_456")
@@ -133,9 +147,17 @@ def test_load_env_with_all_vars(monkeypatch):
 
 def test_load_env_missing_required_vars(monkeypatch):
     """Test load_env fails without required variables."""
-    # Clear all env vars
+    from unittest.mock import Mock
+
+    # Mock load_dotenv to prevent loading from .env file
+    mock_load_dotenv = Mock(return_value=None)
+    monkeypatch.setattr("alphalive.config.load_dotenv", mock_load_dotenv)
+
+    # Clear all env vars (including from .env file)
     monkeypatch.delenv("ALPACA_API_KEY", raising=False)
     monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
 
     with pytest.raises(ValueError, match="Missing required environment variables"):
         load_env()

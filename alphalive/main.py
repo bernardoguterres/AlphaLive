@@ -69,16 +69,28 @@ def should_run_signal_check(timeframe: str, last_check_time: float) -> bool:
     return time_since_last >= (interval_minutes * 60 - 35)  # -35s for timing slop
 
 
-def main(config_path: str, dry_run: bool = False, paper: bool = True):
+def main(
+    config_path: str,
+    dry_run: bool = False,
+    paper: bool = True,
+    replay_mode: bool = False,
+    replay_start: str = "2015-01-01",
+    replay_end: str = "2019-12-31",
+    replay_speed: int = 0
+):
     """
     Main entry point for AlphaLive.
 
-    Runs forever on Railway.
+    Runs forever on Railway (or simulates with replay mode).
 
     Args:
         config_path: Path to strategy JSON config
         dry_run: Log trades without executing (default False)
         paper: Use paper trading (default True)
+        replay_mode: Use replay mode with historical data (default False)
+        replay_start: Replay start date (default "2015-01-01")
+        replay_end: Replay end date (default "2019-12-31")
+        replay_speed: Replay speed multiplier (default 0 = instant)
     """
 
     # Verify timezone on startup
@@ -152,7 +164,8 @@ def main(config_path: str, dry_run: bool = False, paper: bool = True):
         risk_manager_map[ticker] = RiskManager(
             risk_config=strategy_config.risk,
             execution_config=strategy_config.execution,
-            strategy_name=strategy_name
+            strategy_name=strategy_name,
+            safety_limits=strategy_config.safety_limits
         )
 
         # Create order manager for this strategy
@@ -312,9 +325,14 @@ def main(config_path: str, dry_run: bool = False, paper: bool = True):
 
         # Get final stats
         try:
+            # Aggregate order history across all strategies
+            all_orders = []
+            for ticker in order_manager_map:
+                all_orders.extend(order_manager_map[ticker].get_order_history())
+
             account = broker.get_account()
             summary = {
-                "trades": len(order_manager.get_order_history()),
+                "trades": len(all_orders),
                 "pnl": 0.0,  # TODO: Calculate actual P&L
                 "win_rate": 0.0,
                 "portfolio_value": account.equity
@@ -328,7 +346,42 @@ def main(config_path: str, dry_run: bool = False, paper: bool = True):
     signal.signal(signal.SIGTERM, handle_sigterm)
     signal.signal(signal.SIGINT, handle_sigterm)  # Also handle Ctrl+C for local testing
 
-    # 6. Main loop — runs FOREVER
+    # 6. Replay mode OR 24/7 live loop
+    if replay_mode:
+        # === REPLAY MODE ===
+        # Simulate trading through historical data (FREE - no subscription needed)
+        logger.info("=" * 80)
+        logger.info("🎬 REPLAY MODE")
+        logger.info(f"Period: {replay_start} to {replay_end}")
+        logger.info(f"Speed: {'instant' if replay_speed == 0 else f'{replay_speed}s per day'}")
+        logger.info("=" * 80)
+
+        from alphalive.replay import ReplaySimulator
+
+        # Create replay simulator
+        simulator = ReplaySimulator(
+            broker=broker,
+            start_date=replay_start,
+            end_date=replay_end,
+            tickers=[cfg.ticker for cfg in all_strategy_configs],
+            speed_multiplier=replay_speed
+        )
+
+        # Run simulation
+        simulator.run(
+            strategy_configs=all_strategy_configs,
+            signal_engines=signal_engine_map,
+            risk_managers=risk_manager_map,
+            order_managers=order_manager_map,
+            notifier=notifier
+        )
+
+        # Exit after replay completes
+        logger.info("Replay mode complete — exiting")
+        sys.exit(0)
+
+    # === LIVE MODE ===
+    # Main loop — runs FOREVER
     logger.info(f"AlphaLive running 24/7. Mode: {mode}.")
     logger.info("Press Ctrl+C to stop (or wait for Railway SIGTERM)")
 
@@ -354,8 +407,12 @@ def main(config_path: str, dry_run: bool = False, paper: bool = True):
                 last_signal_check_map = {}   # Reset signal check timestamps (B9b)
                 eod_summary_sent = False
                 eod_summary_retry = False
-                risk_manager.reset_daily()
-                order_manager.reset_daily()
+
+                # Reset daily for all strategies
+                for ticker in risk_manager_map:
+                    risk_manager_map[ticker].reset_daily()
+                    order_manager_map[ticker].reset_daily()
+
                 logger.info(f"=== New trading day: {current_day} ({now_et.strftime('%A')}) ===")
 
             # --- Market closed? Sleep longer ---
@@ -379,11 +436,15 @@ def main(config_path: str, dry_run: bool = False, paper: bool = True):
                         # Set flag first — prevents infinite retry loop if send fails
                         eod_summary_sent = True
                         try:
-                            order_history = order_manager.get_order_history()
+                            # Aggregate order history across all strategies
+                            all_orders = []
+                            for ticker in order_manager_map:
+                                all_orders.extend(order_manager_map[ticker].get_order_history())
+
                             account = broker.get_account()
 
                             summary = {
-                                "trades": len(order_history),
+                                "trades": len(all_orders),
                                 "pnl": 0.0,  # TODO: Calculate actual P&L from order_history
                                 "win_rate": 0.0,  # TODO: Calculate from closed positions
                                 "start_equity": 100000.0,  # TODO: Track from morning
@@ -464,11 +525,11 @@ def main(config_path: str, dry_run: bool = False, paper: bool = True):
                                     continue
 
                             # Generate signal
-                            signal = signal_engine_map[strat_cfg.strategy.name].generate_signal(df)
-                            logger.info(f"Signal: {signal['signal']} | Confidence: {signal['confidence']:.2%}")
-                            logger.info(f"Reason: {signal['reason']}")
+                            signal_result = signal_engine_map[strat_cfg.ticker].generate_signal(df)
+                            logger.info(f"Signal: {signal_result['signal']} | Confidence: {signal_result['confidence']:.2%}")
+                            logger.info(f"Reason: {signal_result['reason']}")
 
-                            if signal["signal"] in ("BUY", "SELL"):
+                            if signal_result["signal"] in ("BUY", "SELL"):
                                 # Get current price
                                 price = market_data.get_current_price(strat_cfg.ticker)
 
@@ -482,9 +543,9 @@ def main(config_path: str, dry_run: bool = False, paper: bool = True):
                                 total_portfolio_positions = len(all_positions)
 
                                 # Execute signal
-                                result = order_manager.execute_signal(
+                                result = order_manager_map[strat_cfg.ticker].execute_signal(
                                     ticker=strat_cfg.ticker,
-                                    signal=signal,
+                                    signal=signal_result,
                                     current_price=price,
                                     account_equity=account.equity,
                                     current_positions_count=current_positions_count,
@@ -496,10 +557,10 @@ def main(config_path: str, dry_run: bool = False, paper: bool = True):
                                     logger.info(f"✅ Order placed: {result['order_id']}")
                                     notifier.send_trade_notification(
                                         ticker=strat_cfg.ticker,
-                                        side=signal["signal"],
+                                        side=signal_result["signal"],
                                         qty=result["filled_qty"],
                                         price=result["filled_price"],
-                                        reason=signal["reason"]
+                                        reason=signal_result["reason"]
                                     )
                                 elif result["status"] == "blocked":
                                     logger.warning(f"❌ Trade blocked: {result['reason']}")
@@ -546,32 +607,38 @@ def main(config_path: str, dry_run: bool = False, paper: bool = True):
                                 # Use position's current_price as fallback
                                 current_prices[pos.symbol] = pos.current_price
 
-                        # Convert positions to dict format for check_exits
-                        positions_dict = [
-                            {
-                                "ticker": pos.symbol,
+                        # Check exit conditions for each position (multi-strategy)
+                        for pos in positions:
+                            ticker = pos.symbol
+
+                            # Skip if no order manager for this ticker (shouldn't happen)
+                            if ticker not in order_manager_map:
+                                logger.warning(f"No order manager for {ticker}, skipping exit check")
+                                continue
+
+                            # Convert position to dict format
+                            pos_dict = [{
+                                "ticker": ticker,
                                 "avg_entry": pos.avg_entry_price,
                                 "side": pos.side,
                                 "qty": pos.qty,
                                 "highest_since_entry": pos.current_price  # TODO: Track actual high
-                            }
-                            for pos in positions
-                        ]
+                            }]
 
-                        # Check exit conditions
-                        exits = order_manager.check_exits(positions_dict, current_prices)
+                            # Check exit conditions using the correct order manager
+                            exits = order_manager_map[ticker].check_exits(pos_dict, current_prices)
 
-                        for exit_signal in exits:
-                            logger.info(f"EXIT: {exit_signal['ticker']} - {exit_signal['reason']}")
+                            for exit_signal in exits:
+                                logger.info(f"EXIT: {exit_signal['ticker']} - {exit_signal['reason']}")
 
-                            if app_config.dry_run:
-                                logger.info(f"[DRY RUN] Would SELL {exit_signal['ticker']}")
-                            else:
-                                # Close position
-                                result = order_manager.close_position(
-                                    ticker=exit_signal['ticker'],
-                                    reason=exit_signal['reason']
-                                )
+                                if app_config.dry_run:
+                                    logger.info(f"[DRY RUN] Would SELL {exit_signal['ticker']}")
+                                else:
+                                    # Close position using the correct order manager
+                                    result = order_manager_map[ticker].close_position(
+                                        ticker=exit_signal['ticker'],
+                                        reason=exit_signal['reason']
+                                    )
 
                                 if result["status"] == "success":
                                     # Find the position to get details
@@ -618,9 +685,10 @@ def main(config_path: str, dry_run: bool = False, paper: bool = True):
                     # NOTE: This requires implementing get_tracked_positions() in OrderManager
                     # For now, we can compare against what we expect from order history
                     internal_tickers = set()
-                    for order in order_manager.get_order_history():
-                        if order.get("status") == "filled":
-                            internal_tickers.add(order["ticker"])
+                    for ticker in order_manager_map:
+                        for order in order_manager_map[ticker].get_order_history():
+                            if order.get("status") == "filled":
+                                internal_tickers.add(order["ticker"])
 
                     drift_detected = False
 
@@ -693,11 +761,15 @@ def main(config_path: str, dry_run: bool = False, paper: bool = True):
             if not eod_summary_sent and now_et.hour == 15 and now_et.minute >= 55:
                 eod_summary_sent = True  # Set flag before attempting
                 try:
-                    order_history = order_manager.get_order_history()
+                    # Aggregate order history across all strategies
+                    all_orders = []
+                    for ticker in order_manager_map:
+                        all_orders.extend(order_manager_map[ticker].get_order_history())
+
                     account = broker.get_account()
 
                     summary = {
-                        "trades": len(order_history),
+                        "trades": len(all_orders),
                         "pnl": 0.0,  # TODO: Calculate actual P&L
                         "win_rate": 0.0,  # TODO: Calculate from closed positions
                         "start_equity": 100000.0,  # TODO: Track from morning
@@ -718,11 +790,15 @@ def main(config_path: str, dry_run: bool = False, paper: bool = True):
             if eod_summary_retry and not eod_summary_sent:
                 eod_summary_sent = True  # Set flag to prevent further retries
                 try:
-                    order_history = order_manager.get_order_history()
+                    # Aggregate order history across all strategies
+                    all_orders = []
+                    for ticker in order_manager_map:
+                        all_orders.extend(order_manager_map[ticker].get_order_history())
+
                     account = broker.get_account()
 
                     summary = {
-                        "trades": len(order_history),
+                        "trades": len(all_orders),
                         "pnl": 0.0,
                         "win_rate": 0.0,
                         "start_equity": 100000.0,

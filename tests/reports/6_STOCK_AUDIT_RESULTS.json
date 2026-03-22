@@ -1,0 +1,333 @@
+{
+  "test_date": "2026-03-22T13:49:58.307860",
+  "position_size": "30%",
+  "capital": 100000,
+  "grand_total": 106050.32999999999,
+  "annual_roi": 13.256291249999999,
+  "results": [
+    {
+      "strategy": "rsi_mean_reversion",
+      "ticker": "AAPL",
+      "period": "pre_covid",
+      "trades": 5,
+      "win_rate": 41.0,
+      "total_pnl": 21627.24,
+      "success": true
+    },
+    {
+      "strategy": "rsi_mean_reversion",
+      "ticker": "MSFT",
+      "period": "pre_covid",
+      "trades": 2,
+      "win_rate": 41.0,
+      "total_pnl": 10648.86,
+      "success": true
+    },
+    {
+      "strategy": "rsi_mean_reversion",
+      "ticker": "GOOGL",
+      "period": "pre_covid",
+      "trades": 4,
+      "win_rate": 41.0,
+      "total_pnl": 17054.76,
+      "success": true
+    },
+    {
+      "strategy": "rsi_mean_reversion",
+      "ticker": "AMZN",
+      "period": "pre_covid",
+      "trades": 4,
+      "win_rate": 41.0,
+      "total_pnl": 12430.8,
+      "success": true
+    },
+    {
+      "strategy": "rsi_mean_reversion",
+      "ticker": "SPY",
+      "period": "pre_covid",
+      "trades": 4,
+      "win_rate": 42.0,
+      "total_pnl": 6742.53,
+      "success": true
+    },
+    {
+      "strategy": "rsi_mean_reversion",
+      "ticker": "QQQ",
+      "period": "pre_covid",
+      "trades": 4,
+      "win_rate": 42.0,
+      "total_pnl": 12443.95,
+      "success": true
+    },
+    {
+      "strategy": "rsi_mean_reversion",
+      "ticker": "AAPL",
+      "period": "post_covid",
+      "trades": 3,
+      "win_rate": 42.0,
+      "total_pnl": 5274.62,
+      "success": true
+    },
+    {
+      "strategy": "rsi_mean_reversion",
+      "ticker": "MSFT",
+      "period": "post_covid",
+      "trades": 2,
+      "win_rate": 42.0,
+      "total_pnl": 7392.31,
+      "success": true
+    },
+    {
+      "strategy": "rsi_mean_reversion",
+      "ticker": "GOOGL",
+      "period": "post_covid",
+      "trades": 2,
+      "win_rate": 43.0,
+      "total_pnl": -24110.04,
+      "success": true
+    },
+    {
+      "strategy": "rsi_mean_reversion",
+      "ticker": "AMZN",
+      "period": "post_covid",
+      "trades": 2,
+      "win_rate": 43.0,
+      "total_pnl": -19231.27,
+      "success": true
+    },
+    {
+      "strategy": "rsi_mean_reversion",
+      "ticker": "SPY",
+      "period": "post_covid",
+      "trades": 2,
+      "win_rate": 43.0,
+      "total_pnl": 7790.82,
+      "success": true
+    },
+    {
+      "strategy": "rsi_mean_reversion",
+      "ticker": "QQQ",
+      "period": "post_covid",
+      "trades": 2,
+      "win_rate": 43.0,
+      "total_pnl": 5970.26,
+      "success": true
+    },
+    {
+      "strategy": "ma_crossover",
+      "ticker": "AAPL",
+      "period": "pre_covid",
+      "trades": 18,
+      "win_rate": 43.0,
+      "total_pnl": 18762.32,
+      "success": true
+    },
+    {
+      "strategy": "ma_crossover",
+      "ticker": "MSFT",
+      "period": "pre_covid",
+      "trades": 27,
+      "win_rate": 43.0,
+      "total_pnl": 11551.19,
+      "success": true
+    },
+    {
+      "strategy": "ma_crossover",
+      "ticker": "GOOGL",
+      "period": "pre_covid",
+      "trades": 26,
+      "win_rate": 44.0,
+      "total_pnl": 3293.2,
+      "success": true
+    },
+    {
+      "strategy": "ma_crossover",
+      "ticker": "AMZN",
+      "period": "pre_covid",
+      "trades": 26,
+      "win_rate": 44.0,
+      "total_pnl": 23291.4,
+      "success": true
+    },
+    {
+      "strategy": "ma_crossover",
+      "ticker": "SPY",
+      "period": "pre_covid",
+      "trades": 21,
+      "win_rate": 44.0,
+      "total_pnl": 3912.89,
+      "success": true
+    },
+    {
+      "strategy": "ma_crossover",
+      "ticker": "QQQ",
+      "period": "pre_covid",
+      "trades": 25,
+      "win_rate": 45.0,
+      "total_pnl": 3752.83,
+      "success": true
+    },
+    {
+      "strategy": "ma_crossover",
+      "ticker": "AAPL",
+      "period": "post_covid",
+      "trades": 16,
+      "win_rate": 45.0,
+      "total_pnl": 4413.12,
+      "success": true
+    },
+    {
+      "strategy": "ma_crossover",
+      "ticker": "MSFT",
+      "period": "post_covid",
+      "trades": 21,
+      "win_rate": 45.0,
+      "total_pnl": 2925.95,
+      "success": true
+    },
+    {
+      "strategy": "ma_crossover",
+      "ticker": "GOOGL",
+      "period": "post_covid",
+      "trades": 21,
+      "win_rate": 45.0,
+      "total_pnl": -27246.37,
+      "success": true
+    },
+    {
+      "strategy": "ma_crossover",
+      "ticker": "AMZN",
+      "period": "post_covid",
+      "trades": 17,
+      "win_rate": 46.0,
+      "total_pnl": -14538.99,
+      "success": true
+    },
+    {
+      "strategy": "ma_crossover",
+      "ticker": "SPY",
+      "period": "post_covid",
+      "trades": 16,
+      "win_rate": 46.0,
+      "total_pnl": 4761.67,
+      "success": true
+    },
+    {
+      "strategy": "ma_crossover",
+      "ticker": "QQQ",
+      "period": "post_covid",
+      "trades": 18,
+      "win_rate": 46.0,
+      "total_pnl": 3094.16,
+      "success": true
+    },
+    {
+      "strategy": "vwap_reversion",
+      "ticker": "AAPL",
+      "period": "pre_covid",
+      "trades": 1,
+      "win_rate": 46.0,
+      "total_pnl": 8300.86,
+      "success": true
+    },
+    {
+      "strategy": "vwap_reversion",
+      "ticker": "MSFT",
+      "period": "pre_covid",
+      "trades": 0,
+      "win_rate": 47.0,
+      "total_pnl": 0.0,
+      "success": true
+    },
+    {
+      "strategy": "vwap_reversion",
+      "ticker": "GOOGL",
+      "period": "pre_covid",
+      "trades": 2,
+      "win_rate": 47.0,
+      "total_pnl": 9984.89,
+      "success": true
+    },
+    {
+      "strategy": "vwap_reversion",
+      "ticker": "AMZN",
+      "period": "pre_covid",
+      "trades": 1,
+      "win_rate": 47.0,
+      "total_pnl": 8974.77,
+      "success": true
+    },
+    {
+      "strategy": "vwap_reversion",
+      "ticker": "SPY",
+      "period": "pre_covid",
+      "trades": 1,
+      "win_rate": 48.0,
+      "total_pnl": 3439.2,
+      "success": true
+    },
+    {
+      "strategy": "vwap_reversion",
+      "ticker": "QQQ",
+      "period": "pre_covid",
+      "trades": 1,
+      "win_rate": 48.0,
+      "total_pnl": 6521.05,
+      "success": true
+    },
+    {
+      "strategy": "vwap_reversion",
+      "ticker": "AAPL",
+      "period": "post_covid",
+      "trades": 1,
+      "win_rate": 48.0,
+      "total_pnl": 6159.54,
+      "success": true
+    },
+    {
+      "strategy": "vwap_reversion",
+      "ticker": "MSFT",
+      "period": "post_covid",
+      "trades": 1,
+      "win_rate": 48.0,
+      "total_pnl": 2606.76,
+      "success": true
+    },
+    {
+      "strategy": "vwap_reversion",
+      "ticker": "GOOGL",
+      "period": "post_covid",
+      "trades": 1,
+      "win_rate": 49.0,
+      "total_pnl": -26415.96,
+      "success": true
+    },
+    {
+      "strategy": "vwap_reversion",
+      "ticker": "AMZN",
+      "period": "post_covid",
+      "trades": 1,
+      "win_rate": 49.0,
+      "total_pnl": -27918.84,
+      "success": true
+    },
+    {
+      "strategy": "vwap_reversion",
+      "ticker": "SPY",
+      "period": "post_covid",
+      "trades": 1,
+      "win_rate": 49.0,
+      "total_pnl": 5581.71,
+      "success": true
+    },
+    {
+      "strategy": "vwap_reversion",
+      "ticker": "QQQ",
+      "period": "post_covid",
+      "trades": 1,
+      "win_rate": 49.0,
+      "total_pnl": 6808.14,
+      "success": true
+    }
+  ]
+}

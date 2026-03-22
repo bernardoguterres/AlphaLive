@@ -449,6 +449,109 @@ class AlpacaBroker(BaseBroker):
             logger.error(f"Failed to fetch bars for {symbol}: {e}", exc_info=True)
             raise BrokerError(f"Failed to fetch bars: {e}")
 
+    def get_historical_bars(
+        self,
+        symbol: str,
+        timeframe: str,
+        start: datetime,
+        end: datetime
+    ):
+        """
+        Get historical bars for replay mode (returns pandas DataFrame).
+
+        This method is optimized for fetching large date ranges for backtesting
+        and replay simulation. Uses Alpaca's FREE historical data API.
+
+        Args:
+            symbol: Stock ticker symbol (e.g., "AAPL")
+            timeframe: "1Min", "5Min", "15Min", "1Hour", "1Day"
+            start: Start datetime (timezone-aware recommended)
+            end: End datetime (timezone-aware recommended)
+
+        Returns:
+            pandas DataFrame with columns: open, high, low, close, volume
+            Index is timezone-aware datetime (US/Eastern)
+
+        Raises:
+            BrokerError: If bars fetch fails
+            ValueError: If timeframe is invalid or no data returned
+
+        Example:
+            >>> from datetime import datetime
+            >>> from zoneinfo import ZoneInfo
+            >>> ET = ZoneInfo("America/New_York")
+            >>> start = datetime(2024, 1, 1, tzinfo=ET)
+            >>> end = datetime(2024, 12, 31, tzinfo=ET)
+            >>> df = broker.get_historical_bars("AAPL", "1Day", start, end)
+            >>> print(f"Loaded {len(df)} trading days")
+        """
+        import pandas as pd
+        from zoneinfo import ZoneInfo
+
+        self._ensure_connected()
+        ET = ZoneInfo("America/New_York")
+
+        try:
+            # Map timeframe
+            tf = self.TIMEFRAME_MAP.get(timeframe)
+            if not tf:
+                raise ValueError(f"Unsupported timeframe: {timeframe}")
+
+            # Create request
+            request = StockBarsRequest(
+                symbol_or_symbols=symbol,
+                timeframe=tf,
+                start=start,
+                end=end
+            )
+
+            logger.info(
+                f"Fetching historical data for {symbol} @ {timeframe} "
+                f"from {start.strftime('%Y-%m-%d')} to {end.strftime('%Y-%m-%d')}"
+            )
+
+            # Fetch bars with retry
+            bars = self._retry_with_backoff(self.data_client.get_stock_bars, request)
+
+            # Convert to DataFrame
+            df = bars.df
+
+            if df.empty:
+                raise ValueError(
+                    f"No historical data returned for {symbol} "
+                    f"({start.strftime('%Y-%m-%d')} to {end.strftime('%Y-%m-%d')})"
+                )
+
+            # Alpaca returns MultiIndex (symbol, timestamp), flatten it
+            if isinstance(df.index, pd.MultiIndex):
+                df = df.reset_index(level=0, drop=True)
+
+            # Rename columns to lowercase for consistency
+            df = df.rename(columns=str.lower)
+
+            # Ensure timezone-aware index (convert to US/Eastern)
+            if df.index.tz is None:
+                df.index = df.index.tz_localize('UTC').tz_convert(ET)
+            elif str(df.index.tz) != 'America/New_York':
+                df.index = df.index.tz_convert(ET)
+
+            logger.info(
+                f"✓ Loaded {len(df)} bars for {symbol} "
+                f"(first: {df.index[0].strftime('%Y-%m-%d')}, "
+                f"last: {df.index[-1].strftime('%Y-%m-%d')})"
+            )
+
+            return df
+
+        except ValueError as e:
+            raise  # Re-raise ValueError
+        except Exception as e:
+            logger.error(
+                f"Failed to fetch historical bars for {symbol}: {e}",
+                exc_info=True
+            )
+            raise BrokerError(f"Failed to fetch historical bars: {e}")
+
     # =========================================================================
     # Helper Methods
     # =========================================================================
