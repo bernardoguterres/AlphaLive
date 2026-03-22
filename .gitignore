@@ -63,4 +63,5 @@ Thumbs.db
 alphalive_state.json
 /tmp/
 
-CLAUDE.md.env.paper_test
+CLAUDE.md
+.env.paper_test
