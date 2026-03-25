@@ -11,6 +11,7 @@ import time
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
+import requests
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest, GetOrdersRequest
 from alpaca.trading.enums import OrderSide, TimeInForce, OrderType, QueryOrderStatus
@@ -645,7 +646,9 @@ class AlpacaBroker(BaseBroker):
                     # Other API errors - don't retry
                     raise BrokerError(f"Alpaca API error: {e}")
 
-            except (ConnectionError, TimeoutError) as e:
+            except (ConnectionError, TimeoutError,
+                    requests.exceptions.ConnectionError,
+                    requests.exceptions.Timeout) as e:
                 if attempt == self.MAX_RETRIES:
                     logger.error(f"Connection error after {self.MAX_RETRIES} retries: {e}")
                     raise BrokerError(f"Connection to Alpaca failed: {e}")
