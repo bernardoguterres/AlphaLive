@@ -72,11 +72,26 @@ class TelegramCommandListener:
 
         logger.info("Telegram command listener initialized (rate limit: 10 commands/min)")
 
+    def _delete_webhook(self):
+        """Delete any existing webhook to avoid 409 conflict with getUpdates."""
+        try:
+            url = f"https://api.telegram.org/bot{self.bot_token}/deleteWebhook"
+            resp = httpx.post(url, timeout=10.0)
+            if resp.status_code == 200:
+                logger.info("Telegram webhook deleted (ready for polling)")
+            else:
+                logger.warning(f"Failed to delete webhook: {resp.status_code} - {resp.text}")
+        except Exception as e:
+            logger.warning(f"Error deleting webhook: {e}")
+
     def start(self):
         """Start polling in a background daemon thread."""
         if self._running:
             logger.warning("Command listener already running")
             return
+
+        # Delete any existing webhook before polling (prevents 409 conflict)
+        self._delete_webhook()
 
         self._running = True
         self.thread = threading.Thread(
@@ -133,7 +148,10 @@ class TelegramCommandListener:
                     break
 
                 else:
-                    logger.warning(f"Telegram poll failed: {resp.status_code}")
+                    # Log full error for debugging (especially 409 conflicts)
+                    logger.warning(
+                        f"Telegram poll failed: {resp.status_code} - {resp.text[:200]}"
+                    )
 
             except httpx.TimeoutException:
                 logger.debug("Telegram poll timeout (normal)")
