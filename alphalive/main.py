@@ -529,6 +529,19 @@ def main(
                             logger.info(f"Signal: {signal_result['signal']} | Confidence: {signal_result['confidence']:.2%}")
                             logger.info(f"Reason: {signal_result['reason']}")
 
+                            # Log detailed indicator values for analysis
+                            if 'indicators' in signal_result:
+                                indicator_str = " | ".join([f"{k}={v:.2f}" if isinstance(v, (int, float)) else f"{k}={v}"
+                                                            for k, v in signal_result['indicators'].items()])
+                                logger.info(f"Indicators: {indicator_str}")
+
+                            # Log trade decision summary for HOLD signals too
+                            if signal_result["signal"] == "HOLD":
+                                logger.info(
+                                    f"Trade decision | Signal: HOLD | "
+                                    f"Action: NO TRADE | Reason: {signal_result['reason']}"
+                                )
+
                             if signal_result["signal"] in ("BUY", "SELL"):
                                 # Get current price
                                 price = market_data.get_current_price(strat_cfg.ticker)
@@ -555,6 +568,10 @@ def main(
 
                                 if result["status"] == "success":
                                     logger.info(f"✅ Order placed: {result['order_id']}")
+                                    logger.info(
+                                        f"Trade executed | {signal_result['signal']} {result['filled_qty']} {strat_cfg.ticker} "
+                                        f"@ ${result['filled_price']:.2f} | Total: ${result['filled_qty'] * result['filled_price']:.2f}"
+                                    )
                                     notifier.send_trade_notification(
                                         ticker=strat_cfg.ticker,
                                         side=signal_result["signal"],
@@ -564,6 +581,10 @@ def main(
                                     )
                                 elif result["status"] == "blocked":
                                     logger.warning(f"❌ Trade blocked: {result['reason']}")
+                                    logger.info(
+                                        f"Trade decision | Signal: {signal_result['signal']} | "
+                                        f"Action: BLOCKED | Reason: {result['reason']}"
+                                    )
                                 else:
                                     logger.error(f"❌ Trade error: {result['reason']}")
 
