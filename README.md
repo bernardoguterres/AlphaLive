@@ -218,30 +218,46 @@ pkill -f "run.py"
 
 ## Architecture
 
+```mermaid
+flowchart TD
+    A[Strategy JSON<br/>from AlphaLab] --> B[AlphaLive Boot<br/>Railway Deployment]
+    B --> C[Load Config<br/>Validate Schema]
+    C --> D{Market Open?}
+    D -->|Closed| E[Sleep 30s<br/>Check Again]
+    E --> D
+    D -->|Open| F[Market Data Fetcher<br/>Alpaca API]
+    F --> G[Signal Engine<br/>Generate Buy/Sell]
+    G --> H[Risk Manager<br/>10 Safety Checks]
+    H --> I{Trade Allowed?}
+    I -->|Blocked| J[Log Reason<br/>Continue Monitoring]
+    I -->|Approved| K[Order Manager<br/>Calculate Position Size]
+    K --> L[Alpaca Broker<br/>Execute Order]
+    L --> M[Position Tracker<br/>Monitor Exits]
+    M --> N[Stop Loss/Take Profit<br/>Check Every 5 Min]
+    N --> O{Exit Trigger?}
+    O -->|Yes| P[Close Position<br/>Update P&L]
+    O -->|No| N
+    P --> Q[Telegram Notification<br/>Trade Alert]
+    L --> Q
+    Q --> R[Daily Summary<br/>3:55 PM ET]
+    R --> D
+    J --> D
+    
+    style H fill:#ef4444
+    style L fill:#4ade80
+    style Q fill:#3b82f6
+```
+
+### Key Components
+
 AlphaLive is a production-grade trading bot with:
 
-- **Signal Generation**: Replicates AlphaLab strategy logic exactly (5 strategies supported)
+- **Signal Generation**: Replicates AlphaLab strategy logic exactly (8 strategies supported)
 - **Risk Management**: Stop loss, take profit, trailing stop, position sizing, daily limits
 - **Order Execution**: Alpaca Markets API with retry logic, slippage checks, partial fill handling
 - **Market Data**: Real-time bars from Alpaca with caching and staleness detection
 - **Notifications**: Telegram alerts for trades, exits, errors, daily summaries
 - **Resilience**: Auto-restart on Railway, position reconciliation, corporate action detection
-
-### Components
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     AlphaLive (Railway)                     │
-├─────────────────────────────────────────────────────────────┤
-│  Main Loop (24/7)                                           │
-│    ↓                                                        │
-│  Market Data Fetcher (Alpaca) → Signal Engine → Risk Mgr   │
-│    ↓                                                        │
-│  Order Manager → Alpaca Broker → Positions                 │
-│    ↓                                                        │
-│  Telegram Notifier → Your Phone                            │
-└─────────────────────────────────────────────────────────────┘
-```
 
 **Market Closed Behavior**:
 - Checks if market is open every 30 seconds
@@ -471,7 +487,7 @@ When you switch to live trading (`ALPACA_PAPER=false`), you'll see:
 
 ## Strategies Supported
 
-AlphaLive supports 5 strategies exported from AlphaLab:
+AlphaLive supports 8 strategies exported from AlphaLab:
 
 ### 1. MA Crossover
 **Description**: Buy when fast SMA crosses above slow SMA, sell when it crosses below.
@@ -533,6 +549,69 @@ AlphaLive supports 5 strategies exported from AlphaLab:
 
 ---
 
+### 6. RSI Simple
+**Description**: Relaxed RSI mean reversion with 40/60 thresholds (vs traditional 30/70).
+
+**Parameters**:
+- `rsi_period`: RSI period (default: 14)
+- `oversold`: Oversold threshold (default: 40)
+- `overbought`: Overbought threshold (default: 60)
+
+**Best For**: High-frequency signals on 15Min timeframes (2-5 signals/day)
+
+**Backtest Performance**: 70.6% win rate, Sharpe 2.73 on SPY
+
+---
+
+### 7. Bollinger RSI Combo
+**Description**: Dual confirmation—requires BOTH price ≤ BB lower AND RSI < 45 for entry.
+
+**Parameters**:
+- `bb_period`: Bollinger Bands period (default: 20)
+- `bb_std_dev`: Standard deviation (default: 2.0)
+- `rsi_period`: RSI period (default: 14)
+- `rsi_entry`: RSI entry threshold (default: 45)
+- `rsi_exit`: RSI exit threshold (default: 55)
+
+**Best For**: High-precision entries, 15Min or Daily timeframes (1-3 signals/day)
+
+**Backtest Performance**: 87.5% win rate (highest), Sharpe 2.49 on SPY
+
+---
+
+### 8. Trend Adaptive RSI
+**Description**: Adjusts RSI thresholds based on market regime (uptrend/downtrend/range).
+
+**Parameters**:
+- `rsi_period`: RSI period (default: 14)
+- `trend_sma_fast`: Fast trend SMA (default: 20)
+- `trend_sma_slow`: Slow trend SMA (default: 50)
+- **Uptrend**: Buy RSI 45, Sell 65
+- **Downtrend**: Buy RSI 35, Sell 55
+- **Range**: Buy RSI 35, Sell 65
+
+**Best For**: Adaptive to changing markets, 1Hour timeframes (1-2 signals/day)
+
+**Backtest Performance**: 72.7% win rate, Sharpe 3.96 (best risk-adjusted) on SPY
+
+---
+
+## Production Configs
+
+AlphaLive includes **5 production-ready strategy configs** in `configs/production/`:
+
+| Config | Strategy | Ticker | Timeframe | Expected Signals/Day | Backtest Win Rate | Sharpe |
+|--------|----------|--------|-----------|----------------------|-------------------|--------|
+| `rsi_simple_SPY_15Min.json` | RSI Simple | SPY | 15Min | 2-5 | 70.6% | 2.73 |
+| `bollinger_rsi_SPY_15Min.json` | Bollinger RSI Combo | SPY | 15Min | 1-3 | 87.5% | 2.49 |
+| `trend_adaptive_SPY_1Hour.json` | Trend Adaptive RSI | SPY | 1Hour | 1-2 | 72.7% | 3.96 |
+| `rsi_mean_reversion_SPY_RELAXED.json` | RSI Mean Reversion | SPY | Daily | Variable | — | — |
+| `ma_crossover_AAPL_FAST.json` | MA Crossover | AAPL | Daily | Variable | — | — |
+
+**Recommended for first deployment**: `rsi_simple_SPY_15Min.json` (balanced win rate and signal frequency)
+
+---
+
 ## Multi-Strategy Mode
 
 AlphaLive can run **multiple strategies simultaneously** by loading all JSONs from a directory:
@@ -566,6 +645,118 @@ When configured, you'll receive:
 - **Circuit Breaker**: "⚠️ 3 consecutive losses — trading paused"
 
 **Graceful Degradation**: If Telegram fails, trading continues (alerts are lost but trades still execute).
+
+---
+
+## Operational Toolkit
+
+AlphaLive includes **4 operational scripts** for monitoring and analysis:
+
+### 1. Performance Tracker (`scripts/performance_tracker.py`)
+Compare live trading performance against backtest expectations.
+
+**Usage:**
+```bash
+python scripts/performance_tracker.py --config configs/production/rsi_simple_SPY_15Min.json
+```
+
+**Features:**
+- Fetches completed trades from Alpaca
+- Calculates live win rate, P&L, avg win/loss
+- Compares to backtest expectations (from config metadata)
+- Flags performance divergence (>10% win rate difference)
+- Generates detailed performance reports
+
+**When to use**: Weekly to verify live performance matches backtests
+
+---
+
+### 2. Live Signal Monitor (`scripts/live_signal_monitor.py`)
+Real-time signal monitoring showing how close you are to generating a signal.
+
+**Usage:**
+```bash
+python scripts/live_signal_monitor.py --config configs/production/rsi_simple_SPY_15Min.json
+
+# Watch mode (updates every 60s)
+python scripts/live_signal_monitor.py --config configs/production/rsi_simple_SPY_15Min.json --watch
+```
+
+**Features:**
+- Shows current indicator values (RSI, BB, SMA, etc.)
+- Displays distance to next signal ("RSI is 52, need 40 to trigger BUY")
+- Watch mode updates every 60 seconds
+- Educational tool to understand strategy behavior
+
+**When to use**: During first week of deployment to understand signal frequency
+
+---
+
+### 3. Trade Journal Generator (`scripts/generate_trade_journal.py`)
+Export all trades to CSV for detailed analysis in Excel/Google Sheets.
+
+**Usage:**
+```bash
+python scripts/generate_trade_journal.py
+
+# Custom date range
+python scripts/generate_trade_journal.py --start-date 2026-01-01 --end-date 2026-03-31
+
+# Custom output file
+python scripts/generate_trade_journal.py --output my_trades.csv
+```
+
+**Features:**
+- Fetches all orders from Alpaca
+- Matches buy/sell pairs using FIFO
+- Calculates P&L, hold time, outcome (WIN/LOSS)
+- Exports to CSV (compatible with Excel, Google Sheets, pandas)
+- Includes entry/exit prices, quantities, timestamps
+
+**When to use**: Monthly for tax records, performance analysis, journal reviews
+
+---
+
+### 4. Automated Weekly Report (`scripts/automated_weekly_report.py`)
+Automated weekly performance summary with recommendations.
+
+**Usage:**
+```bash
+# Generate and display report
+python scripts/automated_weekly_report.py
+
+# Send via Telegram
+python scripts/automated_weekly_report.py --telegram
+
+# Save to file only
+python scripts/automated_weekly_report.py --save-only --output-dir reports/
+```
+
+**Features:**
+- Fetches past week's trades
+- Calculates weekly stats (win rate, P&L, best/worst trade)
+- Performance assessment (Excellent/Good/Needs Attention)
+- Next week recommendations
+- Optional Telegram delivery
+- Designed for cron automation (every Sunday night)
+
+**Cron setup (weekly reports):**
+```bash
+# Add to crontab: runs every Sunday at 6 PM
+0 18 * * 0 cd /path/to/AlphaLive && python scripts/automated_weekly_report.py --telegram
+```
+
+**When to use**: Automate weekly performance reviews
+
+---
+
+**All scripts include:**
+- ✅ Environment variable validation with helpful errors
+- ✅ Config path resolution (works from any directory)
+- ✅ Retry logic for API calls (3 attempts, exponential backoff)
+- ✅ Progress indicators for long operations
+- ✅ `--version` flag for tracking
+- ✅ Full error tracebacks for debugging
 
 ---
 
