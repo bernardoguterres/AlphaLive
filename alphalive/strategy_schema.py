@@ -22,7 +22,9 @@ StrategyName = Literal[
     "rsi_mean_reversion",
     "momentum_breakout",
     "bollinger_breakout",
-    "vwap_reversion"
+    "vwap_reversion",
+    "bollinger_rsi_combo",  # NEW: Bollinger + RSI combination
+    "trend_adaptive_rsi"     # NEW: Trend-adaptive RSI thresholds
 ]
 
 # Timeframes supported by AlphaLive
