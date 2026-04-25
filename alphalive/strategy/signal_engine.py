@@ -102,6 +102,10 @@ class SignalEngine:
                 result = self._bollinger_breakout_signal(df)
             elif self.strategy_name == "vwap_reversion":
                 result = self._vwap_reversion_signal(df)
+            elif self.strategy_name == "bollinger_rsi_combo":
+                result = self._bollinger_rsi_combo_signal(df)
+            elif self.strategy_name == "trend_adaptive_rsi":
+                result = self._trend_adaptive_rsi_signal(df)
             else:
                 logger.error(f"Unknown strategy: {self.strategy_name}")
                 return self._no_signal(f"Unknown strategy: {self.strategy_name}", start_time)
@@ -572,6 +576,221 @@ class SignalEngine:
                     f"No reversion: Price={current_price:.2f}, "
                     f"VWAP±{deviation_threshold}σ=[{lower_band:.2f}, {upper_band:.2f}], "
                     f"RSI={rsi:.2f}"
+                ),
+                "indicators": indicators,
+                "warmup_complete": True
+            }
+
+    def _bollinger_rsi_combo_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Bollinger Bands + RSI Combination Strategy.
+
+        BUY: Price <= Lower BB AND RSI < oversold (default 45)
+        SELL: Price >= Middle BB OR RSI > overbought (default 55)
+
+        This is a state-aware strategy that tracks positions.
+        AlphaLab Parity: Matches bollinger_rsi_combo.py implementation.
+        """
+        bb_period = self.params.get("bb_period", 20)
+        rsi_period = self.params.get("rsi_period", 14)
+        rsi_oversold = self.params.get("rsi_oversold", 45)
+        rsi_overbought = self.params.get("rsi_overbought", 55)
+        exit_at_middle = self.params.get("exit_at_middle", True)
+
+        # Check warmup
+        bb_lower = df['bb_lower'].iloc[-1]
+        bb_middle = df['bb_middle'].iloc[-1]
+        bb_upper = df['bb_upper'].iloc[-1]
+        rsi_col = f"rsi_{rsi_period}"
+        rsi = df[rsi_col].iloc[-1]
+
+        if pd.isna(bb_lower) or pd.isna(bb_middle) or pd.isna(rsi):
+            return self._no_signal(
+                f"Warmup incomplete (need {max(bb_period, rsi_period)} bars)",
+                time.time(),
+                warmup_complete=False
+            )
+
+        current_price = df['close'].iloc[-1]
+
+        indicators = {
+            "price": current_price,
+            "bb_lower": bb_lower,
+            "bb_middle": bb_middle,
+            "bb_upper": bb_upper,
+            rsi_col: rsi
+        }
+
+        # NOTE: This is simplified for stateless operation
+        # AlphaLab version tracks position state, AlphaLive risk_manager handles that
+
+        # Entry condition: Price at/below lower BB AND RSI oversold
+        if current_price <= bb_lower and rsi < rsi_oversold:
+            # Calculate confidence based on how far below BB
+            bb_penetration = (bb_lower - current_price) / bb_lower * 100
+            rsi_distance = (rsi_oversold - rsi) / rsi_oversold
+            confidence = min(1.0, max(0.3, (bb_penetration * 10 + rsi_distance) / 2))
+
+            return {
+                "signal": "BUY",
+                "confidence": confidence,
+                "reason": (
+                    f"BB lower touch + RSI oversold: "
+                    f"Price {current_price:.2f} <= BB_lower {bb_lower:.2f}, "
+                    f"RSI {rsi:.2f} < {rsi_oversold}"
+                ),
+                "indicators": indicators,
+                "warmup_complete": True
+            }
+
+        # Exit condition: Price at/above middle BB OR RSI overbought
+        elif (exit_at_middle and current_price >= bb_middle) or rsi > rsi_overbought:
+            confidence = 0.6  # Medium confidence on exits
+
+            if current_price >= bb_middle:
+                reason = f"BB middle reached: Price {current_price:.2f} >= {bb_middle:.2f}"
+            else:
+                reason = f"RSI overbought: {rsi:.2f} > {rsi_overbought}"
+
+            return {
+                "signal": "SELL",
+                "confidence": confidence,
+                "reason": reason,
+                "indicators": indicators,
+                "warmup_complete": True
+            }
+
+        else:
+            # No signal
+            return {
+                "signal": "HOLD",
+                "confidence": 0.0,
+                "reason": (
+                    f"No setup: Price {current_price:.2f} in range "
+                    f"[{bb_lower:.2f}, {bb_middle:.2f}], RSI {rsi:.2f}"
+                ),
+                "indicators": indicators,
+                "warmup_complete": True
+            }
+
+    def _trend_adaptive_rsi_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Trend-Adaptive RSI Strategy.
+
+        Adjusts RSI thresholds based on market regime:
+        - Uptrend: Buy at RSI 45, Sell at RSI 65
+        - Downtrend: Buy at RSI 35, Sell at RSI 55
+        - Range: Buy at RSI 35, Sell at RSI 65
+
+        Trend detected via SMA slope.
+        AlphaLab Parity: Matches trend_adaptive_rsi.py implementation.
+        """
+        rsi_period = self.params.get("rsi_period", 14)
+        trend_sma = self.params.get("trend_sma", 50)
+        trend_lookback = self.params.get("trend_lookback", 5)
+
+        uptrend_buy = self.params.get("uptrend_buy", 45)
+        uptrend_sell = self.params.get("uptrend_sell", 65)
+        downtrend_buy = self.params.get("downtrend_buy", 35)
+        downtrend_sell = self.params.get("downtrend_sell", 55)
+        range_buy = self.params.get("range_buy", 35)
+        range_sell = self.params.get("range_sell", 65)
+
+        # Check warmup
+        if len(df) < trend_lookback + 1:
+            return self._no_signal(
+                f"Need {trend_lookback + 1} bars for trend detection",
+                time.time(),
+                warmup_complete=False
+            )
+
+        sma_col = f"sma_{trend_sma}"
+        rsi_col = f"rsi_{rsi_period}"
+
+        if sma_col not in df.columns or rsi_col not in df.columns:
+            return self._no_signal(
+                f"Missing required indicators: {sma_col}, {rsi_col}",
+                time.time(),
+                warmup_complete=False
+            )
+
+        current_price = df['close'].iloc[-1]
+        sma_curr = df[sma_col].iloc[-1]
+        rsi_curr = df[rsi_col].iloc[-1]
+
+        if pd.isna(sma_curr) or pd.isna(rsi_curr):
+            return self._no_signal(
+                f"Warmup incomplete (need {max(trend_sma, rsi_period)} bars)",
+                time.time(),
+                warmup_complete=False
+            )
+
+        # Detect market regime
+        above_sma = current_price > sma_curr
+        sma_prev = df[sma_col].iloc[-trend_lookback - 1]
+        sma_slope = (sma_curr - sma_prev) / sma_prev if sma_prev > 0 else 0
+
+        if above_sma and sma_slope > 0.005:  # 0.5% rise = uptrend
+            regime = "uptrend"
+            buy_threshold = uptrend_buy
+            sell_threshold = uptrend_sell
+        elif not above_sma and sma_slope < -0.005:  # 0.5% fall = downtrend
+            regime = "downtrend"
+            buy_threshold = downtrend_buy
+            sell_threshold = downtrend_sell
+        else:  # Range
+            regime = "range"
+            buy_threshold = range_buy
+            sell_threshold = range_sell
+
+        indicators = {
+            "price": current_price,
+            sma_col: sma_curr,
+            rsi_col: rsi_curr,
+            "regime": regime,
+            "buy_threshold": buy_threshold,
+            "sell_threshold": sell_threshold
+        }
+
+        # Entry signal
+        if rsi_curr < buy_threshold:
+            distance = buy_threshold - rsi_curr
+            confidence = min(1.0, distance / buy_threshold)
+
+            return {
+                "signal": "BUY",
+                "confidence": confidence,
+                "reason": (
+                    f"Adaptive BUY ({regime}): RSI {rsi_curr:.2f} < {buy_threshold} "
+                    f"(price {'above' if above_sma else 'below'} SMA, slope {sma_slope*100:.2f}%)"
+                ),
+                "indicators": indicators,
+                "warmup_complete": True
+            }
+
+        # Exit signal
+        elif rsi_curr > sell_threshold:
+            distance = rsi_curr - sell_threshold
+            confidence = min(1.0, distance / (100 - sell_threshold))
+
+            return {
+                "signal": "SELL",
+                "confidence": confidence,
+                "reason": (
+                    f"Adaptive SELL ({regime}): RSI {rsi_curr:.2f} > {sell_threshold}"
+                ),
+                "indicators": indicators,
+                "warmup_complete": True
+            }
+
+        else:
+            # No signal
+            return {
+                "signal": "HOLD",
+                "confidence": 0.0,
+                "reason": (
+                    f"No signal ({regime}): RSI {rsi_curr:.2f} in neutral zone "
+                    f"[{buy_threshold}, {sell_threshold}]"
                 ),
                 "indicators": indicators,
                 "warmup_complete": True

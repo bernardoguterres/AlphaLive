@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0",
+  "strategy": {
+    "name": "ma_crossover",
+    "parameters": {
+      "fast_period": 5,
+      "slow_period": 15
+    },
+    "description": "Fast MA crossover (5/15 instead of 10/20) - more frequent crossovers"
+  },
+  "ticker": "AAPL",
+  "timeframe": "1Day",
+  "risk": {
+    "stop_loss_pct": 2.5,
+    "take_profit_pct": 4.0,
+    "max_position_size_pct": 30.0,
+    "max_daily_loss_pct": 6.0,
+    "max_open_positions": 5,
+    "portfolio_max_positions": 10,
+    "trailing_stop_enabled": false,
+    "trailing_stop_pct": 3.0,
+    "commission_per_trade": 0.0
+  },
+  "execution": {
+    "order_type": "market",
+    "limit_offset_pct": 0.1,
+    "cooldown_bars": 1
+  },
+  "safety_limits": {
+    "max_trades_per_day": 20,
+    "max_api_calls_per_hour": 500,
+    "signal_generation_timeout_seconds": 5.0,
+    "broker_degraded_mode_threshold_failures": 3
+  },
+  "metadata": {
+    "exported_from": "Manual - Faster Crossover",
+    "exported_at": "2026-04-25T00:00:00Z",
+    "alphalab_version": "0.2.0",
+    "backtest_id": "fast_ma_5_15",
+    "backtest_period": {
+      "start": "2020-01-01",
+      "end": "2024-12-31"
+    },
+    "performance": {
+      "sharpe_ratio": 0.0,
+      "sortino_ratio": 0.0,
+      "total_return_pct": 0.0,
+      "max_drawdown_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "profit_factor": 0.0,
+      "total_trades": 0,
+      "calmar_ratio": 0.0
+    }
+  }
+}
