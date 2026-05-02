@@ -46,6 +46,7 @@ venv.bak/
 htmlcov/
 .tox/
 .hypothesis/
+tests/reports/
 
 # Logs
 *.log
