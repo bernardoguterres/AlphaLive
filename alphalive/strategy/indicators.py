@@ -38,6 +38,7 @@ def add_sma(df: pd.DataFrame, period: int) -> pd.DataFrame:
     """
     try:
         indicator = SMAIndicator(close=df['close'], window=period)
+        df = df.copy()
         df[f"sma_{period}"] = indicator.sma_indicator()
         logger.debug(f"Added SMA_{period}")
         return df
@@ -89,6 +90,7 @@ def add_rsi(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     """
     try:
         indicator = RSIIndicator(close=df['close'], window=period)
+        df = df.copy()
         df[f"rsi_{period}"] = indicator.rsi()
         logger.debug(f"Added RSI_{period}")
         return df
@@ -323,6 +325,8 @@ def add_all_for_strategy(
     Performance:
         Expected <0.3s for 200 bars on Railway.
     """
+    df = df.copy()
+
     if strategy_name == "ma_crossover":
         # Needs: SMA (fast and slow periods)
         fast_period = params.get("fast_period", 10)
@@ -342,9 +346,10 @@ def add_all_for_strategy(
         atr_period = params.get("atr_period", 14)
         df = add_atr(df, atr_period)
 
-        # Add rolling high for breakout detection
+        # Add rolling high for breakout detection (shifted: use PREVIOUS bar's max, not current)
+        # AlphaLab uses high_n.iloc[i-1] — must match exactly
         lookback = params.get("lookback", 20)
-        df['rolling_high'] = df['high'].rolling(window=lookback).max()
+        df['rolling_high'] = df['high'].rolling(window=lookback).max().shift(1)
 
         # Add volume MA for surge detection
         volume_ma_period = params.get("volume_ma_period", 20)
@@ -386,11 +391,38 @@ def add_all_for_strategy(
             f"VWAP, RSI_{rsi_period}, vwap_std_{vwap_std_period}"
         )
 
+    elif strategy_name == "bollinger_rsi_combo":
+        # Needs: Bollinger Bands, RSI
+        bb_period = params.get("bb_period", 20)
+        bb_std = params.get("bb_std", 2.0)
+        df = add_bollinger(df, bb_period, bb_std)
+
+        rsi_period = params.get("rsi_period", 14)
+        df = add_rsi(df, rsi_period)
+
+        logger.debug(
+            f"Added indicators for bollinger_rsi_combo: "
+            f"BB({bb_period},{bb_std}), RSI_{rsi_period}"
+        )
+
+    elif strategy_name == "trend_adaptive_rsi":
+        # Needs: SMA (for trend regime detection), RSI
+        trend_sma = params.get("trend_sma", 50)
+        df = add_sma(df, trend_sma)
+
+        rsi_period = params.get("rsi_period", 14)
+        df = add_rsi(df, rsi_period)
+
+        logger.debug(
+            f"Added indicators for trend_adaptive_rsi: "
+            f"SMA_{trend_sma}, RSI_{rsi_period}"
+        )
+
     else:
         raise ValueError(
             f"Unknown strategy: {strategy_name}. "
             f"Supported: ma_crossover, rsi_mean_reversion, momentum_breakout, "
-            f"bollinger_breakout, vwap_reversion"
+            f"bollinger_breakout, vwap_reversion, bollinger_rsi_combo, trend_adaptive_rsi"
         )
 
     return df
