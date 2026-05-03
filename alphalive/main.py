@@ -310,6 +310,12 @@ def main(
     morning_checks_done = set()  # Set of tickers that have had morning check today
     last_signal_check_map = {}   # {ticker: timestamp} for 1Hour/15Min strategies
 
+    # Intraday drawdown monitoring
+    peak_equity_today: float = 0.0       # Highest equity seen today (set at open)
+    morning_equity: float = 0.0          # Equity at market open (fixes TODO in EOD summary)
+    drawdown_alert_sent: bool = False    # Avoid spamming alert on same breach
+    DRAWDOWN_ALERT_PCT = float(os.getenv("DRAWDOWN_ALERT_PCT", "3.0"))  # Alert at 3% intraday DD
+
     # TIMEFRAME-AWARE SIGNAL CHECKS (B9b):
     # For 1Day: use morning_checks_done set
     # For 1Hour/15Min: use should_run_signal_check() + last_signal_check_map
@@ -407,6 +413,9 @@ def main(
                 last_signal_check_map = {}   # Reset signal check timestamps (B9b)
                 eod_summary_sent = False
                 eod_summary_retry = False
+                peak_equity_today = 0.0
+                morning_equity = 0.0
+                drawdown_alert_sent = False
 
                 # Reset daily for all strategies
                 for ticker in risk_manager_map:
@@ -447,7 +456,7 @@ def main(
                                 "trades": len(all_orders),
                                 "pnl": 0.0,  # TODO: Calculate actual P&L from order_history
                                 "win_rate": 0.0,  # TODO: Calculate from closed positions
-                                "start_equity": 100000.0,  # TODO: Track from morning
+                                "start_equity": morning_equity,
                                 "end_equity": account.equity
                             }
 
@@ -466,6 +475,42 @@ def main(
                 continue
 
             # === MARKET IS OPEN ===
+
+            # --- Intraday drawdown monitoring ---
+            try:
+                account = broker.get_account()
+                current_equity = account.equity
+
+                # Capture morning equity once per day (first time market is open)
+                if morning_equity == 0.0 and current_equity > 0:
+                    morning_equity = current_equity
+                    peak_equity_today = current_equity
+                    logger.info(f"Morning equity captured: ${morning_equity:,.2f}")
+
+                # Update peak
+                if current_equity > peak_equity_today:
+                    peak_equity_today = current_equity
+                    drawdown_alert_sent = False  # Reset alert if we recover to new high
+
+                # Check drawdown from today's peak
+                if peak_equity_today > 0:
+                    drawdown_pct = (peak_equity_today - current_equity) / peak_equity_today * 100
+                    if drawdown_pct >= DRAWDOWN_ALERT_PCT and not drawdown_alert_sent:
+                        logger.warning(
+                            f"INTRADAY DRAWDOWN ALERT: {drawdown_pct:.2f}% from peak "
+                            f"(peak=${peak_equity_today:,.2f}, now=${current_equity:,.2f})"
+                        )
+                        notifier.send_alert(
+                            f"⚠️ INTRADAY DRAWDOWN ALERT\n"
+                            f"Portfolio down {drawdown_pct:.1f}% from today's peak\n"
+                            f"Peak: ${peak_equity_today:,.2f}\n"
+                            f"Now:  ${current_equity:,.2f}\n"
+                            f"Loss: ${peak_equity_today - current_equity:,.2f}\n\n"
+                            f"All strategies still active. Use /pause to halt trading."
+                        )
+                        drawdown_alert_sent = True
+            except Exception as e:
+                logger.warning(f"Drawdown check failed: {e}")
 
             # --- Signal checks (multi-strategy + timeframe-aware, B9b) ---
             # For 1Day: check after 9:35 AM ET (once per day)
@@ -793,7 +838,7 @@ def main(
                         "trades": len(all_orders),
                         "pnl": 0.0,  # TODO: Calculate actual P&L
                         "win_rate": 0.0,  # TODO: Calculate from closed positions
-                        "start_equity": 100000.0,  # TODO: Track from morning
+                        "start_equity": morning_equity,
                         "end_equity": account.equity
                     }
 
@@ -822,7 +867,7 @@ def main(
                         "trades": len(all_orders),
                         "pnl": 0.0,
                         "win_rate": 0.0,
-                        "start_equity": 100000.0,
+                        "start_equity": morning_equity,
                         "end_equity": account.equity
                     }
 
