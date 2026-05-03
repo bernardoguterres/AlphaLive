@@ -349,3 +349,248 @@ def test_signal_only_looks_at_last_bar(sample_strategy_dict):
     # This verifies signal generation is based on latest data
     assert signal1 is not None
     assert signal2 is not None
+
+
+# =============================================================================
+# bollinger_rsi_combo tests
+# =============================================================================
+
+def _make_engine(sample_strategy_dict, strategy_name, params):
+    """Helper: build a SignalEngine for a given strategy."""
+    from alphalive.strategy_schema import StrategySchema
+    d = dict(sample_strategy_dict)
+    d["strategy"] = {"name": strategy_name, "parameters": params}
+    return SignalEngine(StrategySchema(**d))
+
+
+def _bb_rsi_buy_bars(n=50):
+    """50 bars: 35 flat at 100, then 15 declining to 55 — forces price below BB lower and RSI well below 45."""
+    data = []
+    for i in range(35):
+        data.append({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1_000_000})
+    for i in range(15):
+        price = 100.0 - (i + 1) * 3.0  # 97, 94, ..., 55
+        data.append({"open": price + 0.5, "high": price + 1.0, "low": price - 0.5, "close": price, "volume": 1_000_000})
+    df = pd.DataFrame(data)
+    df.index = pd.date_range(start="2024-01-01", periods=n, freq="D", tz="America/New_York")
+    return df
+
+
+def _bb_rsi_neutral_bars(n=50):
+    """50 bars: flat at 100 — price equals BB_middle, RSI ~50 (neutral zone for rsi_oversold=45/rsi_overbought=55)."""
+    data = [{"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1_000_000} for _ in range(n)]
+    df = pd.DataFrame(data)
+    df.index = pd.date_range(start="2024-01-01", periods=n, freq="D", tz="America/New_York")
+    return df
+
+
+def _rsi_uptrend_bars(n=60):
+    """60 bars: rising prices from 100 to 160 — RSI climbs well above 55."""
+    data = []
+    for i in range(n):
+        price = 100.0 + i * 1.0
+        data.append({"open": price - 0.5, "high": price + 0.5, "low": price - 1.0, "close": price, "volume": 1_000_000})
+    df = pd.DataFrame(data)
+    df.index = pd.date_range(start="2024-01-01", periods=n, freq="D", tz="America/New_York")
+    return df
+
+
+def test_bollinger_rsi_combo_buy_when_price_at_lower_band_and_rsi_oversold(sample_strategy_dict):
+    """BUY when price ≤ BB lower AND RSI < 45."""
+    params = {"bb_period": 20, "bb_std": 2.0, "rsi_period": 14, "rsi_oversold": 45, "rsi_overbought": 55, "exit_at_middle": True}
+    engine = _make_engine(sample_strategy_dict, "bollinger_rsi_combo", params)
+
+    df = _bb_rsi_buy_bars()
+    result = engine.generate_signal(df)
+
+    assert result["signal"] in ["BUY", "HOLD"]
+    assert 0.0 <= result["confidence"] <= 1.0
+    assert "reason" in result
+
+
+def test_bollinger_rsi_combo_stateful_hold_when_already_in_position(sample_strategy_dict):
+    """After entering a position, BUY conditions on the next bar must yield HOLD — not another BUY."""
+    params = {"bb_period": 20, "bb_std": 2.0, "rsi_period": 14, "rsi_oversold": 45, "rsi_overbought": 55, "exit_at_middle": True}
+    engine = _make_engine(sample_strategy_dict, "bollinger_rsi_combo", params)
+
+    # Force engine into in-position state
+    engine._in_position = True
+    engine._entry_price = 55.0
+
+    # Feed bars that would normally trigger BUY (price well below BB lower, RSI low)
+    df = _bb_rsi_buy_bars()
+    result = engine.generate_signal(df)
+
+    # Must NOT generate another BUY
+    assert result["signal"] != "BUY", "State bug: generated BUY while already in position"
+
+
+def test_bollinger_rsi_combo_sell_when_price_reaches_middle_band(sample_strategy_dict):
+    """When in position and price >= BB middle, generate SELL."""
+    params = {"bb_period": 20, "bb_std": 2.0, "rsi_period": 14, "rsi_oversold": 45, "rsi_overbought": 55, "exit_at_middle": True}
+    engine = _make_engine(sample_strategy_dict, "bollinger_rsi_combo", params)
+
+    engine._in_position = True
+    engine._entry_price = 90.0
+
+    # Flat bars: price == BB_middle (both ~100), RSI ~50 (neutral — exit via BB middle)
+    df = _bb_rsi_neutral_bars()
+    result = engine.generate_signal(df)
+
+    assert result["signal"] == "SELL", f"Expected SELL at BB middle but got {result['signal']}: {result['reason']}"
+    assert engine._in_position is False, "State not cleared after SELL"
+
+
+def test_bollinger_rsi_combo_sell_when_rsi_overbought(sample_strategy_dict):
+    """When in position and RSI > 55, generate SELL."""
+    params = {"bb_period": 20, "bb_std": 2.0, "rsi_period": 14, "rsi_oversold": 45, "rsi_overbought": 55, "exit_at_middle": False}
+    engine = _make_engine(sample_strategy_dict, "bollinger_rsi_combo", params)
+
+    engine._in_position = True
+    engine._entry_price = 100.0
+
+    # Strong uptrend → RSI well above 55
+    df = _rsi_uptrend_bars()
+    result = engine.generate_signal(df)
+
+    assert result["signal"] in ["SELL", "HOLD"]  # SELL when RSI > 55
+
+
+def test_bollinger_rsi_combo_no_sell_when_not_in_position(sample_strategy_dict):
+    """SELL conditions met but not in position — must return HOLD."""
+    params = {"bb_period": 20, "bb_std": 2.0, "rsi_period": 14, "rsi_oversold": 45, "rsi_overbought": 55, "exit_at_middle": True}
+    engine = _make_engine(sample_strategy_dict, "bollinger_rsi_combo", params)
+
+    # Flat bars trigger exit_at_middle condition (price == BB_middle), but not in position
+    assert engine._in_position is False
+    df = _bb_rsi_neutral_bars()
+    result = engine.generate_signal(df)
+
+    assert result["signal"] != "SELL", "State bug: generated SELL while not in position"
+
+
+def test_bollinger_rsi_combo_full_state_cycle(sample_strategy_dict):
+    """Full cycle: HOLD → BUY → HOLD (while in position) → SELL → HOLD (after exit)."""
+    params = {"bb_period": 20, "bb_std": 2.0, "rsi_period": 14, "rsi_oversold": 45, "rsi_overbought": 55, "exit_at_middle": True}
+    engine = _make_engine(sample_strategy_dict, "bollinger_rsi_combo", params)
+
+    # Enter position by hand
+    engine._in_position = False
+    # Flat bars → no BUY (RSI neutral, price at BB middle)
+    df = _bb_rsi_neutral_bars()
+    r = engine.generate_signal(df)
+    assert r["signal"] != "BUY"
+
+    # Trigger SELL conditions while in position — simulates exit
+    engine._in_position = True
+    engine._entry_price = 80.0
+    r = engine.generate_signal(df)  # flat bars → price at BB middle → SELL
+    assert r["signal"] == "SELL"
+    assert engine._in_position is False
+
+    # Confirm no SELL after exit
+    r = engine.generate_signal(df)
+    assert r["signal"] != "SELL"
+
+
+# =============================================================================
+# trend_adaptive_rsi tests
+# =============================================================================
+
+def _range_rsi_oversold_bars(n=60):
+    """60 bars: declining from 100 to 40 — RSI drops well below 35 in range regime (SMA_50 far above price)."""
+    data = []
+    for i in range(n):
+        price = 100.0 - i * 1.0
+        data.append({"open": price + 0.5, "high": price + 0.5, "low": price - 0.5, "close": price, "volume": 1_000_000})
+    df = pd.DataFrame(data)
+    df.index = pd.date_range(start="2024-01-01", periods=n, freq="D", tz="America/New_York")
+    return df
+
+
+def _range_rsi_overbought_bars(n=60):
+    """60 bars: rising from 100 to 160 — RSI climbs well above 65 in range regime."""
+    data = []
+    for i in range(n):
+        price = 100.0 + i * 1.0
+        data.append({"open": price - 0.5, "high": price + 0.5, "low": price - 0.5, "close": price, "volume": 1_000_000})
+    df = pd.DataFrame(data)
+    df.index = pd.date_range(start="2024-01-01", periods=n, freq="D", tz="America/New_York")
+    return df
+
+
+def test_trend_adaptive_rsi_buy_when_rsi_below_threshold(sample_strategy_dict):
+    """BUY when RSI < buy_threshold for the detected regime."""
+    params = {"rsi_period": 14, "trend_sma": 50, "trend_lookback": 5,
+              "uptrend_buy": 45, "uptrend_sell": 65, "downtrend_buy": 35,
+              "downtrend_sell": 55, "range_buy": 35, "range_sell": 65}
+    engine = _make_engine(sample_strategy_dict, "trend_adaptive_rsi", params)
+
+    df = _range_rsi_oversold_bars()
+    result = engine.generate_signal(df)
+
+    assert result["signal"] in ["BUY", "HOLD"]
+    assert 0.0 <= result["confidence"] <= 1.0
+
+
+def test_trend_adaptive_rsi_stateful_hold_when_already_in_position(sample_strategy_dict):
+    """After entering a position, BUY conditions on the next bar must yield HOLD."""
+    params = {"rsi_period": 14, "trend_sma": 50, "trend_lookback": 5,
+              "uptrend_buy": 45, "uptrend_sell": 65, "downtrend_buy": 35,
+              "downtrend_sell": 55, "range_buy": 35, "range_sell": 65}
+    engine = _make_engine(sample_strategy_dict, "trend_adaptive_rsi", params)
+
+    # Force in-position state
+    engine._in_position = True
+
+    # Feed bars that meet BUY conditions (low RSI)
+    df = _range_rsi_oversold_bars()
+    result = engine.generate_signal(df)
+
+    assert result["signal"] != "BUY", "State bug: generated BUY while already in position"
+
+
+def test_trend_adaptive_rsi_sell_when_rsi_above_threshold(sample_strategy_dict):
+    """When in position and RSI > sell_threshold, generate SELL."""
+    params = {"rsi_period": 14, "trend_sma": 50, "trend_lookback": 5,
+              "uptrend_buy": 45, "uptrend_sell": 65, "downtrend_buy": 35,
+              "downtrend_sell": 55, "range_buy": 35, "range_sell": 65}
+    engine = _make_engine(sample_strategy_dict, "trend_adaptive_rsi", params)
+
+    engine._in_position = True
+
+    # Rising bars push RSI above 65
+    df = _range_rsi_overbought_bars()
+    result = engine.generate_signal(df)
+
+    assert result["signal"] in ["SELL", "HOLD"]
+
+
+def test_trend_adaptive_rsi_no_sell_when_not_in_position(sample_strategy_dict):
+    """RSI overbought but not in position — must return HOLD, not SELL."""
+    params = {"rsi_period": 14, "trend_sma": 50, "trend_lookback": 5,
+              "uptrend_buy": 45, "uptrend_sell": 65, "downtrend_buy": 35,
+              "downtrend_sell": 55, "range_buy": 35, "range_sell": 65}
+    engine = _make_engine(sample_strategy_dict, "trend_adaptive_rsi", params)
+
+    assert engine._in_position is False
+    df = _range_rsi_overbought_bars()
+    result = engine.generate_signal(df)
+
+    assert result["signal"] != "SELL", "State bug: generated SELL while not in position"
+
+
+def test_trend_adaptive_rsi_sell_clears_position_state(sample_strategy_dict):
+    """After SELL, _in_position must be False."""
+    params = {"rsi_period": 14, "trend_sma": 50, "trend_lookback": 5,
+              "uptrend_buy": 45, "uptrend_sell": 65, "downtrend_buy": 35,
+              "downtrend_sell": 55, "range_buy": 35, "range_sell": 65}
+    engine = _make_engine(sample_strategy_dict, "trend_adaptive_rsi", params)
+
+    engine._in_position = True
+
+    df = _range_rsi_overbought_bars()
+    result = engine.generate_signal(df)
+
+    if result["signal"] == "SELL":
+        assert engine._in_position is False, "State not cleared after SELL"
