@@ -43,6 +43,10 @@ class SignalEngine:
         self.strategy_name = config.strategy.name
         self.params = config.strategy.parameters
 
+        # State for stateful strategies (mirrors AlphaLab's in_position tracking)
+        self._in_position = False
+        self._entry_price: float = 0.0
+
         logger.info(
             f"Signal engine initialized | Strategy: {self.strategy_name} | "
             f"Params: {self.params}"
@@ -585,10 +589,10 @@ class SignalEngine:
         """
         Bollinger Bands + RSI Combination Strategy.
 
-        BUY: Price <= Lower BB AND RSI < oversold (default 45)
-        SELL: Price >= Middle BB OR RSI > overbought (default 55)
+        BUY: Price <= Lower BB AND RSI < oversold (default 45) — only when not in position
+        SELL: Price >= Middle BB OR RSI > overbought (default 55) — only when in position
 
-        This is a state-aware strategy that tracks positions.
+        Stateful: tracks in_position via self._in_position to match AlphaLab exactly.
         AlphaLab Parity: Matches bollinger_rsi_combo.py implementation.
         """
         bb_period = self.params.get("bb_period", 20)
@@ -597,7 +601,6 @@ class SignalEngine:
         rsi_overbought = self.params.get("rsi_overbought", 55)
         exit_at_middle = self.params.get("exit_at_middle", True)
 
-        # Check warmup
         bb_lower = df['bb_lower'].iloc[-1]
         bb_middle = df['bb_middle'].iloc[-1]
         bb_upper = df['bb_upper'].iloc[-1]
@@ -621,57 +624,52 @@ class SignalEngine:
             rsi_col: rsi
         }
 
-        # NOTE: This is simplified for stateless operation
-        # AlphaLab version tracks position state, AlphaLive risk_manager handles that
+        if self._in_position:
+            # Look for exit: price reached middle BB or RSI overbought
+            exit_reason = None
+            if exit_at_middle and current_price >= bb_middle:
+                pnl_pct = ((current_price - self._entry_price) / self._entry_price) * 100
+                exit_reason = f"BB middle reached (+{pnl_pct:.1f}%)"
+            elif rsi > rsi_overbought:
+                pnl_pct = ((current_price - self._entry_price) / self._entry_price) * 100
+                exit_reason = f"RSI overbought {rsi:.1f} ({pnl_pct:+.1f}%)"
 
-        # Entry condition: Price at/below lower BB AND RSI oversold
-        if current_price <= bb_lower and rsi < rsi_oversold:
-            # Calculate confidence based on how far below BB
-            bb_penetration = (bb_lower - current_price) / bb_lower * 100
-            rsi_distance = (rsi_oversold - rsi) / rsi_oversold
-            confidence = min(1.0, max(0.3, (bb_penetration * 10 + rsi_distance) / 2))
-
-            return {
-                "signal": "BUY",
-                "confidence": confidence,
-                "reason": (
-                    f"BB lower touch + RSI oversold: "
-                    f"Price {current_price:.2f} <= BB_lower {bb_lower:.2f}, "
-                    f"RSI {rsi:.2f} < {rsi_oversold}"
-                ),
-                "indicators": indicators,
-                "warmup_complete": True
-            }
-
-        # Exit condition: Price at/above middle BB OR RSI overbought
-        elif (exit_at_middle and current_price >= bb_middle) or rsi > rsi_overbought:
-            confidence = 0.6  # Medium confidence on exits
-
-            if current_price >= bb_middle:
-                reason = f"BB middle reached: Price {current_price:.2f} >= {bb_middle:.2f}"
-            else:
-                reason = f"RSI overbought: {rsi:.2f} > {rsi_overbought}"
-
-            return {
-                "signal": "SELL",
-                "confidence": confidence,
-                "reason": reason,
-                "indicators": indicators,
-                "warmup_complete": True
-            }
-
+            if exit_reason:
+                conf = min(1.0, (rsi - rsi_overbought) / (100 - rsi_overbought) + 0.5)
+                self._in_position = False
+                return {
+                    "signal": "SELL",
+                    "confidence": conf,
+                    "reason": exit_reason,
+                    "indicators": indicators,
+                    "warmup_complete": True
+                }
         else:
-            # No signal
-            return {
-                "signal": "HOLD",
-                "confidence": 0.0,
-                "reason": (
-                    f"No setup: Price {current_price:.2f} in range "
-                    f"[{bb_lower:.2f}, {bb_middle:.2f}], RSI {rsi:.2f}"
-                ),
-                "indicators": indicators,
-                "warmup_complete": True
-            }
+            # Look for entry: price at/below lower BB AND RSI oversold
+            if current_price <= bb_lower and rsi < rsi_oversold:
+                bb_penetration = (bb_lower - current_price) / bb_lower * 100
+                rsi_distance = (rsi_oversold - rsi) / rsi_oversold
+                confidence = min(1.0, max(0.3, (bb_penetration * 10 + rsi_distance) / 2))
+                self._in_position = True
+                self._entry_price = current_price
+                return {
+                    "signal": "BUY",
+                    "confidence": confidence,
+                    "reason": f"BB lower touch + RSI {rsi:.1f}",
+                    "indicators": indicators,
+                    "warmup_complete": True
+                }
+
+        return {
+            "signal": "HOLD",
+            "confidence": 0.0,
+            "reason": (
+                f"No setup: Price {current_price:.2f} in range "
+                f"[{bb_lower:.2f}, {bb_middle:.2f}], RSI {rsi:.2f}"
+            ),
+            "indicators": indicators,
+            "warmup_complete": True
+        }
 
     def _trend_adaptive_rsi_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
@@ -682,7 +680,7 @@ class SignalEngine:
         - Downtrend: Buy at RSI 35, Sell at RSI 55
         - Range: Buy at RSI 35, Sell at RSI 65
 
-        Trend detected via SMA slope.
+        Stateful: tracks in_position via self._in_position to match AlphaLab exactly.
         AlphaLab Parity: Matches trend_adaptive_rsi.py implementation.
         """
         rsi_period = self.params.get("rsi_period", 14)
@@ -696,7 +694,6 @@ class SignalEngine:
         range_buy = self.params.get("range_buy", 35)
         range_sell = self.params.get("range_sell", 65)
 
-        # Check warmup
         if len(df) < trend_lookback + 1:
             return self._no_signal(
                 f"Need {trend_lookback + 1} bars for trend detection",
@@ -730,15 +727,15 @@ class SignalEngine:
         sma_prev = df[sma_col].iloc[-trend_lookback - 1]
         sma_slope = (sma_curr - sma_prev) / sma_prev if sma_prev > 0 else 0
 
-        if above_sma and sma_slope > 0.005:  # 0.5% rise = uptrend
+        if above_sma and sma_slope > 0.005:
             regime = "uptrend"
             buy_threshold = uptrend_buy
             sell_threshold = uptrend_sell
-        elif not above_sma and sma_slope < -0.005:  # 0.5% fall = downtrend
+        elif not above_sma and sma_slope < -0.005:
             regime = "downtrend"
             buy_threshold = downtrend_buy
             sell_threshold = downtrend_sell
-        else:  # Range
+        else:
             regime = "range"
             buy_threshold = range_buy
             sell_threshold = range_sell
@@ -752,49 +749,43 @@ class SignalEngine:
             "sell_threshold": sell_threshold
         }
 
-        # Entry signal
-        if rsi_curr < buy_threshold:
-            distance = buy_threshold - rsi_curr
-            confidence = min(1.0, distance / buy_threshold)
-
-            return {
-                "signal": "BUY",
-                "confidence": confidence,
-                "reason": (
-                    f"Adaptive BUY ({regime}): RSI {rsi_curr:.2f} < {buy_threshold} "
-                    f"(price {'above' if above_sma else 'below'} SMA, slope {sma_slope*100:.2f}%)"
-                ),
-                "indicators": indicators,
-                "warmup_complete": True
-            }
-
-        # Exit signal
-        elif rsi_curr > sell_threshold:
-            distance = rsi_curr - sell_threshold
-            confidence = min(1.0, distance / (100 - sell_threshold))
-
-            return {
-                "signal": "SELL",
-                "confidence": confidence,
-                "reason": (
-                    f"Adaptive SELL ({regime}): RSI {rsi_curr:.2f} > {sell_threshold}"
-                ),
-                "indicators": indicators,
-                "warmup_complete": True
-            }
-
+        if self._in_position:
+            # Exit when RSI crosses above sell threshold
+            if rsi_curr > sell_threshold:
+                distance = rsi_curr - sell_threshold
+                confidence = min(1.0, distance / (100 - sell_threshold))
+                self._in_position = False
+                return {
+                    "signal": "SELL",
+                    "confidence": confidence,
+                    "reason": f"Sell {regime}: RSI {rsi_curr:.2f} > {sell_threshold}",
+                    "indicators": indicators,
+                    "warmup_complete": True
+                }
         else:
-            # No signal
-            return {
-                "signal": "HOLD",
-                "confidence": 0.0,
-                "reason": (
-                    f"No signal ({regime}): RSI {rsi_curr:.2f} in neutral zone "
-                    f"[{buy_threshold}, {sell_threshold}]"
-                ),
-                "indicators": indicators,
-                "warmup_complete": True
-            }
+            # Enter when RSI drops below buy threshold
+            if rsi_curr < buy_threshold:
+                distance = buy_threshold - rsi_curr
+                confidence = min(1.0, distance / buy_threshold)
+                self._in_position = True
+                return {
+                    "signal": "BUY",
+                    "confidence": confidence,
+                    "reason": f"Buy {regime}: RSI {rsi_curr:.2f} < {buy_threshold}",
+                    "indicators": indicators,
+                    "warmup_complete": True
+                }
+
+        return {
+            "signal": "HOLD",
+            "confidence": 0.0,
+            "reason": (
+                f"No signal ({regime}): RSI {rsi_curr:.2f} in neutral zone "
+                f"[{buy_threshold}, {sell_threshold}]"
+            ),
+            "indicators": indicators,
+            "warmup_complete": True
+        }
 
     # =========================================================================
     # Helper Methods
