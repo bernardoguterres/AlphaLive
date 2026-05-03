@@ -17,12 +17,16 @@ Usage:
 
 Expected Output:
     ma_crossover: 500 bars, 11 signals, 0 mismatches ✅
-    rsi_mean_reversion: 500 bars, 40 signals, 0 mismatches ✅
-    momentum_breakout: 500 bars, 0 signals, 0 mismatches ✅
+    rsi_mean_reversion: 500 bars, 46 signals, 0 mismatches ✅
+    momentum_breakout: 500 bars, 5 signals, 0 mismatches ✅
     bollinger_breakout: 500 bars, 9 signals, 0 mismatches ✅
-    vwap_reversion: 500 bars, 38 signals, 0 mismatches ✅
+    vwap_reversion: 500 bars, 28 signals, 0 mismatches ✅
+    bollinger_rsi_combo: 500 bars, 16 signals, 0 mismatches ✅
+    trend_adaptive_rsi: 500 bars, 10 signals, 0 mismatches ✅
 
-    PASS: All strategies match. AlphaLive is production-ready.
+    PASS: All 7 strategies match. AlphaLive is production-ready.
+
+Fixture: Real AAPL market data 2022-2023 (replaced synthetic random walk 2026-05-03).
 
 If ANY mismatches exist, the test FAILS.
 Mismatches mean live trading will behave differently than backtest.
