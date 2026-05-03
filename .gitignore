@@ -66,3 +66,7 @@ alphalive_state.json
 
 CLAUDE.md
 .env.paper_test
+
+# Downloaded market data — never commit, regenerate with yfinance (see README)
+data/
+*.parquet
