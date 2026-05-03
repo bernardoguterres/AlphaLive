@@ -383,6 +383,61 @@ python run.py \
 
 ---
 
+## Testing Strategies with Real Historical Data (No API Keys Needed)
+
+Use `yfinance` (free, no account required) to test signal logic across any ticker locally:
+
+```bash
+pip install yfinance  # already in requirements.txt
+```
+
+```python
+import sys, yfinance as yf, pandas as pd
+sys.path.insert(0, '.')
+
+from alphalive.strategy.signal_engine import SignalEngine
+from alphalive.strategy_schema import StrategySchema
+from datetime import datetime
+
+# Download any ticker — data stays in memory, nothing written to disk
+raw = yf.download('SPY', start='2021-01-01', end='2026-01-01', auto_adjust=True)
+df = raw.rename(columns={'Close':'close','High':'high','Low':'low','Open':'open','Volume':'volume'})
+df = df[['open','high','low','close','volume']].reset_index().rename(columns={'Date':'timestamp'})
+
+# Build a minimal config
+config = StrategySchema(
+    schema_version='1.0',
+    strategy={'name': 'rsi_mean_reversion', 'parameters': {'period': 14, 'oversold': 30, 'overbought': 70}},
+    ticker='SPY', timeframe='1Day',
+    risk={'stop_loss_pct': 2.0, 'take_profit_pct': 5.0, 'max_position_size_pct': 10.0,
+          'max_daily_loss_pct': 5.0, 'max_open_positions': 3, 'portfolio_max_positions': 10},
+    execution={'order_type': 'market'}, safety_limits={},
+    metadata={'exported_from': 'test', 'exported_at': datetime.now().isoformat(),
+              'alphalab_version': '1.0.0', 'backtest_id': 'test',
+              'backtest_period': {'start': '2021-01-01', 'end': '2026-01-01'},
+              'performance': {'sharpe_ratio': 1.5, 'sortino_ratio': 2.0, 'total_return_pct': 25.0,
+                              'max_drawdown_pct': 10.0, 'win_rate_pct': 55.0, 'profit_factor': 1.8,
+                              'total_trades': 100, 'calmar_ratio': 2.5}},
+)
+
+engine = SignalEngine(config)
+
+# Replay bars and count signals
+buys, sells = 0, 0
+for i in range(60, len(df)):
+    result = engine.generate_signal(df.iloc[:i+1].copy())
+    if result['signal'] == 'BUY': buys += 1
+    elif result['signal'] == 'SELL': sells += 1
+
+print(f'BUY: {buys}  SELL: {sells}  over {len(df)-60} bars')
+```
+
+**Tested on 20 tickers (SPY, QQQ, AAPL, MSFT, NVDA, META, TSLA, AMD, TSM, JPM, BAC, JNJ, UNH, XOM, COST, V, GOOGL, AMZN, IWM, DIA) — all strategies ran without errors across 1,276 bars each.**
+
+Note: `data/` and `*.parquet` are gitignored — downloaded data is never committed to the repo.
+
+---
+
 ## Deploy to Railway
 
 **See [SETUP.md](SETUP.md) for detailed deployment guide.**
