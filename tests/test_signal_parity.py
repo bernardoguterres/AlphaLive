@@ -53,6 +53,8 @@ STRATEGIES = [
     {"name": "momentum_breakout", "params": {"lookback": 20, "surge_pct": 1.5, "atr_period": 14, "volume_ma_period": 20}},
     {"name": "bollinger_breakout", "params": {"period": 20, "std_dev": 2.0, "confirmation_bars": 2, "volume_ma_period": 20}},
     {"name": "vwap_reversion", "params": {"deviation_threshold": 2.0, "rsi_period": 14, "oversold": 30, "overbought": 70, "vwap_std_period": 20}},
+    {"name": "bollinger_rsi_combo", "params": {"bb_period": 20, "bb_std": 2.0, "rsi_period": 14, "rsi_oversold": 45, "rsi_overbought": 55, "exit_at_middle": True}},
+    {"name": "trend_adaptive_rsi", "params": {"rsi_period": 14, "trend_sma": 50, "trend_lookback": 5, "uptrend_buy": 45, "uptrend_sell": 65, "downtrend_buy": 35, "downtrend_sell": 55, "range_buy": 35, "range_sell": 65}},
 ]
 
 
@@ -147,11 +149,9 @@ def run_parity_check(strategy_config: StrategySchema, expected_signals: pd.DataF
 
     for i in range(len(df)):
         # Feed bars incrementally (simulate real-time)
+        # Start from bar 0 so stateful strategies build position state correctly.
+        # The signal engine handles warmup internally (returns HOLD on NaN bars).
         df_slice = df.iloc[:i+1].copy()
-
-        # Skip early bars until warmup complete
-        if len(df_slice) < 50:
-            continue
 
         result = engine.generate_signal(df_slice)
         actual_signal = result['signal']
@@ -165,7 +165,7 @@ def run_parity_check(strategy_config: StrategySchema, expected_signals: pd.DataF
             'warmup_complete': bool(result.get('warmup_complete', True)),
         })
 
-        # Get expected signal for this bar
+        # Get expected signal for this bar (skip bars with no expectation)
         expected_row = expected_signals[expected_signals['bar_index'] == i]
         if expected_row.empty:
             continue
