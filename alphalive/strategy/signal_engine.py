@@ -830,11 +830,12 @@ class SignalEngine:
 
         fast_col = f"sma_{fast_sma}"
         slow_col = f"sma_{slow_sma}"
+        rsi_col  = f"rsi_{p.get('rsi_period', 14)}"
 
         if len(df) < 2:
             return self._no_signal("Insufficient weekly bars", 0, warmup_complete=False)
 
-        for col in [fast_col, slow_col, "rsi"]:
+        for col in [fast_col, slow_col, rsi_col]:
             if col not in df.columns or pd.isna(df[col].iloc[-1]):
                 return self._no_signal(f"Warmup incomplete: {col} not ready", 0, warmup_complete=False)
 
@@ -842,7 +843,7 @@ class SignalEngine:
         prev = df.iloc[-2]
 
         price_now = cur["close"]
-        rsi_now = cur["rsi"]
+        rsi_now = cur[rsi_col]
         fast_now = cur[fast_col]
         slow_now = cur[slow_col]
         fast_prev = prev[fast_col]
