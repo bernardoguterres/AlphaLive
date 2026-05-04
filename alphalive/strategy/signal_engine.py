@@ -94,6 +94,23 @@ class SignalEngine:
             logger.error(f"Failed to add indicators: {e}", exc_info=True)
             return self._no_signal(f"Indicator calculation failed: {e}", start_time)
 
+        # Bear market filter: block BUY signals when not in a position and price is
+        # below a declining SMA_200. Allows SELL/exits to proceed normally.
+        if not self._in_position and self._is_bear_market(df):
+            result = {
+                "signal": "HOLD",
+                "confidence": 0.0,
+                "reason": (
+                    f"Bear market filter: price below declining SMA_200 "
+                    f"({df['close'].iloc[-1]:.2f} < {df['sma_200'].iloc[-1]:.2f}) — BUY blocked"
+                ),
+                "indicators": {"price": df["close"].iloc[-1], "sma_200": df["sma_200"].iloc[-1]},
+                "warmup_complete": True,
+                "generation_time_ms": int((time.time() - start_time) * 1000),
+            }
+            logger.debug(f"Bear market filter triggered: {result['reason']}")
+            return result
+
         # Route to strategy-specific logic
         try:
             if self.strategy_name == "ma_crossover":
@@ -110,6 +127,8 @@ class SignalEngine:
                 result = self._bollinger_rsi_combo_signal(df)
             elif self.strategy_name == "trend_adaptive_rsi":
                 result = self._trend_adaptive_rsi_signal(df)
+            elif self.strategy_name == "greenblatt_weekly":
+                result = self._greenblatt_weekly_signal(df)
             else:
                 logger.error(f"Unknown strategy: {self.strategy_name}")
                 return self._no_signal(f"Unknown strategy: {self.strategy_name}", start_time)
@@ -790,6 +809,177 @@ class SignalEngine:
     # =========================================================================
     # Helper Methods
     # =========================================================================
+
+    def _greenblatt_weekly_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """Greenblatt Weekly strategy signal on the last weekly bar.
+
+        Entry: Weekly RSI < rsi_oversold OR 10w/40w SMA golden cross.
+        Exit:  Weekly RSI > rsi_overbought OR SMA death-cross (after min_hold_weeks).
+        Stop:  Price <= entry_price - (stop_loss_atr_mult × ATR).
+
+        Minimum hold is enforced by the caller (main.py) using entry_timestamp
+        from state. The signal engine still returns SELL; main.py suppresses it
+        unless min_hold is met or it's a stop-loss.
+        """
+        p = self.params
+        fast_sma = p.get("fast_sma", 10)
+        slow_sma = p.get("slow_sma", 40)
+        rsi_oversold = p.get("rsi_oversold", 35)
+        rsi_overbought = p.get("rsi_overbought", 65)
+        stop_atr_mult = p.get("stop_loss_atr_mult", 2.0)
+
+        fast_col = f"sma_{fast_sma}"
+        slow_col = f"sma_{slow_sma}"
+
+        if len(df) < 2:
+            return self._no_signal("Insufficient weekly bars", 0, warmup_complete=False)
+
+        # Check warmup
+        required = [fast_col, slow_col, "rsi", "atr"]
+        for col in required:
+            if col not in df.columns or pd.isna(df[col].iloc[-1]):
+                return self._no_signal(f"Warmup incomplete: {col} not ready", 0, warmup_complete=False)
+
+        cur = df.iloc[-1]
+        prev = df.iloc[-2]
+
+        rsi_now = cur["rsi"]
+        fast_now = cur[fast_col]
+        slow_now = cur[slow_col]
+        fast_prev = prev[fast_col]
+        slow_prev = prev[slow_col]
+        atr_now = cur["atr"]
+        price_now = cur["close"]
+
+        sma_cross_up = (fast_now > slow_now) and (fast_prev <= slow_prev)
+        sma_cross_down = (fast_now < slow_now) and (fast_prev >= slow_prev)
+        rsi_oversold_hit = rsi_now < rsi_oversold
+        rsi_overbought_hit = rsi_now > rsi_overbought
+
+        indicators_out = {
+            "price": price_now,
+            f"sma_{fast_sma}": fast_now,
+            f"sma_{slow_sma}": slow_now,
+            "rsi": rsi_now,
+            "atr": atr_now,
+        }
+
+        # Stop loss check (if in position)
+        if self._in_position and self._entry_price > 0:
+            stop_price = self._entry_price - stop_atr_mult * atr_now
+            if price_now <= stop_price:
+                self._in_position = False
+                self._entry_price = 0.0
+                return {
+                    "signal": "SELL",
+                    "confidence": 0.95,
+                    "reason": f"Weekly stop loss: {price_now:.2f} ≤ {stop_price:.2f}",
+                    "indicators": indicators_out,
+                    "warmup_complete": True,
+                }
+
+        # Exit signals (min hold enforced externally by main.py)
+        if self._in_position and (rsi_overbought_hit or sma_cross_down):
+            reason = (
+                f"Weekly RSI overbought ({rsi_now:.1f} > {rsi_overbought})"
+                if rsi_overbought_hit
+                else f"Weekly SMA death-cross: SMA{fast_sma}={fast_now:.2f} < SMA{slow_sma}={slow_now:.2f}"
+            )
+            confidence = 0.80 if rsi_overbought_hit else 0.75
+            self._in_position = False
+            self._entry_price = 0.0
+            return {
+                "signal": "SELL",
+                "confidence": confidence,
+                "reason": reason,
+                "indicators": indicators_out,
+                "warmup_complete": True,
+            }
+
+        # Entry signals
+        if not self._in_position and (rsi_oversold_hit or sma_cross_up):
+            reasons = []
+            confidence = 0.0
+            if rsi_oversold_hit:
+                reasons.append(f"Weekly RSI oversold ({rsi_now:.1f} < {rsi_oversold})")
+                confidence = max(confidence, 0.75)
+            if sma_cross_up:
+                reasons.append(
+                    f"Weekly golden cross: SMA{fast_sma}={fast_now:.2f} > SMA{slow_sma}={slow_now:.2f}"
+                )
+                confidence = max(confidence, 0.80)
+            if rsi_oversold_hit and sma_cross_up:
+                confidence = 0.90
+
+            self._in_position = True
+            self._entry_price = price_now
+            return {
+                "signal": "BUY",
+                "confidence": confidence,
+                "reason": " + ".join(reasons),
+                "indicators": indicators_out,
+                "warmup_complete": True,
+            }
+
+        return {
+            "signal": "HOLD",
+            "confidence": 0.0,
+            "reason": (
+                f"Holding: RSI={rsi_now:.1f}, SMA{fast_sma}={fast_now:.2f}, "
+                f"SMA{slow_sma}={slow_now:.2f}"
+                if self._in_position
+                else f"No entry: RSI={rsi_now:.1f}, SMA{fast_sma}={fast_now:.2f} vs SMA{slow_sma}={slow_now:.2f}"
+            ),
+            "indicators": indicators_out,
+            "warmup_complete": True,
+        }
+
+    def _is_bear_market(self, df: pd.DataFrame) -> bool:
+        """Return True if price is below a declining trend SMA (bear market condition).
+
+        For daily strategies: uses SMA_200 (200-day moving average).
+        For greenblatt_weekly: uses the strategy's slow_sma (default 40 weeks ≈ 200 trading days).
+
+        Requires both:
+          1. Current price < trend SMA
+          2. Trend SMA today < trend SMA 20 bars ago (declining)
+
+        Returns False if insufficient data so the filter never blocks during warmup.
+        """
+        # Weekly strategies use slow_sma as the trend filter equivalent of SMA_200
+        if self.strategy_name == "greenblatt_weekly":
+            slow = self.params.get("slow_sma", 40)
+            col = f"sma_{slow}"
+            if col not in df.columns or len(df) < slow + 21:
+                return False
+            sma_now = df[col].iloc[-1]
+            if pd.isna(sma_now):
+                return False
+            price_below = df["close"].iloc[-1] < sma_now
+            if len(df) < 21:
+                return False
+            sma_prev = df[col].iloc[-21]
+            if pd.isna(sma_prev) or sma_prev == 0:
+                return False
+            return price_below and (sma_now < sma_prev)
+
+        # Daily strategies: standard SMA_200 filter
+        if "sma_200" not in df.columns or len(df) < 221:
+            return False
+
+        sma_now = df["sma_200"].iloc[-1]
+        if pd.isna(sma_now):
+            return False
+
+        price_below = df["close"].iloc[-1] < sma_now
+
+        sma_prev = df["sma_200"].iloc[-21]  # 20 bars ago
+        if pd.isna(sma_prev) or sma_prev == 0:
+            return False
+
+        sma_declining = sma_now < sma_prev
+
+        return price_below and sma_declining
 
     def _no_signal(
         self,
