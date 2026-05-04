@@ -423,22 +423,19 @@ def add_all_for_strategy(
         )
 
     elif strategy_name == "greenblatt_weekly":
-        # Runs on weekly bars. SMA_200 skipped (200 weeks = ~4 years; use slow_sma as trend filter).
+        # Runs on weekly bars. Exit uses trailing stop pct (no ATR needed).
         # Bear market filter uses slow_sma instead of sma_200 for this strategy.
         fast_sma = params.get("fast_sma", 10)
-        slow_sma = params.get("slow_sma", 40)
+        slow_sma = params.get("slow_sma", 50)
         df = add_sma(df, fast_sma)
         df = add_sma(df, slow_sma)
 
         rsi_period = params.get("rsi_period", 14)
         df = add_rsi(df, rsi_period)
 
-        atr_period = params.get("atr_period", 14)
-        df = add_atr(df, atr_period)
-
         logger.debug(
             f"Added indicators for greenblatt_weekly: "
-            f"SMA_{fast_sma}, SMA_{slow_sma}, RSI_{rsi_period}, ATR_{atr_period}"
+            f"SMA_{fast_sma}, SMA_{slow_sma}, RSI_{rsi_period}"
         )
 
     else:
