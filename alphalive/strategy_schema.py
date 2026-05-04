@@ -23,12 +23,14 @@ StrategyName = Literal[
     "momentum_breakout",
     "bollinger_breakout",
     "vwap_reversion",
-    "bollinger_rsi_combo",  # NEW: Bollinger + RSI combination
-    "trend_adaptive_rsi"     # NEW: Trend-adaptive RSI thresholds
+    "bollinger_rsi_combo",    # Bollinger + RSI combination
+    "trend_adaptive_rsi",     # Trend-adaptive RSI thresholds
+    "greenblatt_weekly",      # Value factor strategy on weekly bars (weeks/months holding)
 ]
 
 # Timeframes supported by AlphaLive
-Timeframe = Literal["1Day", "1Hour", "15Min"]
+# 1Week: fetches daily bars from Alpaca and resamples internally
+Timeframe = Literal["1Day", "1Hour", "15Min", "1Week"]
 
 # Order types supported
 OrderType = Literal["market", "limit"]

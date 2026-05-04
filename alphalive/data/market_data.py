@@ -86,7 +86,11 @@ class MarketDataFetcher:
             # Calculate start date (fetch extra to ensure we have enough)
             # For daily: lookback_bars * 2 days (accounts for weekends/holidays)
             # For intraday: more conservative multiplier
-            if timeframe == "1Day":
+            if timeframe == "1Week":
+                # Fetch daily bars and resample: need lookback_bars weeks of daily data
+                # Add 20% buffer for weekends/holidays
+                days_back = int(lookback_bars * 7 * 1.2)
+            elif timeframe == "1Day":
                 days_back = lookback_bars * 2
             elif timeframe == "1Hour":
                 days_back = max(lookback_bars // 6 + 5, 30)  # ~6 hours/day, add buffer
@@ -96,9 +100,12 @@ class MarketDataFetcher:
             start_date = datetime.now(ET) - timedelta(days=days_back)
             end_date = datetime.now(ET)
 
+            # For 1Week: always fetch daily bars from Alpaca, then resample
+            fetch_tf = TimeFrame.Day if timeframe == "1Week" else tf
+
             request = StockBarsRequest(
                 symbol_or_symbols=ticker,
-                timeframe=tf,
+                timeframe=fetch_tf,
                 start=start_date,
                 end=end_date,
                 feed="iex"
@@ -126,6 +133,10 @@ class MarketDataFetcher:
                 df.index = df.index.tz_localize('UTC').tz_convert(ET)
             elif str(df.index.tz) != 'America/New_York':
                 df.index = df.index.tz_convert(ET)
+
+            # Resample daily → weekly (week ending Friday) for 1Week strategies
+            if timeframe == "1Week":
+                df = self._resample_to_weekly(df)
 
             # Keep only the last N bars
             df = df.tail(lookback_bars)
@@ -278,6 +289,11 @@ class MarketDataFetcher:
                 f"Last bar: {last_bar_time.strftime('%Y-%m-%d %H:%M:%S %Z')}. "
                 f"Market may be closed or data feed delayed."
             )
+        elif timeframe == "1Week" and age_minutes > 10080:  # More than 7 days old
+            raise DataStaleError(
+                f"{ticker} weekly data is {age_minutes / 1440:.1f} days old (limit: 7 days). "
+                f"Last bar: {last_bar_time.strftime('%Y-%m-%d %H:%M:%S %Z')}."
+            )
         elif timeframe == "1Day" and age_minutes > 1440:  # More than 1 day old
             # For daily data, check if we're in market hours and the data is from yesterday
             # Market hours: 9:30 AM - 4:00 PM ET
@@ -335,6 +351,9 @@ class MarketDataFetcher:
         """
         if timeframe == "1Day":
             return TimeFrame.Day
+        elif timeframe == "1Week":
+            # 1Week fetches daily bars and resamples; this path is not used directly
+            return TimeFrame.Day
         elif timeframe == "1Hour":
             return TimeFrame.Hour
         elif timeframe == "15Min":
@@ -342,8 +361,29 @@ class MarketDataFetcher:
         else:
             raise ValueError(
                 f"Unsupported timeframe: {timeframe}. "
-                f"Must be one of: 1Day, 1Hour, 15Min"
+                f"Must be one of: 1Day, 1Hour, 15Min, 1Week"
             )
+
+    def _resample_to_weekly(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Resample a daily OHLCV DataFrame to weekly bars (week ending Friday).
+
+        Uses standard OHLCV aggregation:
+          open  = first bar of the week
+          high  = max of the week
+          low   = min of the week
+          close = last bar of the week
+          volume = sum of the week
+        """
+        weekly = df.resample("W-FRI").agg(
+            open=("open", "first"),
+            high=("high", "max"),
+            low=("low", "min"),
+            close=("close", "last"),
+            volume=("volume", "sum"),
+        ).dropna(subset=["close"])
+
+        logger.debug(f"Resampled {len(df)} daily bars → {len(weekly)} weekly bars")
+        return weekly
 
     def _fetch_with_retry(
         self, fetch_func: Callable[[], Any], max_retries: int = 3

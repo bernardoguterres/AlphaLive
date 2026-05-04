@@ -97,6 +97,7 @@ class BotState:
             "daily_pnl": 0.0,
             "trades_today": [],
             "position_highs": {},
+            "entry_timestamps": {},  # {ticker: ISO timestamp} for minimum hold enforcement
             "last_startup": None,
             "version": "1.0"
         }
@@ -207,6 +208,46 @@ class BotState:
             del self.state["position_highs"][ticker]
             self.save()
             logger.debug(f"Position high cleared for {ticker}")
+
+    def record_entry(self, ticker: str):
+        """Record the timestamp when a position was entered (for minimum hold enforcement)."""
+        if "entry_timestamps" not in self.state:
+            self.state["entry_timestamps"] = {}
+        self.state["entry_timestamps"][ticker] = datetime.now(ET).isoformat()
+        self.save()
+        logger.info(f"Entry timestamp recorded for {ticker}")
+
+    def clear_entry_timestamp(self, ticker: str):
+        """Clear entry timestamp when position is closed."""
+        entry_timestamps = self.state.get("entry_timestamps", {})
+        if ticker in entry_timestamps:
+            del entry_timestamps[ticker]
+            self.state["entry_timestamps"] = entry_timestamps
+            self.save()
+
+    def is_min_hold_met(self, ticker: str, min_hold_weeks: int) -> bool:
+        """Return True if the position has been held for at least min_hold_weeks.
+
+        Returns True if no entry timestamp is found (fail-safe: allow exit).
+        """
+        entry_timestamps = self.state.get("entry_timestamps", {})
+        ts_str = entry_timestamps.get(ticker)
+        if ts_str is None:
+            return True  # No record — allow exit
+
+        try:
+            entry_dt = datetime.fromisoformat(ts_str)
+            now = datetime.now(ET)
+            weeks_held = (now - entry_dt).days / 7
+            met = weeks_held >= min_hold_weeks
+            logger.debug(
+                f"{ticker}: {weeks_held:.1f} weeks held, "
+                f"min_hold={min_hold_weeks} weeks → {'met' if met else 'NOT met'}"
+            )
+            return met
+        except Exception as exc:
+            logger.warning(f"Could not parse entry timestamp for {ticker}: {exc}")
+            return True  # Fail-safe: allow exit
 
     def mark_startup(self):
         """Mark bot startup time."""

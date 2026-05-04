@@ -327,6 +327,10 @@ def add_all_for_strategy(
     """
     df = df.copy()
 
+    # SMA_200 is always added for every strategy — used by the bear market filter
+    # to block BUY signals when price is below a declining 200-day SMA.
+    df = add_sma(df, 200)
+
     if strategy_name == "ma_crossover":
         # Needs: SMA (fast and slow periods)
         fast_period = params.get("fast_period", 10)
@@ -418,11 +422,31 @@ def add_all_for_strategy(
             f"SMA_{trend_sma}, RSI_{rsi_period}"
         )
 
+    elif strategy_name == "greenblatt_weekly":
+        # Runs on weekly bars. SMA_200 skipped (200 weeks = ~4 years; use slow_sma as trend filter).
+        # Bear market filter uses slow_sma instead of sma_200 for this strategy.
+        fast_sma = params.get("fast_sma", 10)
+        slow_sma = params.get("slow_sma", 40)
+        df = add_sma(df, fast_sma)
+        df = add_sma(df, slow_sma)
+
+        rsi_period = params.get("rsi_period", 14)
+        df = add_rsi(df, rsi_period)
+
+        atr_period = params.get("atr_period", 14)
+        df = add_atr(df, atr_period)
+
+        logger.debug(
+            f"Added indicators for greenblatt_weekly: "
+            f"SMA_{fast_sma}, SMA_{slow_sma}, RSI_{rsi_period}, ATR_{atr_period}"
+        )
+
     else:
         raise ValueError(
             f"Unknown strategy: {strategy_name}. "
             f"Supported: ma_crossover, rsi_mean_reversion, momentum_breakout, "
-            f"bollinger_breakout, vwap_reversion, bollinger_rsi_combo, trend_adaptive_rsi"
+            f"bollinger_breakout, vwap_reversion, bollinger_rsi_combo, "
+            f"trend_adaptive_rsi, greenblatt_weekly"
         )
 
     return df
