@@ -46,6 +46,7 @@ class SignalEngine:
         # State for stateful strategies (mirrors AlphaLab's in_position tracking)
         self._in_position = False
         self._entry_price: float = 0.0
+        self._peak_price: float = 0.0   # for greenblatt_weekly trailing stop
 
         logger.info(
             f"Signal engine initialized | Strategy: {self.strategy_name} | "
@@ -811,22 +812,21 @@ class SignalEngine:
     # =========================================================================
 
     def _greenblatt_weekly_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """Greenblatt Weekly strategy signal on the last weekly bar.
+        """Greenblatt Weekly strategy on the last weekly bar.
 
-        Entry: Weekly RSI < rsi_oversold OR 10w/40w SMA golden cross.
-        Exit:  Weekly RSI > rsi_overbought OR SMA death-cross (after min_hold_weeks).
-        Stop:  Price <= entry_price - (stop_loss_atr_mult × ATR).
-
-        Minimum hold is enforced by the caller (main.py) using entry_timestamp
-        from state. The signal engine still returns SELL; main.py suppresses it
-        unless min_hold is met or it's a stop-loss.
+        Entry: Weekly RSI < rsi_oversold OR 10w/50w golden cross.
+        Exit:  Trailing stop (20% below peak) always fires.
+               RSI/SMA exits only if exit_rsi_overbought/exit_sma_cross=True.
+               Minimum hold enforced via state.is_min_hold_met() in main.py.
         """
         p = self.params
         fast_sma = p.get("fast_sma", 10)
-        slow_sma = p.get("slow_sma", 40)
+        slow_sma = p.get("slow_sma", 50)
         rsi_oversold = p.get("rsi_oversold", 35)
         rsi_overbought = p.get("rsi_overbought", 65)
-        stop_atr_mult = p.get("stop_loss_atr_mult", 2.0)
+        trailing_stop_pct = p.get("trailing_stop_pct", 0.20)
+        exit_rsi = p.get("exit_rsi_overbought", False)
+        exit_sma = p.get("exit_sma_cross", False)
 
         fast_col = f"sma_{fast_sma}"
         slow_col = f"sma_{slow_sma}"
@@ -834,85 +834,88 @@ class SignalEngine:
         if len(df) < 2:
             return self._no_signal("Insufficient weekly bars", 0, warmup_complete=False)
 
-        # Check warmup
-        required = [fast_col, slow_col, "rsi", "atr"]
-        for col in required:
+        for col in [fast_col, slow_col, "rsi"]:
             if col not in df.columns or pd.isna(df[col].iloc[-1]):
                 return self._no_signal(f"Warmup incomplete: {col} not ready", 0, warmup_complete=False)
 
         cur = df.iloc[-1]
         prev = df.iloc[-2]
 
+        price_now = cur["close"]
         rsi_now = cur["rsi"]
         fast_now = cur[fast_col]
         slow_now = cur[slow_col]
         fast_prev = prev[fast_col]
         slow_prev = prev[slow_col]
-        atr_now = cur["atr"]
-        price_now = cur["close"]
-
-        sma_cross_up = (fast_now > slow_now) and (fast_prev <= slow_prev)
-        sma_cross_down = (fast_now < slow_now) and (fast_prev >= slow_prev)
-        rsi_oversold_hit = rsi_now < rsi_oversold
-        rsi_overbought_hit = rsi_now > rsi_overbought
 
         indicators_out = {
             "price": price_now,
             f"sma_{fast_sma}": fast_now,
             f"sma_{slow_sma}": slow_now,
             "rsi": rsi_now,
-            "atr": atr_now,
         }
 
-        # Stop loss check (if in position)
-        if self._in_position and self._entry_price > 0:
-            stop_price = self._entry_price - stop_atr_mult * atr_now
-            if price_now <= stop_price:
+        # Update peak price while in position
+        if self._in_position and price_now > self._peak_price:
+            self._peak_price = price_now
+
+        # --- EXIT logic ---
+        if self._in_position:
+            trailing_stop_level = self._peak_price * (1 - trailing_stop_pct)
+            if price_now <= trailing_stop_level:
                 self._in_position = False
                 self._entry_price = 0.0
+                self._peak_price = 0.0
                 return {
                     "signal": "SELL",
                     "confidence": 0.95,
-                    "reason": f"Weekly stop loss: {price_now:.2f} ≤ {stop_price:.2f}",
+                    "reason": (
+                        f"Trailing stop: {price_now:.2f} ≤ {trailing_stop_level:.2f} "
+                        f"({trailing_stop_pct:.0%} below peak {self._peak_price:.2f})"
+                    ),
                     "indicators": indicators_out,
                     "warmup_complete": True,
                 }
 
-        # Exit signals (min hold enforced externally by main.py)
-        if self._in_position and (rsi_overbought_hit or sma_cross_down):
-            reason = (
-                f"Weekly RSI overbought ({rsi_now:.1f} > {rsi_overbought})"
-                if rsi_overbought_hit
-                else f"Weekly SMA death-cross: SMA{fast_sma}={fast_now:.2f} < SMA{slow_sma}={slow_now:.2f}"
-            )
-            confidence = 0.80 if rsi_overbought_hit else 0.75
-            self._in_position = False
-            self._entry_price = 0.0
-            return {
-                "signal": "SELL",
-                "confidence": confidence,
-                "reason": reason,
-                "indicators": indicators_out,
-                "warmup_complete": True,
-            }
+            sma_cross_down = (fast_now < slow_now) and (fast_prev >= slow_prev)
+            rsi_ob = rsi_now > rsi_overbought
 
-        # Entry signals
-        if not self._in_position and (rsi_oversold_hit or sma_cross_up):
-            reasons = []
-            confidence = 0.0
-            if rsi_oversold_hit:
+            # Optional exits — min hold enforced by main.py
+            if (exit_rsi and rsi_ob) or (exit_sma and sma_cross_down):
+                reason = (
+                    f"RSI overbought ({rsi_now:.1f} > {rsi_overbought})"
+                    if (exit_rsi and rsi_ob)
+                    else f"SMA death-cross: SMA{fast_sma}={fast_now:.2f} < SMA{slow_sma}={slow_now:.2f}"
+                )
+                self._in_position = False
+                self._entry_price = 0.0
+                self._peak_price = 0.0
+                return {
+                    "signal": "SELL",
+                    "confidence": 0.75,
+                    "reason": reason,
+                    "indicators": indicators_out,
+                    "warmup_complete": True,
+                }
+
+        # --- ENTRY logic ---
+        sma_cross_up = (fast_now > slow_now) and (fast_prev <= slow_prev)
+        rsi_os = rsi_now < rsi_oversold
+
+        if not self._in_position and (rsi_os or sma_cross_up):
+            reasons, confidence = [], 0.0
+            if rsi_os:
                 reasons.append(f"Weekly RSI oversold ({rsi_now:.1f} < {rsi_oversold})")
                 confidence = max(confidence, 0.75)
             if sma_cross_up:
-                reasons.append(
-                    f"Weekly golden cross: SMA{fast_sma}={fast_now:.2f} > SMA{slow_sma}={slow_now:.2f}"
-                )
+                reasons.append(f"Weekly golden cross: SMA{fast_sma}={fast_now:.2f} > SMA{slow_sma}={slow_now:.2f}")
                 confidence = max(confidence, 0.80)
-            if rsi_oversold_hit and sma_cross_up:
+            if rsi_os and sma_cross_up:
                 confidence = 0.90
 
             self._in_position = True
             self._entry_price = price_now
+            self._peak_price = price_now
             return {
                 "signal": "BUY",
                 "confidence": confidence,
@@ -925,8 +928,8 @@ class SignalEngine:
             "signal": "HOLD",
             "confidence": 0.0,
             "reason": (
-                f"Holding: RSI={rsi_now:.1f}, SMA{fast_sma}={fast_now:.2f}, "
-                f"SMA{slow_sma}={slow_now:.2f}"
+                f"Holding: RSI={rsi_now:.1f}, peak={self._peak_price:.2f}, "
+                f"stop={self._peak_price*(1-trailing_stop_pct):.2f}"
                 if self._in_position
                 else f"No entry: RSI={rsi_now:.1f}, SMA{fast_sma}={fast_now:.2f} vs SMA{slow_sma}={slow_now:.2f}"
             ),
