@@ -252,7 +252,7 @@ flowchart TD
 
 AlphaLive is a production-grade trading bot with:
 
-- **Signal Generation**: Replicates AlphaLab strategy logic exactly (8 strategies supported)
+- **Signal Generation**: Replicates AlphaLab strategy logic exactly (8 strategies supported, including `greenblatt_weekly` on weekly bars)
 - **Risk Management**: Stop loss, take profit, trailing stop, position sizing, daily limits
 - **Order Execution**: Alpaca Markets API with retry logic, slippage checks, partial fill handling
 - **Market Data**: Real-time bars from Alpaca with caching and staleness detection
@@ -265,9 +265,12 @@ AlphaLive is a production-grade trading bot with:
 - Wakes up at 9:30 AM ET and starts trading
 
 **Signal Timing**:
+- **1Week strategies**: Check once per week, Monday morning at 9:35 AM ET
 - **1Day strategies**: Check once per day at 9:35 AM ET
 - **1Hour strategies**: Check every hour at :00 minutes
 - **15Min strategies**: Check every 15 minutes (:00, :15, :30, :45)
+
+> **Note on 1Week:** Alpaca does not serve weekly bars natively. AlphaLive fetches daily bars and resamples them to weekly internally (`W-FRI` aggregation). No extra configuration needed.
 
 **Exit Monitoring**:
 - Checks stop loss / take profit every 5 minutes during market hours
@@ -542,7 +545,9 @@ When you switch to live trading (`ALPACA_PAPER=false`), you'll see:
 
 ## Strategies Supported
 
-AlphaLive supports 8 strategies exported from AlphaLab:
+AlphaLive supports 8 strategies exported from AlphaLab.
+
+> ⚠️ **Performance reality check:** Walk-forward testing shows all 7 daily/intraday strategies underperform buy-and-hold SPY (~0.5% vs 13.7% CAGR). Do not go live with daily strategies until walk-forward Sharpe > 0.8 and CAGR > 13%. The `greenblatt_weekly` strategy is the current development focus.
 
 ### 1. MA Crossover
 **Description**: Buy when fast SMA crosses above slow SMA, sell when it crosses below.
@@ -614,7 +619,7 @@ AlphaLive supports 8 strategies exported from AlphaLab:
 
 **Best For**: High-frequency signals on 15Min timeframes (2-5 signals/day)
 
-**Backtest Performance**: 70.6% win rate, Sharpe 2.73 on SPY
+> ⚠️ Win rate and Sharpe figures removed — not walk-forward validated.
 
 ---
 
@@ -630,7 +635,7 @@ AlphaLive supports 8 strategies exported from AlphaLab:
 
 **Best For**: High-precision entries, 15Min or Daily timeframes (1-3 signals/day)
 
-**Backtest Performance**: 87.5% win rate (highest), Sharpe 2.49 on SPY
+> ⚠️ Win rate and Sharpe figures removed — not walk-forward validated.
 
 ---
 
@@ -647,7 +652,27 @@ AlphaLive supports 8 strategies exported from AlphaLab:
 
 **Best For**: Adaptive to changing markets, 1Hour timeframes (1-2 signals/day)
 
-**Backtest Performance**: 72.7% win rate, Sharpe 3.96 (best risk-adjusted) on SPY
+> ⚠️ Win rate and Sharpe figures removed — not walk-forward validated.
+
+---
+
+### 9. Greenblatt Weekly (`greenblatt_weekly`) — value factor, weekly bars
+
+**Designed for 3–12 month holding periods.** Run the Greenblatt screener in AlphaLab first to identify quality candidates (earnings yield + ROE ranked), then deploy weekly entry timing in AlphaLive.
+
+**Timeframe**: `1Week` — AlphaLive fetches daily Alpaca bars and resamples to weekly automatically.
+
+**Entry** (either condition on weekly bars):
+- Weekly RSI < 35 (oversold)
+- 10-week SMA crosses above 40-week SMA (golden cross)
+
+**Exit** (after minimum 12-week hold):
+- Weekly RSI > 65, or 10w/40w SMA death-cross
+- Stop-loss always immediate (bypasses minimum hold)
+
+**Key params:** `fast_sma` (10), `slow_sma` (40), `rsi_oversold` (35), `rsi_overbought` (65), `min_hold_bars` (12), `stop_loss_atr_mult` (2.0)
+
+**Minimum hold enforcement:** AlphaLive tracks `entry_timestamps` in `state.json`. SELL signals are suppressed until `min_hold_bars` weeks have elapsed, except for stop-loss exits.
 
 ---
 
@@ -655,15 +680,15 @@ AlphaLive supports 8 strategies exported from AlphaLab:
 
 AlphaLive includes **5 production-ready strategy configs** in `configs/production/`:
 
-| Config | Strategy | Ticker | Timeframe | Expected Signals/Day | Backtest Win Rate | Sharpe |
-|--------|----------|--------|-----------|----------------------|-------------------|--------|
-| `rsi_simple_SPY_15Min.json` | RSI Simple | SPY | 15Min | 2-5 | 70.6% | 2.73 |
-| `bollinger_rsi_SPY_15Min.json` | Bollinger RSI Combo | SPY | 15Min | 1-3 | 87.5% | 2.49 |
-| `trend_adaptive_SPY_1Hour.json` | Trend Adaptive RSI | SPY | 1Hour | 1-2 | 72.7% | 3.96 |
-| `rsi_mean_reversion_SPY_RELAXED.json` | RSI Mean Reversion | SPY | Daily | Variable | — | — |
-| `ma_crossover_AAPL_FAST.json` | MA Crossover | AAPL | Daily | Variable | — | — |
+| Config | Strategy | Ticker | Timeframe | Notes |
+|--------|----------|--------|-----------|-------|
+| `rsi_simple_SPY_15Min.json` | RSI Simple | SPY | 15Min | Not walk-forward validated |
+| `bollinger_rsi_SPY_15Min.json` | Bollinger RSI Combo | SPY | 15Min | Not walk-forward validated |
+| `trend_adaptive_SPY_1Hour.json` | Trend Adaptive RSI | SPY | 1Hour | Not walk-forward validated |
+| `rsi_mean_reversion_SPY_RELAXED.json` | RSI Mean Reversion | SPY | Daily | Not walk-forward validated |
+| `ma_crossover_AAPL_FAST.json` | MA Crossover | AAPL | Daily | Not walk-forward validated |
 
-**Recommended for first deployment**: `rsi_simple_SPY_15Min.json` (balanced win rate and signal frequency)
+> ⚠️ **None of these configs have passed walk-forward validation.** All daily/intraday strategies underperform buy-and-hold SPY in out-of-sample testing. Run `walk_forward_validation.py` in AlphaLab before deploying any config with real money.
 
 ---
 
