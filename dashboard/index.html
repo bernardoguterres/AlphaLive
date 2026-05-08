@@ -112,8 +112,30 @@
       >◼ MARKET CLOSED</span>
     </div>
 
+    <!-- Railway deploy button -->
+    <div class="order-2 sm:order-3 shrink-0">
+      <button
+        @click="triggerDeploy()"
+        :disabled="deployPending || !health?.railway_configured"
+        :title="health?.railway_configured
+          ? 'Trigger a Railway redeploy'
+          : 'Set RAILWAY_API_TOKEN, RAILWAY_SERVICE_ID, RAILWAY_ENVIRONMENT_ID to enable'"
+        class="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium border transition-all duration-150
+               disabled:opacity-40 disabled:cursor-not-allowed"
+        :class="health?.railway_configured
+          ? 'bg-indigo-900/40 text-indigo-300 border-indigo-700/40 hover:bg-indigo-800/50'
+          : 'bg-slate-800/40 text-slate-600 border-slate-700/30'"
+      >
+        <svg class="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+          <path stroke-linecap="round" stroke-linejoin="round"
+                d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.63 2v5.52m5.96 6.85H3.42a14.98 14.98 0 0012.13 6.38"/>
+        </svg>
+        <span x-text="deployPending ? 'Deploying…' : 'Redeploy'"></span>
+      </button>
+    </div>
+
     <!-- WS status + last updated -->
-    <div class="flex items-center gap-2 text-slate-500 text-xs shrink-0 order-2 sm:order-3">
+    <div class="flex items-center gap-2 text-slate-500 text-xs shrink-0 order-2 sm:order-4">
       <!-- Live connection dot -->
       <span
         class="inline-block w-2 h-2 rounded-full shrink-0"
@@ -717,6 +739,9 @@ document.addEventListener('alpine:init', () => {
     // ── Kill switch ───────────────────────────────────────────────────
     killSwitchPending: false,
 
+    // ── Railway deploy ────────────────────────────────────────────────
+    deployPending: false,
+
     // ── Screener ──────────────────────────────────────────────────────
     screener:         null,   // null = not loaded, false = 404, object = data
     screenerLoading:  false,
@@ -1062,6 +1087,25 @@ document.addEventListener('alpine:init', () => {
         this.showToast(`Kill switch failed: ${e.message}`, 'info');
       } finally {
         this.killSwitchPending = false;
+      }
+    },
+
+    // ── Railway deploy ────────────────────────────────────────────────
+    async triggerDeploy() {
+      if (!confirm('Trigger a Railway redeploy of AlphaLive?\n\nThe bot will restart in ~30 seconds.')) return;
+      this.deployPending = true;
+      try {
+        const r = await fetch('/api/deploy', { method: 'POST' });
+        const data = await r.json();
+        if (!r.ok) {
+          this.showToast(data.detail ?? `Deploy failed (HTTP ${r.status})`, 'info');
+        } else {
+          this.showToast('🚀 Redeploy triggered — Railway restarting in ~30s', 'buy');
+        }
+      } catch(e) {
+        this.showToast(`Deploy error: ${e.message}`, 'info');
+      } finally {
+        this.deployPending = false;
       }
     },
 
