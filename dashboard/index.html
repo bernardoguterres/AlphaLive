@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AlphaLive Dashboard</title>
 
+  <!-- Apply saved theme before any rendering to prevent flash -->
+  <script>if (localStorage.getItem('alphalive-theme') === 'light') document.documentElement.classList.add('light');</script>
+
   <!-- Tailwind CSS CDN (JIT — supports arbitrary values) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
@@ -15,44 +18,92 @@
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
 
   <style>
-    :root { color-scheme: dark; }
-    body { background-color: #0f1117; }
+    /* ── Colour tokens ─────────────────────────────────────────────── */
+    :root {
+      color-scheme: dark;
+      --bg-page:      #0f1117;
+      --bg-card:      #161b2d;
+      --bdr-card:     rgba(255,255,255,0.06);
+      --bdr-row:      rgba(255,255,255,0.04);
+      --hover-row:    rgba(255,255,255,0.025);
+      --text-base:    #e2e8f0;
+      --text-strong:  #ffffff;
+      --text-muted:   #64748b;
+      --scrollbar-bg: #0f1117;
+      --scrollbar-th: #334155;
+      --bar-track:    #1e293b;
+    }
+    html.light {
+      color-scheme: light;
+      --bg-page:      #f1f5f9;
+      --bg-card:      #ffffff;
+      --bdr-card:     rgba(0,0,0,0.09);
+      --bdr-row:      rgba(0,0,0,0.06);
+      --hover-row:    rgba(0,0,0,0.03);
+      --text-base:    #1e293b;
+      --text-strong:  #0f172a;
+      --text-muted:   #64748b;
+      --scrollbar-bg: #f1f5f9;
+      --scrollbar-th: #cbd5e1;
+      --bar-track:    #e2e8f0;
+    }
 
-    /* Card hover glow */
-    .card { transition: box-shadow 0.2s ease; }
+    /* ── Base ──────────────────────────────────────────────────────── */
+    body { background-color: var(--bg-page); transition: background-color 0.2s; }
+
+    /* Cards: override Tailwind's bg-[#161b2d] via !important so CSS vars win */
+    .card {
+      background-color: var(--bg-card) !important;
+      transition: box-shadow 0.2s ease, background-color 0.2s;
+    }
     .card:hover { box-shadow: 0 0 0 1px rgba(99,102,241,0.15), 0 4px 24px rgba(0,0,0,0.4); }
+    html.light .card:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.1); }
 
-    /* Scrollbar */
+    /* ── Light-mode targeted overrides ────────────────────────────── */
+    /* Card borders */
+    html.light .border-white\/\[0\.06\] { border-color: var(--bdr-card) !important; }
+    /* Table row dividers */
+    html.light .border-white\/\[0\.04\] { border-color: var(--bdr-row) !important; }
+    /* Table row hover */
+    html.light .hover\:bg-white\/\[0\.025\]:hover,
+    html.light .hover\:bg-white\/\[0\.03\]:hover { background-color: var(--hover-row) !important; }
+    /* Progress bar track */
+    html.light .bg-slate-800 { background-color: var(--bar-track) !important; }
+    /* Inner dividers on cards */
+    html.light .border-white\/\[0\.06\] { border-color: var(--bdr-card) !important; }
+
+    /* Text: white / slate-200 / slate-300 need to flip in light mode */
+    html.light .text-white   { color: var(--text-strong) !important; }
+    html.light .text-slate-200 { color: #1e293b !important; }
+    html.light .text-slate-300 { color: #334155 !important; }
+    /* slate-400 and below stay as-is — they read fine on both backgrounds */
+
+    /* ── Scrollbar ─────────────────────────────────────────────────── */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: #0f1117; }
-    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    ::-webkit-scrollbar-track { background: var(--scrollbar-bg); }
+    ::-webkit-scrollbar-thumb { background: var(--scrollbar-th); border-radius: 3px; }
 
-    /* Bot status badge pulse */
+    /* ── Animations ────────────────────────────────────────────────── */
     @keyframes pulse-green { 0%, 100% { opacity: 1; } 50% { opacity: 0.65; } }
     .badge-live { animation: pulse-green 2s ease-in-out infinite; }
 
-    /* WS dot states */
     @keyframes ws-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.85); } }
-    .ws-dot-connected   { background: #10b981; animation: ws-pulse 2.5s ease-in-out infinite; }
-    .ws-dot-connecting  { background: #6b7280; animation: ws-pulse 1s ease-in-out infinite; }
-    .ws-dot-disconnected{ background: #ef4444; }
+    .ws-dot-connected    { background: #10b981; animation: ws-pulse 2.5s ease-in-out infinite; }
+    .ws-dot-connecting   { background: #6b7280; animation: ws-pulse 1s ease-in-out infinite; }
+    .ws-dot-disconnected { background: #ef4444; }
 
-    /* Progress bar fills */
     .loss-bar-safe   { background: linear-gradient(90deg, #10b981, #34d399); }
     .loss-bar-warn   { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
     .loss-bar-danger { background: linear-gradient(90deg, #ef4444, #f87171); }
 
-    /* P&L number flash when value changes */
     @keyframes pnl-changed { 0% { transform: scale(1.06); opacity: 0.7; } 100% { transform: scale(1); opacity: 1; } }
     .pnl-flash { animation: pnl-changed 0.35s ease-out; }
 
-    /* Position row flash (green = improved, red = declined) */
     @keyframes row-flash-green { 0% { background-color: rgba(16,185,129,0.22); } 100% { background-color: transparent; } }
     @keyframes row-flash-red   { 0% { background-color: rgba(239,68,68,0.22);  } 100% { background-color: transparent; } }
     .row-flash-green { animation: row-flash-green 0.7s ease-out; }
     .row-flash-red   { animation: row-flash-red   0.7s ease-out; }
 
-    /* Toast slide-in */
     @keyframes toast-in { 0% { opacity: 0; transform: translateX(2rem); } 100% { opacity: 1; transform: translateX(0); } }
     .toast-enter { animation: toast-in 0.25s ease-out; }
 
@@ -134,8 +185,33 @@
       </button>
     </div>
 
+    <!-- Dark / light mode toggle -->
+    <button
+      @click="toggleTheme()"
+      class="p-1.5 rounded-lg border transition-colors shrink-0 order-2 sm:order-4"
+      :class="darkMode
+        ? 'border-slate-700/60 text-slate-400 hover:text-slate-200 hover:border-slate-500'
+        : 'border-slate-300 text-slate-500 hover:text-slate-800 hover:border-slate-400'"
+      :title="darkMode ? 'Switch to light mode' : 'Switch to dark mode'"
+    >
+      <!-- Sun — shown in dark mode (click → go light) -->
+      <template x-if="darkMode">
+        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round"
+                d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M18.364 18.364l-.707-.707M6.343 6.343l-.707-.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+        </svg>
+      </template>
+      <!-- Moon — shown in light mode (click → go dark) -->
+      <template x-if="!darkMode">
+        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round"
+                d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+        </svg>
+      </template>
+    </button>
+
     <!-- WS status + last updated -->
-    <div class="flex items-center gap-2 text-slate-500 text-xs shrink-0 order-2 sm:order-4">
+    <div class="flex items-center gap-2 text-slate-500 text-xs shrink-0 order-2 sm:order-5">
       <!-- Live connection dot -->
       <span
         class="inline-block w-2 h-2 rounded-full shrink-0"
@@ -702,6 +778,19 @@ document.addEventListener('alpine:init', () => {
     lastUpdated: null,
     chartsReady: false,
 
+    // ── Theme ─────────────────────────────────────────────────────────
+    darkMode: localStorage.getItem('alphalive-theme') !== 'light',
+
+    applyTheme() {
+      document.documentElement.classList.toggle('light', !this.darkMode);
+      localStorage.setItem('alphalive-theme', this.darkMode ? 'dark' : 'light');
+    },
+
+    toggleTheme() {
+      this.darkMode = !this.darkMode;
+      this.applyTheme();
+    },
+
     // ── P&L localStorage persistence ─────────────────────────────────
     _pnlStorageKey() {
       return `alphalive_pnl_${new Date().toLocaleDateString('en-CA')}`;
@@ -761,6 +850,7 @@ document.addEventListener('alpine:init', () => {
 
     // ──────────────────────────────────────────────────────────────────
     init() {
+      this.applyTheme();
       this.loadPnlFromStorage();
       this.connectWS();
       this.fetchScreener();
