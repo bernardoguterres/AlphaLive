@@ -685,9 +685,25 @@
        ORDERS LOG — full width
        ================================================================== -->
   <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] overflow-hidden">
-    <div class="px-5 py-3.5 border-b border-white/[0.06] flex items-center justify-between">
+    <div class="px-5 py-3.5 border-b border-white/[0.06] flex items-center justify-between gap-3">
       <h2 class="text-xs font-semibold text-slate-300 uppercase tracking-widest">Recent Orders</h2>
-      <span class="text-xs text-slate-500" x-text="orders.length + ' today'"></span>
+      <div class="flex items-center gap-3">
+        <span class="text-xs text-slate-500" x-text="orders.length + ' today'"></span>
+        <button
+          @click="exportCsv()"
+          :disabled="!orders.length"
+          title="Download today's orders as CSV"
+          class="flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium border
+                 transition-colors disabled:opacity-30 disabled:cursor-not-allowed
+                 border-slate-700/50 text-slate-400 hover:text-slate-200 hover:border-slate-500"
+        >
+          <svg class="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+          </svg>
+          <span class="hidden sm:inline">Export CSV</span>
+        </button>
+      </div>
     </div>
 
     <div class="overflow-x-auto">
@@ -1114,6 +1130,51 @@ document.addEventListener('alpine:init', () => {
           scales: { x: { display: false }, y: { display: false } },
         },
       });
+    },
+
+    // ── CSV export ────────────────────────────────────────────────────
+    exportCsv() {
+      if (!this.orders.length) return;
+
+      const headers = [
+        'Symbol', 'Side', 'Type', 'Qty', 'Filled Qty',
+        'Avg Fill Price', 'Fill Value', 'Realized P&L',
+        'Status', 'Submitted At', 'Filled At',
+      ];
+
+      const rows = this.orders.map(o => {
+        const pnl   = this.orderPnlMap[o.id];
+        const value = (o.filled_avg_price && o.filled_qty)
+          ? (o.filled_qty * o.filled_avg_price).toFixed(2)
+          : '';
+        return [
+          o.symbol,
+          o.side,
+          o.order_type,
+          o.qty,
+          o.filled_qty,
+          o.filled_avg_price != null ? o.filled_avg_price.toFixed(2) : '',
+          value,
+          pnl != null ? pnl.toFixed(2) : '',
+          o.status,
+          o.submitted_at ?? '',
+          o.filled_at ?? '',
+        ];
+      });
+
+      const escape = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const csv = [headers, ...rows].map(r => r.map(escape).join(',')).join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url  = URL.createObjectURL(blob);
+      const a    = Object.assign(document.createElement('a'), {
+        href:     url,
+        download: `alphalive-orders-${new Date().toLocaleDateString('en-CA')}.csv`,
+      });
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     },
 
     // ── Realized P&L matching (FIFO, today's orders only) ────────────
