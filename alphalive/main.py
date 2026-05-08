@@ -17,6 +17,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from alphalive.config import load_config_path, load_env, validate_all
+from alphalive.state import BotState
 from alphalive.broker.alpaca_broker import AlpacaBroker
 from alphalive.data.market_data import MarketDataFetcher, DataStaleError
 from alphalive.strategy.signal_engine import SignalEngine
@@ -112,6 +113,9 @@ def main(
         logger.info(f"Multi-strategy mode: {len(all_strategy_configs)} strategies loaded")
         for i, cfg in enumerate(all_strategy_configs, 1):
             logger.info(f"  [{i}] {cfg.strategy.name} on {cfg.ticker} @ {cfg.timeframe}")
+
+    # State file — used for dashboard kill switch and trailing stop persistence
+    bot_state = BotState(app_config.state_file)
 
     # Override with command-line args
     app_config.dry_run = dry_run or app_config.dry_run
@@ -423,6 +427,12 @@ def main(
                     order_manager_map[ticker].reset_daily()
 
                 logger.info(f"=== New trading day: {current_day} ({now_et.strftime('%A')}) ===")
+
+            # --- Dashboard kill switch (checked every loop iteration) ---
+            if bot_state.check_dashboard_paused():
+                logger.info("Trading paused via dashboard kill switch — sleeping 30s")
+                time.sleep(30)
+                continue
 
             # --- Market closed? Sleep longer ---
             if not broker.is_market_open():

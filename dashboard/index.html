@@ -274,7 +274,7 @@
         <div class="relative h-[110px]">
           <canvas id="pnlChart"></canvas>
         </div>
-        <p class="text-center text-[10px] text-slate-700 mt-1">Session only · 5s resolution</p>
+        <p class="text-center text-[10px] text-slate-700 mt-1">Persisted today · 5s resolution</p>
       </div>
 
       <!-- Portfolio allocation donut -->
@@ -340,13 +340,27 @@
       <h2 class="text-xs font-semibold text-slate-300 uppercase tracking-widest mb-4">System Status</h2>
       <div class="space-y-2.5">
 
+        <!-- Trading status + kill switch button -->
         <div class="flex items-center justify-between">
           <span class="text-slate-500 text-xs">Trading</span>
-          <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase"
-                :class="risk?.trading_paused
-                  ? 'bg-red-900/50 text-red-400 border border-red-700/30'
-                  : 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/20'"
-                x-text="risk?.trading_paused ? '⏸ PAUSED' : '▶ ACTIVE'">—</span>
+          <div class="flex items-center gap-2">
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase"
+                  :class="risk?.trading_paused
+                    ? 'bg-red-900/50 text-red-400 border border-red-700/30'
+                    : 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/20'"
+                  x-text="risk?.trading_paused ? '⏸ PAUSED' : '▶ ACTIVE'">—</span>
+            <!-- Kill switch button -->
+            <button
+              @click="togglePause()"
+              :disabled="killSwitchPending"
+              class="px-2 py-0.5 rounded text-[10px] font-semibold border transition-all duration-150 disabled:opacity-40"
+              :class="risk?.trading_paused_dashboard
+                ? 'bg-emerald-900/50 text-emerald-400 border-emerald-700/40 hover:bg-emerald-800/60'
+                : 'bg-red-900/40 text-red-400 border-red-700/30 hover:bg-red-800/50'"
+              :title="risk?.trading_paused_dashboard ? 'Resume trading' : 'Pause trading via dashboard'"
+              x-text="killSwitchPending ? '…' : risk?.trading_paused_dashboard ? '▶ Resume' : '⏸ Pause'"
+            ></button>
+          </div>
         </div>
 
         <div class="flex items-center justify-between">
@@ -544,10 +558,42 @@ document.addEventListener('alpine:init', () => {
     lastUpdated: null,
     chartsReady: false,
 
+    // ── P&L localStorage persistence ─────────────────────────────────
+    _pnlStorageKey() {
+      return `alphalive_pnl_${new Date().toLocaleDateString('en-CA')}`;
+    },
+
+    loadPnlFromStorage() {
+      try {
+        const key = this._pnlStorageKey();
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed.labels) && Array.isArray(parsed.data)
+              && parsed.labels.length === parsed.data.length) {
+            this.pnlSeries = parsed;
+          }
+        }
+        // Remove stale keys from previous days
+        Object.keys(localStorage)
+          .filter(k => k.startsWith('alphalive_pnl_') && k !== key)
+          .forEach(k => localStorage.removeItem(k));
+      } catch(_) { /* localStorage unavailable — degrade silently */ }
+    },
+
+    savePnlToStorage() {
+      try {
+        localStorage.setItem(this._pnlStorageKey(), JSON.stringify(this.pnlSeries));
+      } catch(_) { /* storage full — silently ignore */ }
+    },
+
     // ── WebSocket ─────────────────────────────────────────────────────
     ws:                null,
     wsStatus:          'connecting',   // 'connected' | 'connecting' | 'disconnected'
     wsReconnectDelay:  1000,
+
+    // ── Kill switch ───────────────────────────────────────────────────
+    killSwitchPending: false,
 
     // ── Change tracking ───────────────────────────────────────────────
     prevPositionPnl: {},  // { symbol: unrealized_pl }
@@ -556,11 +602,12 @@ document.addEventListener('alpine:init', () => {
     prevDailyPnl:    null,
     prevOrderIds:    [],  // IDs seen in last push
 
-    // ── P&L time series (session only) ────────────────────────────────
+    // ── P&L time series (persisted to localStorage, keyed by date) ───
     pnlSeries: { labels: [], data: [] },
 
     // ──────────────────────────────────────────────────────────────────
     init() {
+      this.loadPnlFromStorage();
       this.connectWS();
     },
 
@@ -665,16 +712,17 @@ document.addEventListener('alpine:init', () => {
 
       if (d.health !== undefined) this.health = d.health;
 
-      // P&L time series
+      // P&L time series — cap at 5040 points (full 7h trading day at 5s resolution)
       if (this.risk != null) {
         const lbl = new Date().toLocaleTimeString('en-US',
           { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
         this.pnlSeries.labels.push(lbl);
         this.pnlSeries.data.push(this.risk.daily_pnl ?? 0);
-        if (this.pnlSeries.labels.length > 72) {   // ~6 min at 5s intervals
+        if (this.pnlSeries.labels.length > 5040) {
           this.pnlSeries.labels.shift();
           this.pnlSeries.data.shift();
         }
+        this.savePnlToStorage();
       }
 
       this.lastUpdated = new Date().toLocaleTimeString('en-US',
@@ -799,6 +847,28 @@ document.addEventListener('alpine:init', () => {
           scales: { x: { display: false }, y: { display: false } },
         },
       });
+    },
+
+    // ── Kill switch ───────────────────────────────────────────────────
+    async togglePause() {
+      const pausing = !this.risk?.trading_paused_dashboard;
+      const label   = pausing ? 'Pause' : 'Resume';
+      if (!confirm(`${label} trading via dashboard kill switch?`)) return;
+
+      this.killSwitchPending = true;
+      try {
+        const endpoint = pausing ? '/api/control/pause' : '/api/control/resume';
+        const r = await fetch(endpoint, { method: 'POST' });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        this.showToast(
+          pausing ? '⏸ Trading paused via dashboard' : '▶ Trading resumed via dashboard',
+          pausing ? 'sell' : 'buy'
+        );
+      } catch(e) {
+        this.showToast(`Kill switch failed: ${e.message}`, 'info');
+      } finally {
+        this.killSwitchPending = false;
+      }
     },
 
     // ── Toast notifications ───────────────────────────────────────────

@@ -309,9 +309,13 @@ def _build_payload() -> Dict[str, Any]:
                 if daily_pnl < 0 and loss_limit_dollars > 0
                 else 0.0
             )
+        env_paused = os.getenv("TRADING_PAUSED", "false").lower() in ("true", "1", "yes")
+        dash_paused = bool(state.get("dashboard_paused", False))
         out["risk"] = {
             "daily_pnl": daily_pnl,
-            "trading_paused": os.getenv("TRADING_PAUSED", "false").lower() in ("true", "1", "yes"),
+            "trading_paused": env_paused or dash_paused,
+            "trading_paused_env": env_paused,
+            "trading_paused_dashboard": dash_paused,
             "dry_run": os.getenv("DRY_RUN", "false").lower() in ("true", "1", "yes"),
             "equity": equity,
             "daily_loss_limit_pct": loss_limit_pct,
@@ -541,6 +545,34 @@ async def api_bars(ticker: str, n: int = 20):
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Kill switch control endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/api/control/pause")
+async def api_pause():
+    """Activate dashboard kill switch — bot stops taking new signals within 30s."""
+    loop = asyncio.get_event_loop()
+    def _do():
+        from alphalive.state import BotState
+        BotState(os.getenv("STATE_FILE", "/tmp/alphalive_state.json")).set_dashboard_pause(True)
+    await loop.run_in_executor(None, _do)
+    logger.info("Dashboard kill switch ACTIVATED via POST /api/control/pause")
+    return {"ok": True, "dashboard_paused": True}
+
+
+@app.post("/api/control/resume")
+async def api_resume():
+    """Deactivate dashboard kill switch — bot resumes normal operation."""
+    loop = asyncio.get_event_loop()
+    def _do():
+        from alphalive.state import BotState
+        BotState(os.getenv("STATE_FILE", "/tmp/alphalive_state.json")).set_dashboard_pause(False)
+    await loop.run_in_executor(None, _do)
+    logger.info("Dashboard kill switch CLEARED via POST /api/control/resume")
+    return {"ok": True, "dashboard_paused": False}
 
 
 # ---------------------------------------------------------------------------
