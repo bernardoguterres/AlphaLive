@@ -127,17 +127,21 @@
 <div
   x-data="dashboard"
   x-cloak
-  class="max-w-[1600px] mx-auto px-3 sm:px-5 py-4 space-y-4"
+  class="max-w-[1600px] mx-auto px-3 sm:px-5 py-4 pb-8 space-y-4"
 >
 
   <!-- ==================================================================
        TOP BAR
        ================================================================== -->
+  <!--
+    Mobile layout  (< sm):  Row 1 = [Brand ··· Controls]   Row 2 = [Status badges, full-width]
+    Desktop layout (sm+):   Single row = [Brand] [Badges] [Controls]
+  -->
   <header class="card bg-[#161b2d] rounded-xl border border-white/[0.06] px-4 sm:px-5 py-3
-                 flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
+                 flex flex-wrap items-center gap-x-3 gap-y-2">
 
-    <!-- Brand -->
-    <div class="flex items-center gap-3 min-w-0">
+    <!-- [1] Brand — always row 1, left -->
+    <div class="flex items-center gap-2.5 shrink-0">
       <svg class="w-5 h-5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24"
            stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
@@ -146,14 +150,14 @@
       <span class="text-slate-500 text-sm hidden sm:inline">Dashboard</span>
     </div>
 
-    <!-- Status badges -->
-    <div class="flex items-center gap-2 flex-wrap justify-center order-3 sm:order-2 w-full sm:w-auto">
+    <!-- [3] Status badges — row 2 on mobile (full width), inline on sm+ -->
+    <div class="flex items-center gap-2 flex-wrap justify-center
+                order-3 sm:order-2 w-full sm:w-auto sm:flex-1">
       <span
         :class="[statusClass(), botStatus() === 'LIVE' ? 'badge-live' : '']"
         class="px-3 py-1 rounded-full text-xs font-bold tracking-wide uppercase"
         x-text="botStatus()"
       >CONNECTING</span>
-
       <span
         :class="health?.market?.is_open
           ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
@@ -163,16 +167,18 @@
       >◼ MARKET CLOSED</span>
     </div>
 
-    <!-- Railway deploy button -->
-    <div class="order-2 sm:order-3 shrink-0">
+    <!-- [2] Controls group — row 1, pushed to right via ml-auto; order-3 on sm+ -->
+    <div class="flex items-center gap-2 ml-auto order-2 sm:order-3 shrink-0">
+
+      <!-- Railway deploy button -->
       <button
         @click="triggerDeploy()"
         :disabled="deployPending || !health?.railway_configured"
         :title="health?.railway_configured
           ? 'Trigger a Railway redeploy'
           : 'Set RAILWAY_API_TOKEN, RAILWAY_SERVICE_ID, RAILWAY_ENVIRONMENT_ID to enable'"
-        class="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium border transition-all duration-150
-               disabled:opacity-40 disabled:cursor-not-allowed"
+        class="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
+               border transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
         :class="health?.railway_configured
           ? 'bg-indigo-900/40 text-indigo-300 border-indigo-700/40 hover:bg-indigo-800/50'
           : 'bg-slate-800/40 text-slate-600 border-slate-700/30'"
@@ -183,50 +189,63 @@
         </svg>
         <span x-text="deployPending ? 'Deploying…' : 'Redeploy'"></span>
       </button>
-    </div>
-
-    <!-- Dark / light mode toggle -->
-    <button
-      @click="toggleTheme()"
-      class="p-1.5 rounded-lg border transition-colors shrink-0 order-2 sm:order-4"
-      :class="darkMode
-        ? 'border-slate-700/60 text-slate-400 hover:text-slate-200 hover:border-slate-500'
-        : 'border-slate-300 text-slate-500 hover:text-slate-800 hover:border-slate-400'"
-      :title="darkMode ? 'Switch to light mode' : 'Switch to dark mode'"
-    >
-      <!-- Sun — shown in dark mode (click → go light) -->
-      <template x-if="darkMode">
-        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+      <!-- Mobile: icon-only redeploy -->
+      <button
+        @click="triggerDeploy()"
+        :disabled="deployPending || !health?.railway_configured"
+        :title="health?.railway_configured ? 'Redeploy on Railway' : 'Railway not configured'"
+        class="sm:hidden p-1.5 rounded-lg border transition-colors disabled:opacity-40"
+        :class="health?.railway_configured
+          ? 'bg-indigo-900/40 text-indigo-300 border-indigo-700/40'
+          : 'bg-slate-800/40 text-slate-600 border-slate-700/30'"
+      >
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
           <path stroke-linecap="round" stroke-linejoin="round"
-                d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M18.364 18.364l-.707-.707M6.343 6.343l-.707-.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+                d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.63 2v5.52m5.96 6.85H3.42a14.98 14.98 0 0012.13 6.38"/>
         </svg>
-      </template>
-      <!-- Moon — shown in light mode (click → go dark) -->
-      <template x-if="!darkMode">
-        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round"
-                d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
-        </svg>
-      </template>
-    </button>
+      </button>
 
-    <!-- WS status + last updated -->
-    <div class="flex items-center gap-2 text-slate-500 text-xs shrink-0 order-2 sm:order-5">
-      <!-- Live connection dot -->
-      <span
-        class="inline-block w-2 h-2 rounded-full shrink-0"
-        :class="{
-          'ws-dot-connected':    wsStatus === 'connected',
-          'ws-dot-connecting':   wsStatus === 'connecting',
-          'ws-dot-disconnected': wsStatus === 'disconnected',
-        }"
-        :title="wsStatus === 'connected' ? 'Live' : wsStatus === 'connecting' ? 'Reconnecting…' : 'Disconnected'"
-      ></span>
-      <span x-show="lastUpdated">
-        <span class="text-slate-300" x-text="lastUpdated"></span>
-      </span>
-      <span x-show="!lastUpdated" class="animate-pulse">Connecting…</span>
-    </div>
+      <!-- Dark / light mode toggle -->
+      <button
+        @click="toggleTheme()"
+        class="p-1.5 rounded-lg border transition-colors"
+        :class="darkMode
+          ? 'border-slate-700/60 text-slate-400 hover:text-slate-200 hover:border-slate-500'
+          : 'border-slate-300 text-slate-500 hover:text-slate-800 hover:border-slate-400'"
+        :title="darkMode ? 'Switch to light mode' : 'Switch to dark mode'"
+      >
+        <template x-if="darkMode">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M18.364 18.364l-.707-.707M6.343 6.343l-.707-.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+          </svg>
+        </template>
+        <template x-if="!darkMode">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+          </svg>
+        </template>
+      </button>
+
+      <!-- WS dot + last updated -->
+      <div class="flex items-center gap-1.5">
+        <span
+          class="inline-block w-2 h-2 rounded-full shrink-0"
+          :class="{
+            'ws-dot-connected':    wsStatus === 'connected',
+            'ws-dot-connecting':   wsStatus === 'connecting',
+            'ws-dot-disconnected': wsStatus === 'disconnected',
+          }"
+          :title="wsStatus === 'connected' ? 'Live' : wsStatus === 'connecting' ? 'Reconnecting…' : 'Disconnected'"
+        ></span>
+        <span class="hidden sm:inline" x-show="lastUpdated">
+          <span class="text-slate-300 text-xs" x-text="lastUpdated"></span>
+        </span>
+        <span class="hidden sm:inline text-xs animate-pulse" x-show="!lastUpdated">Connecting…</span>
+      </div>
+
+    </div><!-- /controls group -->
   </header>
 
 
@@ -456,7 +475,7 @@
             <button
               @click="togglePause()"
               :disabled="killSwitchPending"
-              class="px-2 py-0.5 rounded text-[10px] font-semibold border transition-all duration-150 disabled:opacity-40"
+              class="px-2 py-1 rounded text-[10px] font-semibold border transition-all duration-150 disabled:opacity-40"
               :class="risk?.trading_paused_dashboard
                 ? 'bg-emerald-900/50 text-emerald-400 border-emerald-700/40 hover:bg-emerald-800/60'
                 : 'bg-red-900/40 text-red-400 border-red-700/30 hover:bg-red-800/50'"
@@ -561,7 +580,7 @@
           Magic Formula Screener
         </h2>
         <template x-if="screener">
-          <span class="text-[10px] text-slate-500"
+          <span class="text-[10px] text-slate-500 hidden sm:inline truncate"
                 x-text="'Last run ' + fmtDate(screener.screened_at) + ' · ' + screener.universe_size + ' tickers screened'">
           </span>
         </template>
@@ -744,13 +763,15 @@
   <!-- ==================================================================
        FOOTER
        ================================================================== -->
-  <footer class="text-center text-[11px] text-slate-700 pb-2 space-x-2">
+  <footer class="flex flex-wrap justify-center gap-x-2 gap-y-0.5 text-[11px] text-slate-700 pb-4">
     <span>AlphaLive Dashboard</span>
     <span>·</span>
     <span>WebSocket · 5s push</span>
-    <span>·</span>
-    <span x-text="health?.server_time ? 'Server ' + new Date(health.server_time).toLocaleTimeString() : ''"></span>
-    <span x-show="health?.state_file" x-text="'· ' + (health?.state_file ?? '')"></span>
+    <span x-show="health?.server_time">·
+      <span x-text="health?.server_time ? 'Server ' + new Date(health.server_time).toLocaleTimeString() : ''"></span>
+    </span>
+    <span class="hidden sm:inline" x-show="health?.state_file"
+          x-text="'· ' + (health?.state_file ?? '')"></span>
   </footer>
 
 </div><!-- /x-data -->
