@@ -99,6 +99,7 @@ class BotState:
             "position_highs": {},
             "entry_timestamps": {},  # {ticker: ISO timestamp} for minimum hold enforcement
             "last_startup": None,
+            "dashboard_paused": False,
             "version": "1.0"
         }
 
@@ -248,6 +249,20 @@ class BotState:
         except Exception as exc:
             logger.warning(f"Could not parse entry timestamp for {ticker}: {exc}")
             return True  # Fail-safe: allow exit
+
+    def set_dashboard_pause(self, paused: bool):
+        """Set dashboard kill switch. Persisted to state file immediately."""
+        self.state["dashboard_paused"] = paused
+        self.save()
+        logger.info(f"Dashboard kill switch {'activated' if paused else 'cleared'}")
+
+    def is_dashboard_paused(self) -> bool:
+        """Return current dashboard_paused flag from in-memory state."""
+        return bool(self.state.get("dashboard_paused", False))
+
+    def check_dashboard_paused(self) -> bool:
+        """Re-read state file and return dashboard_paused. Used by main loop for fresh checks."""
+        return bool(self._load().get("dashboard_paused", False))
 
     def mark_startup(self):
         """Mark bot startup time."""

@@ -242,10 +242,19 @@ flowchart TD
     Q --> R[Daily Summary<br/>3:55 PM ET]
     R --> D
     J --> D
-    
+
+    L -->|positions + orders| S[(Alpaca Account<br/>State)]
+    B -->|writes| T[(State File<br/>daily_pnl · highs)]
+    P --> T
+    S --> U[Dashboard Server<br/>FastAPI · port 8888]
+    T --> U
+    U -->|WebSocket 5s push| V[Browser Dashboard<br/>localhost:8888]
+
     style H fill:#ef4444
     style L fill:#4ade80
     style Q fill:#3b82f6
+    style U fill:#6366f1
+    style V fill:#6366f1
 ```
 
 ### Key Components
@@ -725,6 +734,45 @@ When configured, you'll receive:
 - **Circuit Breaker**: "⚠️ 3 consecutive losses — trading paused"
 
 **Graceful Degradation**: If Telegram fails, trading continues (alerts are lost but trades still execute).
+
+---
+
+## Web Dashboard
+
+AlphaLive includes a real-time web dashboard for monitoring the bot without touching Railway logs or Telegram.
+
+### What it shows
+| Panel | Data |
+|---|---|
+| Stat cards | Portfolio value, daily P&L (green/red), cash, open positions count |
+| Positions table | Every open position — entry price, current price, unrealized P&L, trailing stop level, 20-bar sparkline |
+| Daily P&L trend | Live line chart built from WebSocket pushes (session only) |
+| Portfolio allocation | Donut chart of position market values |
+| Daily loss limit | Progress bar showing how much of your loss limit has been used |
+| System status | Trading active/paused, paper/live/dry-run mode, broker connection, market open/closed |
+| Recent orders | All of today's Alpaca orders with fill price, value, and status |
+
+### How to run
+
+```bash
+# From the project root (venv active)
+pip install fastapi "uvicorn[standard]"
+uvicorn dashboard.server:app --host 0.0.0.0 --port 8888
+```
+
+Open **http://localhost:8888**. Reads from the same `.env` as the bot — no extra config needed.
+
+### How it works
+- Connects to the same Alpaca paper/live account as the bot
+- Reads the bot's state file (`STATE_FILE`) for daily P&L and position highs
+- Pushes a combined data payload to the browser over **WebSocket every 5 seconds** (no polling)
+- Per-position sparklines fetched once per session from `/api/bars/{ticker}`
+- Optional password protection: set `DASHBOARD_PASSWORD=yourpassword` in `.env`
+
+### What it doesn't do
+- Cannot place or cancel orders (read-only)
+- Daily P&L trend resets on page reload (session memory only)
+- "Bot Since" and "Morning Check" only populate once `main.py` has run and written to the state file
 
 ---
 
