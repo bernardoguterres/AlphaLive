@@ -1,0 +1,4 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+# All other deps (alpaca-py, pydantic, pandas, ta, httpx, python-dotenv, requests)
+# are inherited from the project-level requirements.txt
