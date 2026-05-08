@@ -551,6 +551,22 @@ async def api_bars(ticker: str, n: int = 20):
 # Kill switch control endpoints
 # ---------------------------------------------------------------------------
 
+@app.get("/api/screener")
+async def api_screener():
+    """Return latest Greenblatt screener output. 404 if not yet generated."""
+    path = os.getenv("SCREENER_OUTPUT_PATH", "screener_output.json")
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail="Screener output not found — runs on 1st of each month"
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @app.post("/api/control/pause")
 async def api_pause():
     """Activate dashboard kill switch — bot stops taking new signals within 30s."""
