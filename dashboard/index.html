@@ -191,7 +191,7 @@
       </div>
 
       <div class="overflow-x-auto">
-        <table class="w-full text-sm" style="min-width: 560px;">
+        <table class="w-full text-sm" style="min-width: 640px;">
           <thead>
             <tr class="text-[10px] text-slate-500 uppercase tracking-wider">
               <th class="px-4 py-2.5 text-left">Ticker</th>
@@ -201,12 +201,13 @@
               <th class="px-3 py-2.5 text-right">P&amp;L $</th>
               <th class="px-3 py-2.5 text-right">P&amp;L %</th>
               <th class="px-3 py-2.5 text-right">Trail Stop</th>
+              <th class="px-3 py-2.5 text-right">Held</th>
             </tr>
           </thead>
           <tbody>
             <template x-if="positions.length === 0">
               <tr>
-                <td colspan="7" class="px-5 py-10 text-center text-slate-600 text-sm">
+                <td colspan="8" class="px-5 py-10 text-center text-slate-600 text-sm">
                   No open positions
                 </td>
               </tr>
@@ -256,6 +257,10 @@
                     x-text="p.trailing_stop_level
                       ? '$' + p.trailing_stop_level.toFixed(2) + (p.trailing_stop_pct ? ' (' + p.trailing_stop_pct + '%)' : '')
                       : '—'"></td>
+                <td class="px-3 py-2 text-right tabular-nums text-xs"
+                    :class="heldClass(p.entry_timestamp)"
+                    :title="p.entry_timestamp ? 'Since ' + fmtDate(p.entry_timestamp) : ''"
+                    x-text="fmtHeld(p.entry_timestamp)"></td>
               </tr>
             </template>
           </tbody>
@@ -942,6 +947,36 @@ document.addEventListener('alpine:init', () => {
     fmtPct(v) {
       if (v == null) return '—';
       return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+    },
+
+    fmtHeld(iso) {
+      if (!iso) return '—';
+      try {
+        const ms    = Date.now() - new Date(iso).getTime();
+        if (ms < 0) return '—';
+        const mins  = Math.floor(ms / 60_000);
+        const hrs   = Math.floor(ms / 3_600_000);
+        const days  = Math.floor(ms / 86_400_000);
+        const weeks = Math.floor(days / 7);
+        const years = Math.floor(weeks / 52);
+        if (years >= 1)   return `${years}y ${weeks % 52}w`;
+        if (weeks >= 2)   return `${weeks}w ${days % 7}d`;
+        if (days >= 1)    return `${days}d ${hrs % 24}h`;
+        if (hrs >= 1)     return `${hrs}h ${mins % 60}m`;
+        return `${mins}m`;
+      } catch { return '—'; }
+    },
+
+    // Colour hint: grey by default; amber when approaching common min-hold thresholds;
+    // emerald once held a year+ (greenblatt_weekly min hold = 52w)
+    heldClass(iso) {
+      if (!iso) return 'text-slate-600';
+      try {
+        const weeks = (Date.now() - new Date(iso).getTime()) / 604_800_000;
+        if (weeks >= 52)  return 'text-emerald-400';   // ≥ 1 year — greenblatt min hold met
+        if (weeks >= 48)  return 'text-yellow-400';    // within 4 weeks of 1-year threshold
+        return 'text-slate-500';
+      } catch { return 'text-slate-600'; }
     },
 
     fmtTime(iso) {
