@@ -1,32 +1,35 @@
 """
-AlphaLive Dashboard Server
+AlphaLive Dashboard Server v2
 
-FastAPI server exposing live account, position, trade, risk, and health
-data by connecting to the same Alpaca account as the running bot and
-reading the bot's state file.
+New in v2:
+- WebSocket /ws endpoint (pushes combined payload every 5s)
+- GET /api/bars/{ticker}  — last N daily bars for position sparklines
+- HTTP Basic Auth via DASHBOARD_PASSWORD env var (no-op when unset)
 
 Usage (from project root):
     uvicorn dashboard.server:app --host 0.0.0.0 --port 8888 --reload
 
 Required env vars:  ALPACA_API_KEY, ALPACA_SECRET_KEY
 Optional env vars:  ALPACA_PAPER (default true), STATE_FILE,
-                    STRATEGY_CONFIG or STRATEGY_CONFIG_DIR (enables trailing
-                    stop levels in /api/positions)
+                    STRATEGY_CONFIG or STRATEGY_CONFIG_DIR,
+                    DASHBOARD_PASSWORD (enables HTTP Basic Auth)
 """
 
+import asyncio
+import base64
 import json
 import logging
 import os
+import secrets
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-# Ensure repo root is importable when run via `uvicorn dashboard.server:app`
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, Response
 
 try:
     from dotenv import load_dotenv
@@ -40,18 +43,54 @@ from alphalive.broker.alpaca_broker import AlpacaBroker
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s  %(message)s")
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="AlphaLive Dashboard", version="1.0.0")
+app = FastAPI(title="AlphaLive Dashboard", version="2.0.0")
 DASHBOARD_DIR = Path(__file__).parent
 
 # ---------------------------------------------------------------------------
-# Lazy broker singleton — reconnects automatically on next request if lost
+# HTTP Basic Auth middleware
+# Applied to every request (HTTP and WebSocket upgrade) when DASHBOARD_PASSWORD
+# is set.  Browsers that have authenticated for the page will include the
+# Authorization header in the WebSocket upgrade, so auth "just works".
+# ---------------------------------------------------------------------------
+
+_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
+
+
+@app.middleware("http")
+async def _basic_auth(request: Request, call_next):
+    if _PASSWORD:
+        auth = request.headers.get("authorization", "")
+        ok = False
+        if auth.startswith("Basic "):
+            try:
+                decoded = base64.b64decode(auth[6:]).decode("utf-8", errors="replace")
+                _, _, given = decoded.partition(":")
+                ok = secrets.compare_digest(given.encode(), _PASSWORD.encode())
+            except Exception:
+                pass
+        if not ok:
+            return Response(
+                content="Authentication required",
+                status_code=401,
+                headers={"WWW-Authenticate": 'Basic realm="AlphaLive Dashboard"'},
+            )
+    return await call_next(request)
+
+
+# ---------------------------------------------------------------------------
+# Broker singleton
 # ---------------------------------------------------------------------------
 
 _broker: Optional[AlpacaBroker] = None
 _broker_error: Optional[str] = None
 
 
+class _BrokerUnavailable(Exception):
+    pass
+
+
 def _get_broker() -> AlpacaBroker:
+    """Get or reconnect broker. Raises _BrokerUnavailable on failure."""
     global _broker, _broker_error
 
     if _broker is not None and _broker.connected:
@@ -62,7 +101,7 @@ def _get_broker() -> AlpacaBroker:
 
     if not api_key or not secret_key:
         _broker_error = "ALPACA_API_KEY or ALPACA_SECRET_KEY not set"
-        raise HTTPException(status_code=503, detail=_broker_error)
+        raise _BrokerUnavailable(_broker_error)
 
     paper = os.getenv("ALPACA_PAPER", "true").lower() in ("true", "1", "yes")
 
@@ -76,11 +115,19 @@ def _get_broker() -> AlpacaBroker:
     except Exception as exc:
         _broker = None
         _broker_error = str(exc)
-        raise HTTPException(status_code=503, detail=f"Broker error: {exc}")
+        raise _BrokerUnavailable(str(exc))
+
+
+def _require_broker() -> AlpacaBroker:
+    """HTTP-route wrapper — raises HTTPException on broker failure."""
+    try:
+        return _get_broker()
+    except _BrokerUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
 
 
 # ---------------------------------------------------------------------------
-# State file helper (always re-reads — no caching)
+# State file
 # ---------------------------------------------------------------------------
 
 _DEFAULT_STATE: Dict[str, Any] = {
@@ -104,12 +151,12 @@ def _read_state() -> Dict[str, Any]:
     except FileNotFoundError:
         return dict(_DEFAULT_STATE)
     except Exception as exc:
-        logger.warning(f"Could not read state file at {path}: {exc}")
+        logger.warning(f"Could not read state file: {exc}")
         return dict(_DEFAULT_STATE)
 
 
 # ---------------------------------------------------------------------------
-# Strategy config (optional) — loaded once for trailing stop / loss limit info
+# Strategy config (optional)
 # ---------------------------------------------------------------------------
 
 _strategies: Optional[List] = None
@@ -119,20 +166,17 @@ def _load_strategies() -> List:
     global _strategies
     if _strategies is not None:
         return _strategies
-
     config_path = os.getenv("STRATEGY_CONFIG") or os.getenv("STRATEGY_CONFIG_DIR")
     if not config_path:
         _strategies = []
         return _strategies
-
     try:
         from alphalive.config import load_config_path
         _strategies = load_config_path(config_path)
-        logger.info(f"Loaded {len(_strategies)} strategies for dashboard context")
+        logger.info(f"Loaded {len(_strategies)} strategies for dashboard")
     except Exception as exc:
-        logger.warning(f"Strategy config unavailable (trailing stop info disabled): {exc}")
+        logger.warning(f"Strategy config unavailable: {exc}")
         _strategies = []
-
     return _strategies
 
 
@@ -153,29 +197,195 @@ def _max_daily_loss_pct() -> Optional[float]:
 # ---------------------------------------------------------------------------
 
 def _dt_str(val) -> Optional[str]:
-    """Safely convert any datetime-like value to ISO string."""
     if val is None:
         return None
-    if hasattr(val, "isoformat"):
-        return val.isoformat()
-    return str(val)
+    return val.isoformat() if hasattr(val, "isoformat") else str(val)
 
 
 def _enum_val(val) -> str:
-    """Extract string value from enum or return str(val)."""
-    if hasattr(val, "value"):
-        return val.value
-    return str(val)
+    return val.value if hasattr(val, "value") else str(val)
 
 
 # ---------------------------------------------------------------------------
-# API Endpoints
+# Payload builder (synchronous — called via run_in_executor from WS handler)
+# ---------------------------------------------------------------------------
+
+def _build_payload() -> Dict[str, Any]:
+    """
+    Gather account / positions / orders / risk / health into one dict.
+    Fully synchronous; never raises — all errors go into error fields.
+    """
+    out: Dict[str, Any] = {}
+    state = _read_state()
+
+    # ---- account ----
+    try:
+        a = _get_broker().get_account()
+        out["account"] = {
+            "equity": a.equity,
+            "cash": a.cash,
+            "buying_power": a.buying_power,
+            "portfolio_value": a.portfolio_value,
+            "long_market_value": a.long_market_value,
+            "short_market_value": a.short_market_value,
+            "daytrade_count": a.daytrade_count,
+            "pattern_day_trader": a.pattern_day_trader,
+            "account_status": _enum_val(a.account_status),
+            "paper": os.getenv("ALPACA_PAPER", "true").lower() in ("true", "1", "yes"),
+        }
+    except Exception as exc:
+        out["account"] = None
+        out["account_error"] = str(exc)
+
+    # ---- positions ----
+    try:
+        position_highs: Dict[str, float] = state.get("position_highs", {})
+        entry_timestamps: Dict[str, str] = state.get("entry_timestamps", {})
+        raw = _get_broker().get_all_positions()
+        positions = []
+        for p in raw:
+            ts_pct = _trailing_stop_pct(p.symbol)
+            peak = position_highs.get(p.symbol)
+            trail_level = (peak * (1 - ts_pct / 100)) if (ts_pct and peak) else None
+            positions.append({
+                "symbol": p.symbol,
+                "qty": p.qty,
+                "side": p.side,
+                "avg_entry_price": p.avg_entry_price,
+                "current_price": p.current_price,
+                "unrealized_pl": p.unrealized_pl,
+                "unrealized_plpc": p.unrealized_plpc,
+                "market_value": p.market_value,
+                "peak_price": peak,
+                "trailing_stop_pct": ts_pct,
+                "trailing_stop_level": trail_level,
+                "entry_timestamp": entry_timestamps.get(p.symbol),
+            })
+        out["positions"] = positions
+    except Exception as exc:
+        out["positions"] = []
+        out["positions_error"] = str(exc)
+
+    # ---- orders ----
+    try:
+        from alpaca.trading.requests import GetOrdersRequest
+        from alpaca.trading.enums import QueryOrderStatus
+
+        today = date.today()
+        since = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
+        req = GetOrdersRequest(status=QueryOrderStatus.ALL, after=since, limit=50)
+        raw_orders = _get_broker()._retry_with_backoff(
+            _get_broker().trading_client.get_orders, req
+        )
+        orders = []
+        for o in raw_orders:
+            orders.append({
+                "id": str(o.id),
+                "symbol": o.symbol,
+                "side": _enum_val(o.side),
+                "qty": float(o.qty) if o.qty else 0.0,
+                "filled_qty": float(o.filled_qty) if o.filled_qty else 0.0,
+                "filled_avg_price": float(o.filled_avg_price) if o.filled_avg_price else None,
+                "order_type": _enum_val(o.order_type),
+                "status": _enum_val(o.status),
+                "submitted_at": _dt_str(o.submitted_at),
+                "filled_at": _dt_str(o.filled_at),
+            })
+        out["orders"] = orders
+    except Exception as exc:
+        out["orders"] = []
+        out["orders_error"] = str(exc)
+
+    # ---- risk ----
+    try:
+        daily_pnl = float(state.get("daily_pnl", 0.0))
+        equity = (out.get("account") or {}).get("equity")
+        loss_limit_pct = _max_daily_loss_pct()
+        loss_limit_dollars = loss_used_pct = None
+        if loss_limit_pct and equity:
+            loss_limit_dollars = equity * (loss_limit_pct / 100)
+            loss_used_pct = (
+                min(abs(daily_pnl) / loss_limit_dollars * 100, 100.0)
+                if daily_pnl < 0 and loss_limit_dollars > 0
+                else 0.0
+            )
+        out["risk"] = {
+            "daily_pnl": daily_pnl,
+            "trading_paused": os.getenv("TRADING_PAUSED", "false").lower() in ("true", "1", "yes"),
+            "dry_run": os.getenv("DRY_RUN", "false").lower() in ("true", "1", "yes"),
+            "equity": equity,
+            "daily_loss_limit_pct": loss_limit_pct,
+            "daily_loss_limit_dollars": loss_limit_dollars,
+            "daily_loss_used_pct": loss_used_pct,
+        }
+    except Exception as exc:
+        out["risk"] = None
+        out["risk_error"] = str(exc)
+
+    # ---- health ----
+    broker_ok = False
+    broker_err = _broker_error
+    market = None
+    try:
+        raw = _get_broker().get_market_hours()
+        broker_ok = True
+        market = {
+            "is_open": bool(raw["is_open"]),
+            "next_open": _dt_str(raw.get("next_open")),
+            "next_close": _dt_str(raw.get("next_close")),
+            "timestamp": _dt_str(raw.get("timestamp")),
+        }
+    except Exception as exc:
+        broker_err = str(exc)
+
+    out["health"] = {
+        "last_startup": state.get("last_startup"),
+        "last_morning_check_date": state.get("last_morning_check_date"),
+        "last_eod_summary_date": state.get("last_eod_summary_date"),
+        "last_saved": state.get("last_saved"),
+        "market": market,
+        "broker_connected": broker_ok,
+        "broker_error": broker_err,
+        "paper_trading": os.getenv("ALPACA_PAPER", "true").lower() in ("true", "1", "yes"),
+        "server_time": datetime.now().isoformat(),
+        "state_file": os.getenv("STATE_FILE", "/tmp/alphalive_state.json"),
+    }
+
+    return out
+
+
+# ---------------------------------------------------------------------------
+# WebSocket endpoint — pushes full payload every 5 seconds
+# ---------------------------------------------------------------------------
+
+@app.websocket("/ws")
+async def ws_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    logger.info(f"WebSocket client connected: {websocket.client}")
+    loop = asyncio.get_event_loop()
+    try:
+        while True:
+            payload = await loop.run_in_executor(None, _build_payload)
+            await websocket.send_json(payload)
+            await asyncio.sleep(5)
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket client disconnected: {websocket.client}")
+    except Exception as exc:
+        logger.warning(f"WebSocket error: {exc}")
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# REST endpoints (kept for direct API use / backward compat)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/account")
 async def api_account():
     """Account equity, cash, buying_power, portfolio_value."""
-    broker = _get_broker()
+    broker = _require_broker()
     try:
         a = broker.get_account()
         return {
@@ -198,16 +408,13 @@ async def api_account():
 
 @app.get("/api/positions")
 async def api_positions():
-    """Open positions with unrealized P&L, entry price, and trailing stop level."""
-    broker = _get_broker()
+    """Open positions with unrealized P&L and trailing stop levels."""
+    broker = _require_broker()
     state = _read_state()
-    position_highs: Dict[str, float] = state.get("position_highs", {})
-    entry_timestamps: Dict[str, str] = state.get("entry_timestamps", {})
-
+    position_highs = state.get("position_highs", {})
+    entry_timestamps = state.get("entry_timestamps", {})
     try:
         raw = broker.get_all_positions()
-    except HTTPException:
-        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -217,28 +424,20 @@ async def api_positions():
         peak = position_highs.get(p.symbol)
         trail_level = (peak * (1 - ts_pct / 100)) if (ts_pct and peak) else None
         result.append({
-            "symbol": p.symbol,
-            "qty": p.qty,
-            "side": p.side,
-            "avg_entry_price": p.avg_entry_price,
-            "current_price": p.current_price,
-            "unrealized_pl": p.unrealized_pl,
-            "unrealized_plpc": p.unrealized_plpc,
-            "market_value": p.market_value,
-            "peak_price": peak,
-            "trailing_stop_pct": ts_pct,
-            "trailing_stop_level": trail_level,
+            "symbol": p.symbol, "qty": p.qty, "side": p.side,
+            "avg_entry_price": p.avg_entry_price, "current_price": p.current_price,
+            "unrealized_pl": p.unrealized_pl, "unrealized_plpc": p.unrealized_plpc,
+            "market_value": p.market_value, "peak_price": peak,
+            "trailing_stop_pct": ts_pct, "trailing_stop_level": trail_level,
             "entry_timestamp": entry_timestamps.get(p.symbol),
         })
-
     return {"positions": result, "count": len(result)}
 
 
 @app.get("/api/trades")
 async def api_trades():
-    """Today's orders from Alpaca + raw trades_today list from state file."""
-    broker = _get_broker()
-
+    """Today's Alpaca orders + state file trades_today."""
+    broker = _require_broker()
     orders: List[Dict] = []
     try:
         from alpaca.trading.requests import GetOrdersRequest
@@ -246,71 +445,51 @@ async def api_trades():
 
         today = date.today()
         since = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
-        req = GetOrdersRequest(
-            status=QueryOrderStatus.ALL,
-            after=since,
-            limit=50,
-        )
+        req = GetOrdersRequest(status=QueryOrderStatus.ALL, after=since, limit=50)
         raw_orders = broker._retry_with_backoff(broker.trading_client.get_orders, req)
         for o in raw_orders:
             orders.append({
-                "id": str(o.id),
-                "symbol": o.symbol,
+                "id": str(o.id), "symbol": o.symbol,
                 "side": _enum_val(o.side),
                 "qty": float(o.qty) if o.qty else 0.0,
                 "filled_qty": float(o.filled_qty) if o.filled_qty else 0.0,
                 "filled_avg_price": float(o.filled_avg_price) if o.filled_avg_price else None,
-                "order_type": _enum_val(o.order_type),
-                "status": _enum_val(o.status),
-                "submitted_at": _dt_str(o.submitted_at),
-                "filled_at": _dt_str(o.filled_at),
+                "order_type": _enum_val(o.order_type), "status": _enum_val(o.status),
+                "submitted_at": _dt_str(o.submitted_at), "filled_at": _dt_str(o.filled_at),
             })
     except HTTPException:
         raise
     except Exception as exc:
-        logger.warning(f"Order fetch failed (showing empty): {exc}")
+        logger.warning(f"Order fetch failed: {exc}")
 
     state = _read_state()
-    return {
-        "orders": orders,
-        "total": len(orders),
-        "state_trades_today": state.get("trades_today", []),
-    }
+    return {"orders": orders, "total": len(orders),
+            "state_trades_today": state.get("trades_today", [])}
 
 
 @app.get("/api/risk")
 async def api_risk():
-    """Daily P&L, loss limit progress, trading paused status, dry run mode."""
+    """Daily P&L, loss limit progress, paused/dry-run status."""
     state = _read_state()
-    daily_pnl: float = float(state.get("daily_pnl", 0.0))
-    trading_paused = os.getenv("TRADING_PAUSED", "false").lower() in ("true", "1", "yes")
-    dry_run = os.getenv("DRY_RUN", "false").lower() in ("true", "1", "yes")
-
-    equity: Optional[float] = None
-    loss_limit_pct = _max_daily_loss_pct()
-    loss_limit_dollars: Optional[float] = None
-    loss_used_pct: Optional[float] = None
-
+    daily_pnl = float(state.get("daily_pnl", 0.0))
+    equity = loss_limit_pct = loss_limit_dollars = loss_used_pct = None
     try:
-        broker = _get_broker()
-        a = broker.get_account()
+        a = _require_broker().get_account()
         equity = a.equity
     except Exception:
-        pass  # equity stays None; loss gauges will show N/A
-
+        pass
+    loss_limit_pct = _max_daily_loss_pct()
     if loss_limit_pct and equity:
         loss_limit_dollars = equity * (loss_limit_pct / 100)
-        if daily_pnl < 0 and loss_limit_dollars > 0:
-            loss_used_pct = min(abs(daily_pnl) / loss_limit_dollars * 100, 100.0)
-        else:
-            loss_used_pct = 0.0
-
+        loss_used_pct = (
+            min(abs(daily_pnl) / loss_limit_dollars * 100, 100.0)
+            if daily_pnl < 0 and loss_limit_dollars > 0 else 0.0
+        )
     return {
         "daily_pnl": daily_pnl,
-        "trading_paused": trading_paused,
-        "dry_run": dry_run,
-        "equity": equity,
-        "daily_loss_limit_pct": loss_limit_pct,
+        "trading_paused": os.getenv("TRADING_PAUSED", "false").lower() in ("true", "1", "yes"),
+        "dry_run": os.getenv("DRY_RUN", "false").lower() in ("true", "1", "yes"),
+        "equity": equity, "daily_loss_limit_pct": loss_limit_pct,
         "daily_loss_limit_dollars": loss_limit_dollars,
         "daily_loss_used_pct": loss_used_pct,
     }
@@ -318,16 +497,14 @@ async def api_risk():
 
 @app.get("/api/health")
 async def api_health():
-    """Bot startup time, morning check status, market hours, broker connectivity."""
+    """Broker status, market hours, bot startup/check timestamps."""
     state = _read_state()
     broker_ok = False
     broker_err = _broker_error
-    market: Optional[Dict] = None
-
+    market = None
     try:
-        broker = _get_broker()
+        raw = _require_broker().get_market_hours()
         broker_ok = True
-        raw = broker.get_market_hours()
         market = {
             "is_open": bool(raw["is_open"]),
             "next_open": _dt_str(raw.get("next_open")),
@@ -336,23 +513,38 @@ async def api_health():
         }
     except Exception as exc:
         broker_err = str(exc)
-
     return {
         "last_startup": state.get("last_startup"),
         "last_morning_check_date": state.get("last_morning_check_date"),
         "last_eod_summary_date": state.get("last_eod_summary_date"),
         "last_saved": state.get("last_saved"),
-        "market": market,
-        "broker_connected": broker_ok,
-        "broker_error": broker_err,
+        "market": market, "broker_connected": broker_ok, "broker_error": broker_err,
         "paper_trading": os.getenv("ALPACA_PAPER", "true").lower() in ("true", "1", "yes"),
         "server_time": datetime.now().isoformat(),
         "state_file": os.getenv("STATE_FILE", "/tmp/alphalive_state.json"),
     }
 
 
+@app.get("/api/bars/{ticker}")
+async def api_bars(ticker: str, n: int = 20):
+    """Last n daily bars for ticker. Used by position mini sparklines."""
+    broker = _require_broker()
+    try:
+        raw = broker.get_bars(symbol=ticker.upper(), timeframe="1Day", limit=n)
+        bars = [
+            {"t": _dt_str(b["timestamp"]), "o": b["open"], "h": b["high"],
+             "l": b["low"], "c": b["close"], "v": b["volume"]}
+            for b in raw
+        ]
+        return {"ticker": ticker.upper(), "bars": bars, "count": len(bars)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 # ---------------------------------------------------------------------------
-# Static files
+# Static file
 # ---------------------------------------------------------------------------
 
 @app.get("/")

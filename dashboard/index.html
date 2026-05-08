@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AlphaLive Dashboard</title>
 
-  <!-- Tailwind CSS (JIT/CDN — supports arbitrary values like bg-[#0f1117]) -->
+  <!-- Tailwind CSS CDN (JIT — supports arbitrary values) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
   <!-- Chart.js — must load before Alpine initializes -->
@@ -18,7 +18,7 @@
     :root { color-scheme: dark; }
     body { background-color: #0f1117; }
 
-    /* Subtle card glow on hover */
+    /* Card hover glow */
     .card { transition: box-shadow 0.2s ease; }
     .card:hover { box-shadow: 0 0 0 1px rgba(99,102,241,0.15), 0 4px 24px rgba(0,0,0,0.4); }
 
@@ -27,48 +27,78 @@
     ::-webkit-scrollbar-track { background: #0f1117; }
     ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
 
-    /* Pulse animation for LIVE badge */
-    @keyframes pulse-green {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.65; }
-    }
+    /* Bot status badge pulse */
+    @keyframes pulse-green { 0%, 100% { opacity: 1; } 50% { opacity: 0.65; } }
     .badge-live { animation: pulse-green 2s ease-in-out infinite; }
 
-    /* Progress bar gradient */
-    .loss-bar-safe { background: linear-gradient(90deg, #10b981, #34d399); }
-    .loss-bar-warn { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+    /* WS dot states */
+    @keyframes ws-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.85); } }
+    .ws-dot-connected   { background: #10b981; animation: ws-pulse 2.5s ease-in-out infinite; }
+    .ws-dot-connecting  { background: #6b7280; animation: ws-pulse 1s ease-in-out infinite; }
+    .ws-dot-disconnected{ background: #ef4444; }
+
+    /* Progress bar fills */
+    .loss-bar-safe   { background: linear-gradient(90deg, #10b981, #34d399); }
+    .loss-bar-warn   { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
     .loss-bar-danger { background: linear-gradient(90deg, #ef4444, #f87171); }
+
+    /* P&L number flash when value changes */
+    @keyframes pnl-changed { 0% { transform: scale(1.06); opacity: 0.7; } 100% { transform: scale(1); opacity: 1; } }
+    .pnl-flash { animation: pnl-changed 0.35s ease-out; }
+
+    /* Position row flash (green = improved, red = declined) */
+    @keyframes row-flash-green { 0% { background-color: rgba(16,185,129,0.22); } 100% { background-color: transparent; } }
+    @keyframes row-flash-red   { 0% { background-color: rgba(239,68,68,0.22);  } 100% { background-color: transparent; } }
+    .row-flash-green { animation: row-flash-green 0.7s ease-out; }
+    .row-flash-red   { animation: row-flash-red   0.7s ease-out; }
+
+    /* Toast slide-in */
+    @keyframes toast-in { 0% { opacity: 0; transform: translateX(2rem); } 100% { opacity: 1; transform: translateX(0); } }
+    .toast-enter { animation: toast-in 0.25s ease-out; }
 
     [x-cloak] { display: none !important; }
   </style>
 </head>
 
 <body class="text-slate-200 min-h-screen font-sans antialiased">
+
+<!-- ====================================================================
+     TOAST CONTAINER (fixed bottom-right)
+     ==================================================================== -->
+<div class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"
+     x-data
+     x-ref="toastHost">
+</div>
+
+<!-- ====================================================================
+     MAIN APP
+     ==================================================================== -->
 <div
   x-data="dashboard"
   x-cloak
-  class="max-w-[1600px] mx-auto px-4 py-5 space-y-4"
+  class="max-w-[1600px] mx-auto px-3 sm:px-5 py-4 space-y-4"
 >
 
-  <!-- ================================================================
+  <!-- ==================================================================
        TOP BAR
-       ================================================================ -->
-  <header class="card bg-[#161b2d] rounded-xl border border-white/[0.06] px-5 py-3 flex items-center justify-between gap-4">
+       ================================================================== -->
+  <header class="card bg-[#161b2d] rounded-xl border border-white/[0.06] px-4 sm:px-5 py-3
+                 flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
 
-    <!-- Left: brand -->
+    <!-- Brand -->
     <div class="flex items-center gap-3 min-w-0">
-      <svg class="w-6 h-6 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+      <svg class="w-5 h-5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24"
+           stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
       </svg>
-      <span class="text-white font-bold text-lg tracking-tight">AlphaLive</span>
+      <span class="text-white font-bold text-base tracking-tight">AlphaLive</span>
       <span class="text-slate-500 text-sm hidden sm:inline">Dashboard</span>
     </div>
 
-    <!-- Center: status badges -->
-    <div class="flex items-center gap-2 flex-wrap justify-center">
+    <!-- Status badges -->
+    <div class="flex items-center gap-2 flex-wrap justify-center order-3 sm:order-2 w-full sm:w-auto">
       <span
-        :class="statusClass()"
-        :class="botStatus() === 'LIVE' ? 'badge-live' : ''"
+        :class="[statusClass(), botStatus() === 'LIVE' ? 'badge-live' : '']"
         class="px-3 py-1 rounded-full text-xs font-bold tracking-wide uppercase"
         x-text="botStatus()"
       >CONNECTING</span>
@@ -82,87 +112,95 @@
       >◼ MARKET CLOSED</span>
     </div>
 
-    <!-- Right: last updated -->
-    <div class="text-slate-500 text-xs shrink-0">
-      <template x-if="lastUpdated">
-        <span>Updated <span class="text-slate-300" x-text="lastUpdated"></span></span>
-      </template>
-      <template x-if="!lastUpdated">
-        <span class="animate-pulse">Connecting…</span>
-      </template>
+    <!-- WS status + last updated -->
+    <div class="flex items-center gap-2 text-slate-500 text-xs shrink-0 order-2 sm:order-3">
+      <!-- Live connection dot -->
+      <span
+        class="inline-block w-2 h-2 rounded-full shrink-0"
+        :class="{
+          'ws-dot-connected':    wsStatus === 'connected',
+          'ws-dot-connecting':   wsStatus === 'connecting',
+          'ws-dot-disconnected': wsStatus === 'disconnected',
+        }"
+        :title="wsStatus === 'connected' ? 'Live' : wsStatus === 'connecting' ? 'Reconnecting…' : 'Disconnected'"
+      ></span>
+      <span x-show="lastUpdated">
+        <span class="text-slate-300" x-text="lastUpdated"></span>
+      </span>
+      <span x-show="!lastUpdated" class="animate-pulse">Connecting…</span>
     </div>
   </header>
 
 
-  <!-- ================================================================
-       STAT CARDS ROW
-       ================================================================ -->
-  <div class="grid grid-cols-2 xl:grid-cols-4 gap-4">
+  <!-- ==================================================================
+       STAT CARDS — 2 cols on mobile, 4 on md+
+       ================================================================== -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
 
     <!-- Portfolio Value -->
-    <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] px-5 py-4">
+    <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] px-4 sm:px-5 py-4">
       <p class="text-slate-500 text-[10px] uppercase tracking-widest mb-1">Portfolio Value</p>
-      <p class="text-2xl font-bold text-white tabular-nums"
+      <p class="text-xl sm:text-2xl font-bold text-white tabular-nums"
          x-text="account ? '$' + fmt2(account.portfolio_value) : '—'">—</p>
       <p class="text-slate-500 text-[11px] mt-1"
          x-text="account ? 'Equity ' + fmtDollar(account.equity) : ''"></p>
     </div>
 
-    <!-- Daily P&L -->
-    <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] px-5 py-4">
-      <p class="text-slate-500 text-[10px] uppercase tracking-widest mb-1">Daily P&L</p>
-      <p class="text-2xl font-bold tabular-nums"
-         :class="pnlClass(risk?.daily_pnl)"
+    <!-- Daily P&L (flashes on change) -->
+    <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] px-4 sm:px-5 py-4">
+      <p class="text-slate-500 text-[10px] uppercase tracking-widest mb-1">Daily P&amp;L</p>
+      <p class="text-xl sm:text-2xl font-bold tabular-nums"
+         :class="[pnlClass(risk?.daily_pnl), pnlFlashing ? 'pnl-flash' : '']"
          x-text="risk != null ? fmtDollar(risk.daily_pnl) : '—'">—</p>
       <p class="text-[11px] mt-1"
          :class="pnlClass(risk?.daily_pnl)"
          x-text="(risk?.equity && risk.daily_pnl != null)
-           ? fmtPct(risk.daily_pnl / risk.equity * 100) + ' of equity'
-           : ''"></p>
+           ? fmtPct(risk.daily_pnl / risk.equity * 100) + ' of equity' : ''"></p>
     </div>
 
     <!-- Cash Available -->
-    <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] px-5 py-4">
+    <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] px-4 sm:px-5 py-4">
       <p class="text-slate-500 text-[10px] uppercase tracking-widest mb-1">Cash Available</p>
-      <p class="text-2xl font-bold text-white tabular-nums"
+      <p class="text-xl sm:text-2xl font-bold text-white tabular-nums"
          x-text="account ? '$' + fmt2(account.cash) : '—'">—</p>
       <p class="text-slate-500 text-[11px] mt-1"
          x-text="account ? 'Buying power ' + fmtDollar(account.buying_power) : ''"></p>
     </div>
 
     <!-- Open Positions -->
-    <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] px-5 py-4">
+    <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] px-4 sm:px-5 py-4">
       <p class="text-slate-500 text-[10px] uppercase tracking-widest mb-1">Open Positions</p>
-      <p class="text-2xl font-bold text-white tabular-nums" x-text="positions.length">—</p>
+      <p class="text-xl sm:text-2xl font-bold text-white tabular-nums" x-text="positions.length">—</p>
       <p class="text-slate-500 text-[11px] mt-1"
          x-text="orders.length + ' order' + (orders.length === 1 ? '' : 's') + ' today'"></p>
     </div>
   </div>
 
 
-  <!-- ================================================================
-       MAIN ROW: Positions table  +  Charts
-       ================================================================ -->
+  <!-- ==================================================================
+       MAIN ROW — positions table (left) + charts (right)
+       Stacks on tablet, side-by-side on xl
+       ================================================================== -->
   <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
 
-    <!-- Positions table (2/3) -->
+    <!-- Positions table (xl: 2/3) -->
     <div class="card xl:col-span-2 bg-[#161b2d] rounded-xl border border-white/[0.06] overflow-hidden">
-      <div class="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between">
+      <div class="px-5 py-3.5 border-b border-white/[0.06] flex items-center justify-between">
         <h2 class="text-xs font-semibold text-slate-300 uppercase tracking-widest">Open Positions</h2>
         <span class="text-xs text-slate-500" x-text="positions.length + ' active'"></span>
       </div>
 
       <div class="overflow-x-auto">
-        <table class="w-full text-sm">
+        <table class="w-full text-sm" style="min-width: 560px;">
           <thead>
             <tr class="text-[10px] text-slate-500 uppercase tracking-wider">
-              <th class="px-5 py-3 text-left">Ticker</th>
-              <th class="px-4 py-3 text-right">Shares</th>
-              <th class="px-4 py-3 text-right">Entry</th>
-              <th class="px-4 py-3 text-right">Price</th>
-              <th class="px-4 py-3 text-right">P&amp;L $</th>
-              <th class="px-4 py-3 text-right">P&amp;L %</th>
-              <th class="px-4 py-3 text-right">Trail Stop</th>
+              <th class="px-4 py-2.5 text-left">Ticker</th>
+              <th class="px-3 py-2.5 text-right">Shares</th>
+              <th class="px-3 py-2.5 text-right">Entry</th>
+              <th class="px-3 py-2.5 text-right">Price</th>
+              <th class="px-3 py-2.5 text-right">P&amp;L $</th>
+              <th class="px-3 py-2.5 text-right">P&amp;L %</th>
+              <th class="px-3 py-2.5 text-right">Trail Stop</th>
             </tr>
           </thead>
           <tbody>
@@ -173,30 +211,51 @@
                 </td>
               </tr>
             </template>
+
             <template x-for="p in positions" :key="p.symbol">
-              <tr class="border-t border-white/[0.04] hover:bg-white/[0.03] transition-colors">
-                <td class="px-5 py-3">
-                  <span class="font-semibold text-white" x-text="p.symbol"></span>
-                  <template x-if="p.side === 'long'">
-                    <span class="ml-1.5 text-[9px] text-emerald-500 font-medium">LONG</span>
-                  </template>
-                  <template x-if="p.side === 'short'">
-                    <span class="ml-1.5 text-[9px] text-red-400 font-medium">SHORT</span>
-                  </template>
+              <tr
+                class="border-t border-white/[0.04] transition-colors"
+                :class="{
+                  'row-flash-green':   positionFlash[p.symbol] === 'green',
+                  'row-flash-red':     positionFlash[p.symbol] === 'red',
+                  'hover:bg-white/[0.025]': !positionFlash[p.symbol],
+                }"
+              >
+                <!-- Ticker + sparkline -->
+                <td class="px-4 py-2">
+                  <div class="flex items-center gap-2.5">
+                    <div class="shrink-0">
+                      <div class="font-semibold text-white text-sm" x-text="p.symbol"></div>
+                      <div class="text-[9px] font-medium mt-0.5"
+                           :class="p.side === 'long' ? 'text-emerald-500' : 'text-red-400'"
+                           x-text="p.side.toUpperCase()"></div>
+                    </div>
+                    <!-- Mini sparkline (20 daily bars, initialized once per symbol) -->
+                    <div class="w-16 h-7 shrink-0">
+                      <canvas
+                        :id="'spark-' + p.symbol"
+                        x-init="$nextTick(() => initSparkline(p.symbol))"
+                      ></canvas>
+                    </div>
+                  </div>
                 </td>
-                <td class="px-4 py-3 text-right text-slate-300 tabular-nums" x-text="p.qty"></td>
-                <td class="px-4 py-3 text-right text-slate-400 tabular-nums"
+
+                <td class="px-3 py-2 text-right text-slate-300 tabular-nums"
+                    x-text="p.qty"></td>
+                <td class="px-3 py-2 text-right text-slate-400 tabular-nums"
                     x-text="'$' + p.avg_entry_price.toFixed(2)"></td>
-                <td class="px-4 py-3 text-right text-slate-200 tabular-nums font-medium"
+                <td class="px-3 py-2 text-right text-slate-200 tabular-nums font-medium"
                     x-text="'$' + p.current_price.toFixed(2)"></td>
-                <td class="px-4 py-3 text-right tabular-nums font-semibold"
+                <td class="px-3 py-2 text-right tabular-nums font-semibold"
                     :class="pnlClass(p.unrealized_pl)"
                     x-text="fmtDollar(p.unrealized_pl)"></td>
-                <td class="px-4 py-3 text-right tabular-nums font-semibold"
+                <td class="px-3 py-2 text-right tabular-nums font-semibold"
                     :class="pnlClass(p.unrealized_plpc)"
                     x-text="fmtPct(p.unrealized_plpc)"></td>
-                <td class="px-4 py-3 text-right text-slate-500 tabular-nums text-xs"
-                    x-text="p.trailing_stop_level ? '$' + p.trailing_stop_level.toFixed(2) + (p.trailing_stop_pct ? ' (' + p.trailing_stop_pct + '%)' : '') : '—'"></td>
+                <td class="px-3 py-2 text-right text-slate-500 tabular-nums text-xs"
+                    x-text="p.trailing_stop_level
+                      ? '$' + p.trailing_stop_level.toFixed(2) + (p.trailing_stop_pct ? ' (' + p.trailing_stop_pct + '%)' : '')
+                      : '—'"></td>
               </tr>
             </template>
           </tbody>
@@ -204,21 +263,25 @@
       </div>
     </div>
 
-    <!-- Charts column (1/3) -->
+    <!-- Charts column (xl: 1/3) -->
     <div class="flex flex-col gap-4">
 
       <!-- Daily P&L sparkline -->
-      <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] p-5 flex-1 min-h-[160px]">
-        <h2 class="text-xs font-semibold text-slate-300 uppercase tracking-widest mb-3">Daily P&amp;L Trend</h2>
-        <div class="relative h-[120px]">
+      <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] p-4 sm:p-5 flex-1 min-h-[160px]">
+        <h2 class="text-xs font-semibold text-slate-300 uppercase tracking-widest mb-3">
+          Daily P&amp;L Trend
+        </h2>
+        <div class="relative h-[110px]">
           <canvas id="pnlChart"></canvas>
         </div>
-        <p class="text-center text-[10px] text-slate-600 mt-1">Sampled every 10s • session only</p>
+        <p class="text-center text-[10px] text-slate-700 mt-1">Session only · 5s resolution</p>
       </div>
 
       <!-- Portfolio allocation donut -->
-      <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] p-5 flex-1 min-h-[160px]">
-        <h2 class="text-xs font-semibold text-slate-300 uppercase tracking-widest mb-3">Portfolio Allocation</h2>
+      <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] p-4 sm:p-5 flex-1 min-h-[160px]">
+        <h2 class="text-xs font-semibold text-slate-300 uppercase tracking-widest mb-3">
+          Portfolio Allocation
+        </h2>
         <div class="relative h-[120px]">
           <canvas id="allocChart"></canvas>
         </div>
@@ -227,18 +290,18 @@
   </div>
 
 
-  <!-- ================================================================
-       RISK ROW
-       ================================================================ -->
+  <!-- ==================================================================
+       RISK ROW — 3 columns on md+
+       ================================================================== -->
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
 
     <!-- Daily Loss Gauge -->
-    <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] p-5">
+    <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] p-4 sm:p-5">
       <h2 class="text-xs font-semibold text-slate-300 uppercase tracking-widest mb-4">Daily Loss Limit</h2>
 
       <div class="flex justify-between text-[11px] mb-2">
         <span class="text-slate-500">
-          Loss today:
+          Loss:
           <span :class="pnlClass(risk?.daily_pnl)"
                 x-text="risk != null ? fmtDollar(risk.daily_pnl) : '—'"></span>
         </span>
@@ -248,7 +311,6 @@
                 : 'Limit: N/A'"></span>
       </div>
 
-      <!-- Progress bar -->
       <div class="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden">
         <div
           class="h-full rounded-full transition-all duration-700"
@@ -263,9 +325,9 @@
 
       <div class="flex justify-between mt-2 text-[11px]">
         <span :class="{
-            'text-red-400':    (risk?.daily_loss_used_pct ?? 0) >= 80,
-            'text-yellow-400': (risk?.daily_loss_used_pct ?? 0) >= 50 && (risk?.daily_loss_used_pct ?? 0) < 80,
-            'text-emerald-500':(risk?.daily_loss_used_pct ?? 0) < 50,
+            'text-red-400':     (risk?.daily_loss_used_pct ?? 0) >= 80,
+            'text-yellow-400':  (risk?.daily_loss_used_pct ?? 0) >= 50 && (risk?.daily_loss_used_pct ?? 0) < 80,
+            'text-emerald-500': (risk?.daily_loss_used_pct ?? 0) < 50,
           }"
           x-text="(risk?.daily_loss_used_pct ?? 0).toFixed(1) + '% used'"></span>
         <span class="text-slate-600"
@@ -274,7 +336,7 @@
     </div>
 
     <!-- System Status -->
-    <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] p-5">
+    <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] p-4 sm:p-5">
       <h2 class="text-xs font-semibold text-slate-300 uppercase tracking-widest mb-4">System Status</h2>
       <div class="space-y-2.5">
 
@@ -328,7 +390,7 @@
     </div>
 
     <!-- Today's Activity -->
-    <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] p-5">
+    <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] p-4 sm:p-5">
       <h2 class="text-xs font-semibold text-slate-300 uppercase tracking-widest mb-4">Today's Activity</h2>
       <div class="space-y-2.5">
 
@@ -358,7 +420,8 @@
 
         <div class="flex items-center justify-between">
           <span class="text-slate-500 text-xs">Bot Since</span>
-          <span class="text-slate-400 text-xs" x-text="health?.last_startup ? fmtDate(health.last_startup) : '—'">—</span>
+          <span class="text-slate-400 text-xs"
+                x-text="health?.last_startup ? fmtDate(health.last_startup) : '—'">—</span>
         </div>
 
         <div class="flex items-center justify-between">
@@ -371,28 +434,28 @@
   </div>
 
 
-  <!-- ================================================================
-       TRADES LOG
-       ================================================================ -->
+  <!-- ==================================================================
+       ORDERS LOG — full width
+       ================================================================== -->
   <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] overflow-hidden">
-    <div class="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between">
+    <div class="px-5 py-3.5 border-b border-white/[0.06] flex items-center justify-between">
       <h2 class="text-xs font-semibold text-slate-300 uppercase tracking-widest">Recent Orders</h2>
       <span class="text-xs text-slate-500" x-text="orders.length + ' today'"></span>
     </div>
 
     <div class="overflow-x-auto">
-      <table class="w-full text-sm">
+      <table class="w-full text-sm" style="min-width: 520px;">
         <thead>
           <tr class="text-[10px] text-slate-500 uppercase tracking-wider">
-            <th class="px-5 py-3 text-left">Symbol</th>
-            <th class="px-4 py-3 text-left">Side</th>
-            <th class="px-4 py-3 text-left">Type</th>
-            <th class="px-4 py-3 text-right">Qty</th>
-            <th class="px-4 py-3 text-right">Filled</th>
-            <th class="px-4 py-3 text-right">Avg Price</th>
-            <th class="px-4 py-3 text-right">Value</th>
-            <th class="px-4 py-3 text-left">Status</th>
-            <th class="px-4 py-3 text-right">Time</th>
+            <th class="px-5 py-2.5 text-left">Symbol</th>
+            <th class="px-4 py-2.5 text-left">Side</th>
+            <th class="px-4 py-2.5 text-left">Type</th>
+            <th class="px-4 py-2.5 text-right">Qty</th>
+            <th class="px-4 py-2.5 text-right">Filled</th>
+            <th class="px-4 py-2.5 text-right">Avg Price</th>
+            <th class="px-4 py-2.5 text-right">Value</th>
+            <th class="px-4 py-2.5 text-left">Status</th>
+            <th class="px-4 py-2.5 text-right">Time</th>
           </tr>
         </thead>
         <tbody>
@@ -404,37 +467,37 @@
             </tr>
           </template>
           <template x-for="o in orders" :key="o.id">
-            <tr class="border-t border-white/[0.04] hover:bg-white/[0.03] transition-colors">
-              <td class="px-5 py-3 font-semibold text-white" x-text="o.symbol"></td>
-              <td class="px-4 py-3">
+            <tr class="border-t border-white/[0.04] hover:bg-white/[0.025] transition-colors">
+              <td class="px-5 py-2.5 font-semibold text-white" x-text="o.symbol"></td>
+              <td class="px-4 py-2.5">
                 <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase"
                       :class="o.side === 'buy'
                         ? 'bg-emerald-900/60 text-emerald-400 border border-emerald-700/30'
                         : 'bg-red-900/60 text-red-400 border border-red-700/30'"
                       x-text="o.side"></span>
               </td>
-              <td class="px-4 py-3 text-slate-500 text-xs uppercase" x-text="o.order_type"></td>
-              <td class="px-4 py-3 text-right text-slate-400 tabular-nums"
-                  x-text="o.qty"></td>
-              <td class="px-4 py-3 text-right text-slate-300 tabular-nums"
-                  x-text="o.filled_qty"></td>
-              <td class="px-4 py-3 text-right text-slate-200 tabular-nums"
+              <td class="px-4 py-2.5 text-slate-500 text-xs uppercase" x-text="o.order_type"></td>
+              <td class="px-4 py-2.5 text-right text-slate-400 tabular-nums" x-text="o.qty"></td>
+              <td class="px-4 py-2.5 text-right text-slate-300 tabular-nums" x-text="o.filled_qty"></td>
+              <td class="px-4 py-2.5 text-right text-slate-200 tabular-nums"
                   x-text="o.filled_avg_price ? '$' + o.filled_avg_price.toFixed(2) : '—'"></td>
-              <td class="px-4 py-3 text-right text-slate-300 tabular-nums"
+              <td class="px-4 py-2.5 text-right text-slate-300 tabular-nums"
                   x-text="o.filled_avg_price && o.filled_qty
-                    ? '$' + (o.filled_qty * o.filled_avg_price).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})
+                    ? '$' + (o.filled_qty * o.filled_avg_price).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})
                     : '—'"></td>
-              <td class="px-4 py-3">
+              <td class="px-4 py-2.5">
                 <span class="px-2 py-0.5 rounded text-[10px] uppercase font-medium"
                       :class="{
-                        'bg-emerald-900/50 text-emerald-400 border border-emerald-700/20':   o.status === 'filled',
-                        'bg-yellow-900/50 text-yellow-400 border border-yellow-700/20':      o.status === 'partially_filled' || o.status === 'new' || o.status === 'accepted',
-                        'bg-slate-700/40 text-slate-400 border border-slate-600/20':         o.status === 'canceled' || o.status === 'expired',
-                        'bg-red-900/50 text-red-400 border border-red-700/20':               o.status === 'rejected',
+                        'bg-emerald-900/50 text-emerald-400 border border-emerald-700/20': o.status === 'filled',
+                        'bg-yellow-900/50 text-yellow-400 border border-yellow-700/20':
+                          o.status === 'partially_filled' || o.status === 'new' || o.status === 'accepted',
+                        'bg-slate-700/40 text-slate-400 border border-slate-600/20':
+                          o.status === 'canceled' || o.status === 'expired',
+                        'bg-red-900/50 text-red-400 border border-red-700/20': o.status === 'rejected',
                       }"
                       x-text="o.status"></span>
               </td>
-              <td class="px-4 py-3 text-right text-slate-500 text-xs tabular-nums"
+              <td class="px-4 py-2.5 text-right text-slate-500 text-xs tabular-nums"
                   x-text="fmtTime(o.submitted_at)"></td>
             </tr>
           </template>
@@ -444,13 +507,13 @@
   </div>
 
 
-  <!-- ================================================================
+  <!-- ==================================================================
        FOOTER
-       ================================================================ -->
+       ================================================================== -->
   <footer class="text-center text-[11px] text-slate-700 pb-2 space-x-2">
     <span>AlphaLive Dashboard</span>
     <span>·</span>
-    <span>Auto-refreshes every 10s</span>
+    <span>WebSocket · 5s push</span>
     <span>·</span>
     <span x-text="health?.server_time ? 'Server ' + new Date(health.server_time).toLocaleTimeString() : ''"></span>
     <span x-show="health?.state_file" x-text="'· ' + (health?.state_file ?? '')"></span>
@@ -459,214 +522,327 @@
 </div><!-- /x-data -->
 
 
+<!-- ====================================================================
+     Toast renderer (mounted outside main div to avoid z-index issues)
+     ==================================================================== -->
+<div id="toast-portal" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+
 <script>
-// Chart.js instances live outside Alpine to avoid reactivity conflicts.
-const _charts = {};
+// Chart.js instances — stored outside Alpine to prevent reactivity conflicts
+const _charts = { sparklines: {} };
 
 document.addEventListener('alpine:init', () => {
   Alpine.data('dashboard', () => ({
 
-    account:      null,
-    positions:    [],
-    orders:       [],
-    risk:         null,
-    health:       null,
-    lastUpdated:  null,
-    chartsReady:  false,
+    // ── Data ──────────────────────────────────────────────────────────
+    account:     null,
+    positions:   [],
+    orders:      [],
+    risk:        null,
+    health:      null,
+    lastUpdated: null,
+    chartsReady: false,
 
-    // P&L time-series (browser-session only — max 60 data points ≈ 10 min)
+    // ── WebSocket ─────────────────────────────────────────────────────
+    ws:                null,
+    wsStatus:          'connecting',   // 'connected' | 'connecting' | 'disconnected'
+    wsReconnectDelay:  1000,
+
+    // ── Change tracking ───────────────────────────────────────────────
+    prevPositionPnl: {},  // { symbol: unrealized_pl }
+    positionFlash:   {},  // { symbol: 'green' | 'red' }
+    pnlFlashing:     false,
+    prevDailyPnl:    null,
+    prevOrderIds:    [],  // IDs seen in last push
+
+    // ── P&L time series (session only) ────────────────────────────────
     pnlSeries: { labels: [], data: [] },
 
-    // -------------------------------------------------------
-    async init() {
-      await this.fetchAll();
-      this.$nextTick(() => {
-        this.initCharts();
-        this.chartsReady = true;
-      });
-      setInterval(() => this.fetchAll(), 10_000);
+    // ──────────────────────────────────────────────────────────────────
+    init() {
+      this.connectWS();
     },
 
-    // -------------------------------------------------------
-    async fetchAll() {
-      const [account, positions, trades, risk, health] = await Promise.allSettled([
-        fetch('/api/account').then(r => r.ok ? r.json() : Promise.reject(r.statusText)),
-        fetch('/api/positions').then(r => r.ok ? r.json() : Promise.reject(r.statusText)),
-        fetch('/api/trades').then(r => r.ok ? r.json() : Promise.reject(r.statusText)),
-        fetch('/api/risk').then(r => r.ok ? r.json() : Promise.reject(r.statusText)),
-        fetch('/api/health').then(r => r.ok ? r.json() : Promise.reject(r.statusText)),
-      ]);
+    // ── WebSocket ─────────────────────────────────────────────────────
+    connectWS() {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const url   = `${proto}//${location.host}/ws`;
+      this.ws = new WebSocket(url);
 
-      if (account.status   === 'fulfilled') this.account   = account.value;
-      if (positions.status === 'fulfilled') this.positions = positions.value.positions ?? [];
-      if (trades.status    === 'fulfilled') this.orders    = trades.value.orders ?? [];
-      if (risk.status      === 'fulfilled') this.risk      = risk.value;
-      if (health.status    === 'fulfilled') this.health    = health.value;
+      this.ws.onopen = () => {
+        this.wsStatus = 'connected';
+        this.wsReconnectDelay = 1000;
+      };
 
-      // Track P&L history (session)
+      this.ws.onmessage = (evt) => {
+        try {
+          this.applyData(JSON.parse(evt.data));
+        } catch(e) {
+          console.error('WS parse error:', e);
+        }
+      };
+
+      this.ws.onclose = () => {
+        this.wsStatus = 'connecting';
+        setTimeout(() => this.connectWS(), this.wsReconnectDelay);
+        this.wsReconnectDelay = Math.min(this.wsReconnectDelay * 2, 30_000);
+      };
+
+      this.ws.onerror = () => {
+        this.wsStatus = 'disconnected';
+        // onclose fires next — reconnect loop handles it
+      };
+    },
+
+    // ── Apply incoming WS payload ─────────────────────────────────────
+    applyData(d) {
+      // Account
+      if (d.account !== undefined) this.account = d.account;
+
+      // Positions + row flash
+      if (d.positions !== undefined) {
+        const newPos = d.positions;
+        newPos.forEach(p => {
+          const prev = this.prevPositionPnl[p.symbol];
+          if (prev !== undefined && Math.abs(prev - p.unrealized_pl) > 0.001) {
+            const dir = p.unrealized_pl > prev ? 'green' : 'red';
+            this.positionFlash = { ...this.positionFlash, [p.symbol]: dir };
+            setTimeout(() => {
+              const f = { ...this.positionFlash };
+              delete f[p.symbol];
+              this.positionFlash = f;
+            }, 700);
+          }
+          this.prevPositionPnl[p.symbol] = p.unrealized_pl;
+        });
+
+        // Clean up sparklines for closed positions
+        const newSyms = new Set(newPos.map(p => p.symbol));
+        Object.keys(_charts.sparklines).forEach(sym => {
+          if (!newSyms.has(sym)) {
+            _charts.sparklines[sym].destroy();
+            delete _charts.sparklines[sym];
+          }
+        });
+
+        this.positions = newPos;
+
+        // Init sparklines for newly appearing symbols
+        this.$nextTick(() => {
+          this.positions.forEach(p => this.initSparkline(p.symbol));
+        });
+      }
+
+      // Orders + toast on new trade
+      if (d.orders !== undefined) {
+        const newOrders  = d.orders;
+        const prevIdSet  = new Set(this.prevOrderIds);
+        if (prevIdSet.size > 0) {
+          newOrders.forEach(o => {
+            if (!prevIdSet.has(o.id)) {
+              const side = o.side === 'buy' ? '▲ BUY' : '▼ SELL';
+              this.showToast(`${side} ${o.symbol} — ${o.status}`, o.side);
+            }
+          });
+        }
+        this.prevOrderIds = newOrders.map(o => o.id);
+        this.orders = newOrders;
+      }
+
+      // Risk + P&L flash
+      if (d.risk !== undefined) {
+        const newPnl = d.risk?.daily_pnl ?? null;
+        if (this.prevDailyPnl !== null && newPnl !== null &&
+            Math.abs(newPnl - this.prevDailyPnl) > 0.001) {
+          this.pnlFlashing = false;
+          this.$nextTick(() => { this.pnlFlashing = true; });
+          setTimeout(() => { this.pnlFlashing = false; }, 400);
+        }
+        this.prevDailyPnl = newPnl;
+        this.risk = d.risk;
+      }
+
+      if (d.health !== undefined) this.health = d.health;
+
+      // P&L time series
       if (this.risk != null) {
-        const now = new Date();
-        const lbl = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const lbl = new Date().toLocaleTimeString('en-US',
+          { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
         this.pnlSeries.labels.push(lbl);
         this.pnlSeries.data.push(this.risk.daily_pnl ?? 0);
-        if (this.pnlSeries.labels.length > 60) {
+        if (this.pnlSeries.labels.length > 72) {   // ~6 min at 5s intervals
           this.pnlSeries.labels.shift();
           this.pnlSeries.data.shift();
         }
       }
 
-      this.lastUpdated = new Date().toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      if (this.chartsReady) this.updateCharts();
+      this.lastUpdated = new Date().toLocaleTimeString('en-US',
+        { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+      if (!this.chartsReady) {
+        this.$nextTick(() => { this.initCharts(); this.chartsReady = true; });
+      } else {
+        this.updateCharts();
+      }
     },
 
-    // -------------------------------------------------------
+    // ── Chart.js — main charts ────────────────────────────────────────
     initCharts() {
-      // --- P&L Line Chart ---
       const pnlCanvas = document.getElementById('pnlChart');
       if (pnlCanvas) {
         const pnl = this.risk?.daily_pnl ?? 0;
-        const lineColor = pnl >= 0 ? '#10b981' : '#ef4444';
-        const fillColor = pnl >= 0 ? 'rgba(16,185,129,0.07)' : 'rgba(239,68,68,0.07)';
-
         _charts.pnl = new Chart(pnlCanvas.getContext('2d'), {
           type: 'line',
           data: {
             labels: this.pnlSeries.labels,
             datasets: [{
               data: this.pnlSeries.data,
-              borderColor: lineColor,
-              backgroundColor: fillColor,
-              borderWidth: 1.5,
-              pointRadius: 0,
-              fill: true,
-              tension: 0.35,
+              borderColor: pnl >= 0 ? '#10b981' : '#ef4444',
+              backgroundColor: pnl >= 0 ? 'rgba(16,185,129,0.07)' : 'rgba(239,68,68,0.07)',
+              borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.35,
             }],
           },
           options: {
-            animation: false,
-            responsive: true,
-            maintainAspectRatio: false,
+            animation: false, responsive: true, maintainAspectRatio: false,
             plugins: {
               legend: { display: false },
-              tooltip: {
-                callbacks: {
-                  label: ctx => `P&L: ${ctx.raw >= 0 ? '+' : ''}$${Number(ctx.raw).toFixed(2)}`,
-                },
-              },
+              tooltip: { callbacks: { label: ctx =>
+                `P&L: ${ctx.raw >= 0 ? '+' : ''}$${Number(ctx.raw).toFixed(2)}` } },
             },
             scales: {
-              x: {
-                ticks: { color: '#475569', maxTicksLimit: 5, font: { size: 9 } },
-                grid: { color: '#1e293b', drawBorder: false },
-              },
-              y: {
-                ticks: {
-                  color: '#475569',
-                  font: { size: 9 },
-                  callback: v => {
-                    const a = Math.abs(v);
-                    const s = v < 0 ? '-' : '';
-                    return a >= 1000 ? `${s}$${(a/1000).toFixed(1)}K` : `${s}$${a.toFixed(0)}`;
-                  },
-                },
-                grid: { color: '#1e293b', drawBorder: false },
-              },
+              x: { ticks: { color: '#475569', maxTicksLimit: 4, font: { size: 9 } },
+                   grid: { color: '#1e293b' } },
+              y: { ticks: { color: '#475569', font: { size: 9 },
+                   callback: v => { const a = Math.abs(v); const s = v < 0 ? '-' : '';
+                     return a >= 1000 ? `${s}$${(a/1000).toFixed(1)}K` : `${s}$${a.toFixed(0)}`; } },
+                   grid: { color: '#1e293b' } },
             },
           },
         });
       }
 
-      // --- Allocation Donut ---
       const allocCanvas = document.getElementById('allocChart');
       if (allocCanvas) {
         const COLORS = ['#10b981','#3b82f6','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899'];
-        const labels = this.positions.length > 0
-          ? this.positions.map(p => p.symbol)
-          : ['Cash'];
-        const data = this.positions.length > 0
-          ? this.positions.map(p => Math.abs(p.market_value))
-          : [this.account?.cash ?? 1];
-
+        const labels = this.positions.length > 0 ? this.positions.map(p => p.symbol) : ['Cash'];
+        const data   = this.positions.length > 0 ? this.positions.map(p => Math.abs(p.market_value)) : [this.account?.cash ?? 1];
         _charts.alloc = new Chart(allocCanvas.getContext('2d'), {
           type: 'doughnut',
           data: {
             labels,
-            datasets: [{
-              data,
-              backgroundColor: COLORS.slice(0, data.length),
-              borderWidth: 2,
-              borderColor: '#161b2d',
-              hoverOffset: 4,
-            }],
+            datasets: [{ data, backgroundColor: COLORS.slice(0, data.length), borderWidth: 2, borderColor: '#161b2d', hoverOffset: 4 }],
           },
           options: {
-            animation: false,
-            responsive: true,
-            maintainAspectRatio: false,
-            cutout: '62%',
+            animation: false, responsive: true, maintainAspectRatio: false, cutout: '62%',
             plugins: {
-              legend: {
-                display: true,
-                position: 'right',
-                labels: { color: '#94a3b8', boxWidth: 10, font: { size: 10 }, padding: 8 },
-              },
-              tooltip: {
-                callbacks: {
-                  label: ctx => `${ctx.label}: $${Number(ctx.raw).toLocaleString('en-US', { maximumFractionDigits: 0 })}`,
-                },
-              },
+              legend: { display: true, position: 'right',
+                labels: { color: '#94a3b8', boxWidth: 10, font: { size: 10 }, padding: 8 } },
+              tooltip: { callbacks: { label: ctx =>
+                `${ctx.label}: $${Number(ctx.raw).toLocaleString('en-US', { maximumFractionDigits: 0 })}` } },
             },
           },
         });
       }
     },
 
-    // -------------------------------------------------------
     updateCharts() {
       if (_charts.pnl) {
         const pnl = this.risk?.daily_pnl ?? 0;
-        _charts.pnl.data.labels                        = this.pnlSeries.labels;
-        _charts.pnl.data.datasets[0].data              = this.pnlSeries.data;
-        _charts.pnl.data.datasets[0].borderColor       = pnl >= 0 ? '#10b981' : '#ef4444';
-        _charts.pnl.data.datasets[0].backgroundColor   = pnl >= 0 ? 'rgba(16,185,129,0.07)' : 'rgba(239,68,68,0.07)';
+        _charts.pnl.data.labels                      = this.pnlSeries.labels;
+        _charts.pnl.data.datasets[0].data            = this.pnlSeries.data;
+        _charts.pnl.data.datasets[0].borderColor     = pnl >= 0 ? '#10b981' : '#ef4444';
+        _charts.pnl.data.datasets[0].backgroundColor = pnl >= 0 ? 'rgba(16,185,129,0.07)' : 'rgba(239,68,68,0.07)';
         _charts.pnl.update('none');
       }
-
       if (_charts.alloc) {
         if (this.positions.length > 0) {
-          _charts.alloc.data.labels                  = this.positions.map(p => p.symbol);
-          _charts.alloc.data.datasets[0].data        = this.positions.map(p => Math.abs(p.market_value));
+          _charts.alloc.data.labels             = this.positions.map(p => p.symbol);
+          _charts.alloc.data.datasets[0].data   = this.positions.map(p => Math.abs(p.market_value));
         } else {
-          _charts.alloc.data.labels                  = ['Cash'];
-          _charts.alloc.data.datasets[0].data        = [this.account?.cash ?? 1];
+          _charts.alloc.data.labels             = ['Cash'];
+          _charts.alloc.data.datasets[0].data   = [this.account?.cash ?? 1];
         }
         _charts.alloc.update('none');
       }
     },
 
-    // -------------------------------------------------------
-    // Computed helpers
-    // -------------------------------------------------------
+    // ── Per-position mini sparklines ──────────────────────────────────
+    async initSparkline(symbol) {
+      if (_charts.sparklines[symbol]) return;   // already initialized
+      const canvas = document.getElementById('spark-' + symbol);
+      if (!canvas) return;
 
+      let closes = [];
+      try {
+        const r = await fetch('/api/bars/' + symbol + '?n=20');
+        if (r.ok) {
+          const d = await r.json();
+          closes = (d.bars ?? []).map(b => b.c);
+        }
+      } catch(_) { /* render empty sparkline */ }
+
+      const trending = closes.length > 1 && closes[closes.length - 1] >= closes[0];
+      _charts.sparklines[symbol] = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: {
+          labels: Array(closes.length).fill(''),
+          datasets: [{
+            data: closes,
+            borderColor: trending ? '#10b981' : '#ef4444',
+            borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: false,
+          }],
+        },
+        options: {
+          animation: false, responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { enabled: false } },
+          scales: { x: { display: false }, y: { display: false } },
+        },
+      });
+    },
+
+    // ── Toast notifications ───────────────────────────────────────────
+    showToast(msg, type = 'info') {
+      const portal = document.getElementById('toast-portal');
+      if (!portal) return;
+
+      const el = document.createElement('div');
+      const colorMap = {
+        buy:  'bg-emerald-900/95 border-emerald-700/60 text-emerald-200',
+        sell: 'bg-red-900/95 border-red-700/60 text-red-200',
+        info: 'bg-slate-800/95 border-slate-600/60 text-slate-200',
+      };
+      const cls = colorMap[type] ?? colorMap.info;
+      el.className = `toast-enter pointer-events-auto px-4 py-3 rounded-lg border text-sm shadow-xl backdrop-blur-sm flex items-center gap-2 ${cls}`;
+      el.textContent = msg;
+      portal.appendChild(el);
+      setTimeout(() => {
+        el.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+        el.style.opacity = '0';
+        el.style.transform = 'translateX(1rem)';
+        setTimeout(() => el.remove(), 320);
+      }, 4000);
+    },
+
+    // ── Computed helpers ──────────────────────────────────────────────
     botStatus() {
-      if (!this.health)                    return 'CONNECTING';
-      if (!this.health.broker_connected)   return 'OFFLINE';
-      if (this.risk?.trading_paused)       return 'PAUSED';
-      if (this.risk?.dry_run)              return 'DRY RUN';
-      if (this.account?.paper)             return 'PAPER';
+      if (!this.health)                  return 'CONNECTING';
+      if (!this.health.broker_connected) return 'OFFLINE';
+      if (this.risk?.trading_paused)     return 'PAUSED';
+      if (this.risk?.dry_run)            return 'DRY RUN';
+      if (this.account?.paper)           return 'PAPER';
       return 'LIVE';
     },
 
     statusClass() {
-      const map = {
+      return ({
         'LIVE':       'bg-emerald-500 text-black badge-live',
         'PAPER':      'bg-blue-500 text-white',
         'PAUSED':     'bg-yellow-400 text-black',
         'DRY RUN':    'bg-purple-500 text-white',
         'OFFLINE':    'bg-red-600 text-white',
         'CONNECTING': 'bg-slate-600 text-white',
-      };
-      return map[this.botStatus()] ?? 'bg-slate-600 text-white';
+      })[this.botStatus()] ?? 'bg-slate-600 text-white';
     },
 
     pnlClass(v) {
@@ -674,43 +850,36 @@ document.addEventListener('alpine:init', () => {
       return v > 0 ? 'text-emerald-400' : 'text-red-400';
     },
 
-    // $x,xxx.xx — drops decimals for large values; adds +/- sign
     fmtDollar(v) {
       if (v == null) return '—';
-      const abs = Math.abs(v);
-      const sign = v > 0 ? '+' : v < 0 ? '-' : '';
-      if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
-      if (abs >= 10_000)    return `${sign}$${(abs / 1_000).toFixed(1)}K`;
-      return `${sign}$${abs.toFixed(2)}`;
+      const a = Math.abs(v);
+      const s = v > 0 ? '+' : v < 0 ? '-' : '';
+      if (a >= 1_000_000) return `${s}$${(a/1_000_000).toFixed(2)}M`;
+      if (a >= 10_000)    return `${s}$${(a/1_000).toFixed(1)}K`;
+      return `${s}$${a.toFixed(2)}`;
     },
 
-    // Plain $xx,xxx.xx with commas, no sign
     fmt2(v) {
       if (v == null) return '—';
       return Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     },
 
-    // Rounded integer
     fmt0(v) {
       if (v == null) return '—';
       return Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 0 });
     },
 
-    // +x.xx%
     fmtPct(v) {
       if (v == null) return '—';
       return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
     },
 
-    // 09:35 AM
     fmtTime(iso) {
       if (!iso) return '—';
-      try {
-        return new Date(iso).toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit' });
-      } catch { return iso; }
+      try { return new Date(iso).toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit' }); }
+      catch { return iso; }
     },
 
-    // May 8, 09:35 AM
     fmtDate(iso) {
       if (!iso) return '—';
       try {
