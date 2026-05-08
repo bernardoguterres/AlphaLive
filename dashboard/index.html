@@ -574,7 +574,7 @@
     </div>
 
     <div class="overflow-x-auto">
-      <table class="w-full text-sm" style="min-width: 520px;">
+      <table class="w-full text-sm" style="min-width: 720px;">
         <thead>
           <tr class="text-[10px] text-slate-500 uppercase tracking-wider">
             <th class="px-5 py-2.5 text-left">Symbol</th>
@@ -584,6 +584,7 @@
             <th class="px-4 py-2.5 text-right">Filled</th>
             <th class="px-4 py-2.5 text-right">Avg Price</th>
             <th class="px-4 py-2.5 text-right">Value</th>
+            <th class="px-4 py-2.5 text-right">Realized P&amp;L</th>
             <th class="px-4 py-2.5 text-left">Status</th>
             <th class="px-4 py-2.5 text-right">Time</th>
           </tr>
@@ -591,7 +592,7 @@
         <tbody>
           <template x-if="orders.length === 0">
             <tr>
-              <td colspan="9" class="px-5 py-10 text-center text-slate-600 text-sm">
+              <td colspan="10" class="px-5 py-10 text-center text-slate-600 text-sm">
                 No orders today
               </td>
             </tr>
@@ -615,6 +616,11 @@
                   x-text="o.filled_avg_price && o.filled_qty
                     ? '$' + (o.filled_qty * o.filled_avg_price).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})
                     : '—'"></td>
+              <!-- Realized P&L: only shown on filled SELL orders where today's BUY is known -->
+              <td class="px-4 py-2.5 text-right tabular-nums font-semibold"
+                  :class="orderPnlMap[o.id] != null ? pnlClass(orderPnlMap[o.id]) : 'text-slate-600'"
+                  :title="orderPnlMap[o.id] == null && o.side === 'sell' ? 'Position opened before today — buy price unavailable' : ''"
+                  x-text="orderPnlMap[o.id] != null ? fmtDollar(orderPnlMap[o.id]) : '—'"></td>
               <td class="px-4 py-2.5">
                 <span class="px-2 py-0.5 rounded text-[10px] uppercase font-medium"
                       :class="{
@@ -714,6 +720,9 @@ document.addEventListener('alpine:init', () => {
     // ── Screener ──────────────────────────────────────────────────────
     screener:         null,   // null = not loaded, false = 404, object = data
     screenerLoading:  false,
+
+    // ── Realized P&L map ─────────────────────────────────────────────
+    orderPnlMap: {},   // { order_id: number | null }
 
     // ── Change tracking ───────────────────────────────────────────────
     prevPositionPnl: {},  // { symbol: unrealized_pl }
@@ -816,6 +825,7 @@ document.addEventListener('alpine:init', () => {
         }
         this.prevOrderIds = newOrders.map(o => o.id);
         this.orders = newOrders;
+        this.orderPnlMap = this.computeOrderPnl(newOrders);
       }
 
       // Risk + P&L flash
@@ -968,6 +978,40 @@ document.addEventListener('alpine:init', () => {
           scales: { x: { display: false }, y: { display: false } },
         },
       });
+    },
+
+    // ── Realized P&L matching (FIFO, today's orders only) ────────────
+    computeOrderPnl(orders) {
+      const result = {};
+      const buysBySymbol = {}; // { symbol: [{price, qty}] }
+
+      // Process chronologically so FIFO matching is correct
+      const sorted = [...orders].sort(
+        (a, b) => new Date(a.submitted_at) - new Date(b.submitted_at)
+      );
+
+      for (const o of sorted) {
+        const filled = o.status === 'filled' && o.filled_avg_price > 0 && o.filled_qty > 0;
+        if (!filled) { result[o.id] = null; continue; }
+
+        if (o.side === 'buy') {
+          if (!buysBySymbol[o.symbol]) buysBySymbol[o.symbol] = [];
+          buysBySymbol[o.symbol].push({ price: o.filled_avg_price, qty: o.filled_qty });
+          result[o.id] = null;  // P&L realised on the SELL side
+        } else if (o.side === 'sell') {
+          const buys = buysBySymbol[o.symbol];
+          if (!buys || buys.length === 0) {
+            result[o.id] = null;  // position opened before today — can't compute
+          } else {
+            const totalQty  = buys.reduce((s, b) => s + b.qty, 0);
+            const totalCost = buys.reduce((s, b) => s + b.price * b.qty, 0);
+            result[o.id]    = (o.filled_avg_price - totalCost / totalQty) * o.filled_qty;
+          }
+        } else {
+          result[o.id] = null;
+        }
+      }
+      return result;
     },
 
     // ── Screener ──────────────────────────────────────────────────────
