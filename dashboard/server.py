@@ -353,6 +353,11 @@ def _build_payload() -> Dict[str, Any]:
         "paper_trading": os.getenv("ALPACA_PAPER", "true").lower() in ("true", "1", "yes"),
         "server_time": datetime.now().isoformat(),
         "state_file": os.getenv("STATE_FILE", "/tmp/alphalive_state.json"),
+        "railway_configured": bool(
+            os.getenv("RAILWAY_API_TOKEN") and
+            os.getenv("RAILWAY_SERVICE_ID") and
+            os.getenv("RAILWAY_ENVIRONMENT_ID")
+        ),
     }
 
     return out
@@ -526,6 +531,11 @@ async def api_health():
         "paper_trading": os.getenv("ALPACA_PAPER", "true").lower() in ("true", "1", "yes"),
         "server_time": datetime.now().isoformat(),
         "state_file": os.getenv("STATE_FILE", "/tmp/alphalive_state.json"),
+        "railway_configured": bool(
+            os.getenv("RAILWAY_API_TOKEN") and
+            os.getenv("RAILWAY_SERVICE_ID") and
+            os.getenv("RAILWAY_ENVIRONMENT_ID")
+        ),
     }
 
 
@@ -550,6 +560,64 @@ async def api_bars(ticker: str, n: int = 20):
 # ---------------------------------------------------------------------------
 # Kill switch control endpoints
 # ---------------------------------------------------------------------------
+
+@app.post("/api/deploy")
+async def api_deploy():
+    """
+    Trigger a Railway redeploy of the AlphaLive service.
+
+    Required env vars:
+        RAILWAY_API_TOKEN      — Railway personal API token (Account → API Tokens)
+        RAILWAY_SERVICE_ID     — Service ID (Railway dashboard → service → Settings → General)
+        RAILWAY_ENVIRONMENT_ID — Environment ID (Railway dashboard → environment → Settings)
+    """
+    token   = os.getenv("RAILWAY_API_TOKEN", "")
+    svc_id  = os.getenv("RAILWAY_SERVICE_ID", "")
+    env_id  = os.getenv("RAILWAY_ENVIRONMENT_ID", "")
+
+    if not token or not svc_id or not env_id:
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                "Railway redeploy not configured. Set RAILWAY_API_TOKEN, "
+                "RAILWAY_SERVICE_ID, and RAILWAY_ENVIRONMENT_ID."
+            )
+        )
+
+    import httpx
+
+    mutation = """
+    mutation serviceInstanceRedeploy($serviceId: String!, $environmentId: String!) {
+      serviceInstanceRedeploy(serviceId: $serviceId, environmentId: $environmentId)
+    }
+    """
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                "https://backboard.railway.app/graphql/v2",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                json={"query": mutation, "variables": {"serviceId": svc_id, "environmentId": env_id}},
+            )
+
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"Railway API returned HTTP {resp.status_code}")
+
+        data = resp.json()
+        if "errors" in data:
+            msgs = "; ".join(e.get("message", str(e)) for e in data["errors"])
+            raise HTTPException(status_code=502, detail=f"Railway error: {msgs}")
+
+        logger.info("Railway redeploy triggered successfully")
+        return {"ok": True, "message": "Redeploy triggered — Railway will restart in ~30s"}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Railway API call failed: {exc}")
+
 
 @app.get("/api/screener")
 async def api_screener():
