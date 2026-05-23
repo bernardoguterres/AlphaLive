@@ -2,7 +2,7 @@
 
 **24/7 live trading execution engine** for strategies exported from AlphaLab.
 
-Export a backtested strategy from AlphaLab → deploy to Railway → it trades automatically. Get Telegram alerts for every trade and daily summaries.
+Export a backtested strategy from AlphaLab → deploy to Railway → it trades automatically. Monitor via a real-time web dashboard with live P&L charts, position tracking, and a kill switch. Telegram alerts for every trade and daily summaries.
 
 ---
 
@@ -41,6 +41,7 @@ Export a backtested strategy from AlphaLab → deploy to Railway → it trades a
 - Execute trades automatically
 - Monitor positions for stop loss / take profit
 - Send Telegram alerts
+- Real-time web dashboard — live P&L charts, position table, kill switch, CSV export
 
 **When you use it**:
 - 24/7 during trading hours (9:30 AM - 4:00 PM ET, Mon-Fri)
@@ -268,6 +269,7 @@ AlphaLive is a production-grade trading bot with:
 - **Market Data**: Real-time bars from Alpaca with caching and staleness detection
 - **Notifications**: Telegram alerts for trades, exits, errors, daily summaries
 - **Resilience**: Auto-restart on Railway, position reconciliation, corporate action detection
+- **Web Dashboard**: Real-time monitoring UI (FastAPI + WebSocket) — live P&L charts, open positions, trailing stop levels, kill switch, CSV export, one-click Railway redeploy
 
 **Market Closed Behavior**:
 - Checks if market is open every 30 seconds
