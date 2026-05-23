@@ -137,7 +137,7 @@ pkill -f "run.py"
 
 **Cost**: ~$5-20/month (Hobby plan or pay-as-you-go)
 
-**How to deploy**: See [SETUP.md](SETUP.md) for complete guide
+**How to deploy**: See the [Deploy to Railway](#deploy-to-railway) section below
 
 ### Comparison Table
 
@@ -192,7 +192,7 @@ pkill -f "run.py"
 **Platform**: AlphaLive (this repository)
 
 **Run it**:
-- Railway (recommended): See [SETUP.md](SETUP.md)
+- Railway (recommended): See the [Deploy to Railway](#deploy-to-railway) section below
 - Or locally: `python run.py` with `ALPACA_PAPER=false`
 
 **Requirements**:
@@ -453,22 +453,87 @@ Note: `data/` and `*.parquet` are gitignored — downloaded data is never commit
 
 ## Deploy to Railway
 
-**See [SETUP.md](SETUP.md) for detailed deployment guide.**
+Railway is the recommended host — it runs 24/7 for ~$5/month and auto-restarts on crash.
 
-Quick steps:
+### 1. Prerequisites
 
-1. **Create Railway account**: [railway.app](https://railway.app)
-2. **Create new project** → Deploy from GitHub repo
-3. **Set environment variables**:
-   - `ALPACA_API_KEY`
-   - `ALPACA_SECRET_KEY`
-   - `TELEGRAM_BOT_TOKEN`
-   - `TELEGRAM_CHAT_ID`
-   - `STRATEGY_CONFIG=configs/your_strategy.json`
-   - `ALPACA_PAPER=true` (start with paper trading!)
-4. **Deploy** → Railway auto-builds and runs 24/7
+- [Railway account](https://railway.app) (free tier works for testing)
+- Alpaca Markets account — sign up at [alpaca.markets](https://alpaca.markets), go to **Your API Keys**, and generate **paper trading** keys first
+- Strategy JSON exported from [AlphaLab](https://github.com/bernardoguterres/AlphaLab) placed in `configs/`
+- (Optional) Telegram bot token from [@BotFather](https://t.me/BotFather)
 
-**Cost**: ~$5/month on Railway Starter plan (500 hours included).
+### 2. Create the Railway project
+
+1. Go to [railway.app/new](https://railway.app/new) → **Deploy from GitHub repo**
+2. Select your AlphaLive fork — Railway detects the `Dockerfile` automatically
+3. Go to **Variables** and add:
+
+```bash
+# Required
+ALPACA_API_KEY=PK...
+ALPACA_SECRET_KEY=...
+STRATEGY_CONFIG=configs/ma_crossover_SPY.json
+
+# Strongly recommended
+ALPACA_PAPER=true                    # always start with paper trading
+TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
+TELEGRAM_CHAT_ID=123456789
+LOG_LEVEL=INFO
+HEALTH_SECRET=$(openssl rand -hex 16) # generate a random string
+```
+
+4. Click **Deploy** — Railway builds the image and starts the bot
+
+**Expected startup log**:
+```
+✅ ALL VALIDATIONS PASSED
+Market is closed — sleeping until 9:30 AM ET
+```
+
+### 3. Cost
+
+| Plan | Price | Best for |
+|------|-------|----------|
+| Starter | $5/month | 1–3 strategies |
+| Hobby | $20/month | 4+ strategies, unlimited hours |
+
+### 4. Production checklist (before switching to live money)
+
+- [ ] Ran `DRY_RUN=true` for at least one full trading day — signals look correct
+- [ ] Ran `ALPACA_PAPER=true` for 1+ weeks — execution and P&L match expectations
+- [ ] Stop loss and take profit triggered correctly in paper (verify in logs)
+- [ ] Telegram notifications working — received trade alerts and EOD summary
+- [ ] Signal parity test passes: `pytest tests/test_signal_parity.py`
+- [ ] Walk-forward Sharpe in AlphaLab > 0.8 in both test windows
+
+### 5. Switching to live trading
+
+1. Generate **live trading keys** in Alpaca (separate from paper keys)
+2. Update Railway variables: `ALPACA_PAPER=false`, new `ALPACA_API_KEY` + `ALPACA_SECRET_KEY`
+3. Railway auto-redeploys in ~30 seconds
+4. Watch logs for the first hour; be ready to set `TRADING_PAUSED=true` if anything looks wrong
+
+### 6. Kill switch
+
+Fastest way to halt all new entries without stopping the process:
+
+```bash
+# Telegram (instant, no restart needed):
+/pause
+
+# Railway dashboard (15–30s restart):
+Set TRADING_PAUSED=true in Variables
+```
+
+### Troubleshooting
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `Invalid API key` | Wrong key type (paper vs live) | Match `ALPACA_PAPER` to your key type |
+| `Data is stale` | Market closed or feed delay | Normal — bot resumes at 9:30 AM ET automatically |
+| `Telegram offline` | Wrong token or chat ID | Check `TELEGRAM_BOT_TOKEN` has no extra spaces |
+| `Daily loss limit exceeded` | Hit `max_daily_loss_pct` | Working as intended — resumes next trading day |
+| No trades executing | Paused, dry run, or risk limits | Check logs for signal checks and risk rejections |
 
 ---
 
