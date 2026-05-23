@@ -38,6 +38,50 @@ TIMEFRAME_CHECK_INTERVALS = {
 }
 
 
+def _compute_daily_stats(all_orders: list, start_equity: float, end_equity: float) -> dict:
+    """
+    Compute P&L and win rate from today's order history.
+
+    P&L is derived from equity change (start → end), which is the authoritative
+    source — it captures unrealised moves on positions held overnight and is
+    unaffected by FIFO matching edge-cases.
+
+    Win rate counts only completed round-trips (BUY followed by a SELL for the
+    same ticker) using a simple FIFO queue per ticker.
+
+    Args:
+        all_orders: List of order dicts from OrderManager.get_order_history().
+                    Each entry has keys: ticker, side, qty, price, timestamp.
+        start_equity: Portfolio equity at market open (morning_equity).
+        end_equity:   Portfolio equity now (account.equity).
+
+    Returns:
+        Dict with keys: pnl (float, dollars), win_rate (float, 0–100 %).
+    """
+    pnl = end_equity - start_equity
+
+    # Win-rate: FIFO match BUYs to SELLs per ticker
+    buy_queues: dict[str, list] = {}
+    wins = 0
+    total_sells = 0
+
+    for order in sorted(all_orders, key=lambda o: o["timestamp"]):
+        ticker = order["ticker"]
+        side = order.get("side", "").upper()
+        if side == "BUY":
+            buy_queues.setdefault(ticker, []).append(order["price"])
+        elif side == "SELL":
+            queue = buy_queues.get(ticker, [])
+            if queue:
+                buy_price = queue.pop(0)
+                total_sells += 1
+                if order["price"] > buy_price:
+                    wins += 1
+
+    win_rate = (wins / total_sells * 100) if total_sells > 0 else 0.0
+    return {"pnl": pnl, "win_rate": win_rate}
+
+
 def should_run_signal_check(timeframe: str, last_check_time: float) -> bool:
     """
     Determine if a signal check should run based on timeframe and last check time.
@@ -341,10 +385,11 @@ def main(
                 all_orders.extend(order_manager_map[ticker].get_order_history())
 
             account = broker.get_account()
+            daily_stats = _compute_daily_stats(all_orders, morning_equity, account.equity)
             summary = {
                 "trades": len(all_orders),
-                "pnl": 0.0,  # TODO: Calculate actual P&L
-                "win_rate": 0.0,
+                "pnl": daily_stats["pnl"],
+                "win_rate": daily_stats["win_rate"],
                 "portfolio_value": account.equity
             }
             notifier.send_shutdown_notification(summary)
@@ -461,11 +506,11 @@ def main(
                                 all_orders.extend(order_manager_map[ticker].get_order_history())
 
                             account = broker.get_account()
-
+                            daily_stats = _compute_daily_stats(all_orders, morning_equity, account.equity)
                             summary = {
                                 "trades": len(all_orders),
-                                "pnl": 0.0,  # TODO: Calculate actual P&L from order_history
-                                "win_rate": 0.0,  # TODO: Calculate from closed positions
+                                "pnl": daily_stats["pnl"],
+                                "win_rate": daily_stats["win_rate"],
                                 "start_equity": morning_equity,
                                 "end_equity": account.equity
                             }
@@ -692,13 +737,21 @@ def main(
                                 logger.warning(f"No order manager for {ticker}, skipping exit check")
                                 continue
 
+                            # Update the persistent position high so trailing stops
+                            # calculate from the true peak, not the current price.
+                            # state.py already has set_position_high / get_position_high
+                            # for exactly this purpose; it persists across Railway restarts
+                            # when PERSISTENT_STORAGE=true.
+                            bot_state.set_position_high(ticker, pos.current_price)
+                            known_high = bot_state.get_position_high(ticker) or pos.avg_entry_price
+
                             # Convert position to dict format
                             pos_dict = [{
                                 "ticker": ticker,
                                 "avg_entry": pos.avg_entry_price,
                                 "side": pos.side,
                                 "qty": pos.qty,
-                                "highest_since_entry": pos.current_price  # TODO: Track actual high
+                                "highest_since_entry": known_high,
                             }]
 
                             # Check exit conditions using the correct order manager
@@ -717,6 +770,9 @@ def main(
                                     )
 
                                 if result["status"] == "success":
+                                    # Clear the tracked high now the position is closed
+                                    bot_state.clear_position_high(ticker)
+
                                     # Find the position to get details
                                     pos = next((p for p in positions if p.symbol == exit_signal['ticker']), None)
                                     if pos:
@@ -843,11 +899,11 @@ def main(
                         all_orders.extend(order_manager_map[ticker].get_order_history())
 
                     account = broker.get_account()
-
+                    daily_stats = _compute_daily_stats(all_orders, morning_equity, account.equity)
                     summary = {
                         "trades": len(all_orders),
-                        "pnl": 0.0,  # TODO: Calculate actual P&L
-                        "win_rate": 0.0,  # TODO: Calculate from closed positions
+                        "pnl": daily_stats["pnl"],
+                        "win_rate": daily_stats["win_rate"],
                         "start_equity": morning_equity,
                         "end_equity": account.equity
                     }
@@ -872,11 +928,11 @@ def main(
                         all_orders.extend(order_manager_map[ticker].get_order_history())
 
                     account = broker.get_account()
-
+                    daily_stats = _compute_daily_stats(all_orders, morning_equity, account.equity)
                     summary = {
                         "trades": len(all_orders),
-                        "pnl": 0.0,
-                        "win_rate": 0.0,
+                        "pnl": daily_stats["pnl"],
+                        "win_rate": daily_stats["win_rate"],
                         "start_equity": morning_equity,
                         "end_equity": account.equity
                     }
