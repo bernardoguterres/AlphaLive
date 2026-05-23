@@ -8,12 +8,13 @@ Export a backtested strategy from AlphaLab → deploy to Railway → it trades a
 
 ## AlphaLab vs AlphaLive: What's the Difference?
 
-**AlphaLab** and **AlphaLive** are two separate platforms that work together:
+**AlphaLab** and **AlphaLive** are two separate platforms that work together, with **AlphaSignal** as an optional sentiment enrichment layer:
 
-| Platform | Purpose | When to Run | Where to Run |
-|----------|---------|-------------|--------------|
-| **AlphaLab** | Strategy development & backtesting | As needed (not 24/7) | Locally on your computer |
-| **AlphaLive** | Live trading execution | 24/7 during trading hours | Railway (recommended) or locally |
+| Repo | Purpose | When to Run | Where to Run |
+|------|---------|-------------|--------------|
+| **[AlphaLab](https://github.com/bernardoguterres/AlphaLab)** | Strategy development & backtesting | As needed (not 24/7) | Locally on your computer |
+| **[AlphaLive](https://github.com/bernardoguterres/AlphaLive)** (this repo) | Live trading execution | 24/7 during trading hours | Railway (recommended) or locally |
+| **[AlphaSignal](https://github.com/bernardoguterres/AlphaSignal)** | Financial RAG — sentiment signals from SEC filings | Optional enrichment layer | Locally or any cloud host |
 
 ### AlphaLab (Development Platform)
 
