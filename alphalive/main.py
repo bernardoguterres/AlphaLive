@@ -8,6 +8,7 @@ This is NOT a cron job. It's a persistent Python process that:
 - Handles Railway restarts gracefully via SIGTERM
 """
 
+import asyncio
 import time
 import os
 import sys
@@ -17,6 +18,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from alphalive.config import load_config_path, load_env, validate_all
+from alphalive.services.alphasignal_client import AlphaSignalClient, run_pre_execution_checks
 from alphalive.state import BotState
 from alphalive.broker.alpaca_broker import AlpacaBroker
 from alphalive.data.market_data import MarketDataFetcher, DataStaleError
@@ -187,6 +189,23 @@ def main(
         api_key=app_config.broker.api_key,
         secret_key=app_config.broker.secret_key
     )
+
+    # AlphaSignal sentiment client (Integration AS → AL)
+    alphasignal_client: AlphaSignalClient | None = None
+    if app_config.alphasignal.enabled:
+        alphasignal_client = AlphaSignalClient(
+            base_url=app_config.alphasignal.url,
+            api_key=app_config.alphasignal.api_key,
+            timeout_seconds=app_config.alphasignal.timeout_seconds,
+            sentiment_threshold=app_config.alphasignal.sentiment_threshold,
+        )
+        logger.info(
+            f"AlphaSignal sentiment filter enabled | "
+            f"URL: {app_config.alphasignal.url} | "
+            f"Threshold: {app_config.alphasignal.sentiment_threshold}"
+        )
+    else:
+        logger.info("AlphaSignal sentiment filter disabled (ALPHASIGNAL_ENABLED=false)")
 
     # Multi-strategy support: Create maps for signal engines, risk managers, and order managers
     # For simplicity in this implementation, each strategy has its own risk manager
@@ -643,50 +662,89 @@ def main(
                                 )
 
                             if signal_result["signal"] in ("BUY", "SELL"):
-                                # Get current price
-                                price = market_data.get_current_price(strat_cfg.ticker)
+                                # --- Pre-execution filters (DeepLOB + AlphaSignal) ---
+                                # Map signal string to direction int: BUY=2, SELL=0.
+                                _signal_direction = 2 if signal_result["signal"] == "BUY" else 0
 
-                                # Get account info
-                                account = broker.get_account()
+                                _lob_allowed = True
+                                _lob_pred: dict = {}
+                                _sentiment_allowed = True
+                                _sentiment_pred: dict = {}
 
-                                # Get position counts
-                                all_positions = broker.get_all_positions()
-                                strategy_positions = [p for p in all_positions if p.symbol == strat_cfg.ticker]
-                                current_positions_count = len(strategy_positions)
-                                total_portfolio_positions = len(all_positions)
+                                if alphasignal_client is not None:
+                                    # Run DeepLOB (Integration A placeholder — always passes
+                                    # until Integration A wires deeplob_client) and AlphaSignal
+                                    # concurrently via asyncio.gather to avoid serial latency.
+                                    (
+                                        _lob_allowed,
+                                        _lob_pred,
+                                        _sentiment_allowed,
+                                        _sentiment_pred,
+                                    ) = asyncio.run(
+                                        run_pre_execution_checks(
+                                            deeplob_client=None,   # Integration A placeholder
+                                            alphasignal_client=alphasignal_client,
+                                            lob_snapshot=None,     # Integration A placeholder
+                                            ticker=strat_cfg.ticker,
+                                            signal_direction=_signal_direction,
+                                        )
+                                    )
 
-                                # Execute signal
-                                result = order_manager_map[strat_cfg.ticker].execute_signal(
-                                    ticker=strat_cfg.ticker,
-                                    signal=signal_result,
-                                    current_price=price,
-                                    account_equity=account.equity,
-                                    current_positions_count=current_positions_count,
-                                    total_portfolio_positions=total_portfolio_positions,
-                                    current_bar=len(df)
-                                )
-
-                                if result["status"] == "success":
-                                    logger.info(f"✅ Order placed: {result['order_id']}")
+                                if not _lob_allowed or not _sentiment_allowed:
                                     logger.info(
-                                        f"Trade executed | {signal_result['signal']} {result['filled_qty']} {strat_cfg.ticker} "
-                                        f"@ ${result['filled_price']:.2f} | Total: ${result['filled_qty'] * result['filled_price']:.2f}"
+                                        "Execution blocked — "
+                                        f"lob_allowed={_lob_allowed}, "
+                                        f"sentiment_allowed={_sentiment_allowed}, "
+                                        f"sentiment_score={_sentiment_pred.get('sentiment_score', 'N/A')}"
                                     )
-                                    notifier.send_trade_notification(
-                                        ticker=strat_cfg.ticker,
-                                        side=signal_result["signal"],
-                                        qty=result["filled_qty"],
-                                        price=result["filled_price"],
-                                        reason=signal_result["reason"]
-                                    )
-                                elif result["status"] == "blocked":
-                                    logger.warning(f"❌ Trade blocked: {result['reason']}")
-                                    logger.info(
-                                        f"Trade decision | Signal: {signal_result['signal']} | "
-                                        f"Action: BLOCKED | Reason: {result['reason']}"
-                                    )
+                                    # Skip order placement; mark signal check as done below.
                                 else:
-                                    logger.error(f"❌ Trade error: {result['reason']}")
+                                    # Both filters passed — proceed to execution.
+
+                                    # Get current price
+                                    price = market_data.get_current_price(strat_cfg.ticker)
+
+                                    # Get account info
+                                    account = broker.get_account()
+
+                                    # Get position counts
+                                    all_positions = broker.get_all_positions()
+                                    strategy_positions = [p for p in all_positions if p.symbol == strat_cfg.ticker]
+                                    current_positions_count = len(strategy_positions)
+                                    total_portfolio_positions = len(all_positions)
+
+                                    # Execute signal
+                                    result = order_manager_map[strat_cfg.ticker].execute_signal(
+                                        ticker=strat_cfg.ticker,
+                                        signal=signal_result,
+                                        current_price=price,
+                                        account_equity=account.equity,
+                                        current_positions_count=current_positions_count,
+                                        total_portfolio_positions=total_portfolio_positions,
+                                        current_bar=len(df)
+                                    )
+
+                                    if result["status"] == "success":
+                                        logger.info(f"✅ Order placed: {result['order_id']}")
+                                        logger.info(
+                                            f"Trade executed | {signal_result['signal']} {result['filled_qty']} {strat_cfg.ticker} "
+                                            f"@ ${result['filled_price']:.2f} | Total: ${result['filled_qty'] * result['filled_price']:.2f}"
+                                        )
+                                        notifier.send_trade_notification(
+                                            ticker=strat_cfg.ticker,
+                                            side=signal_result["signal"],
+                                            qty=result["filled_qty"],
+                                            price=result["filled_price"],
+                                            reason=signal_result["reason"]
+                                        )
+                                    elif result["status"] == "blocked":
+                                        logger.warning(f"❌ Trade blocked: {result['reason']}")
+                                        logger.info(
+                                            f"Trade decision | Signal: {signal_result['signal']} | "
+                                            f"Action: BLOCKED | Reason: {result['reason']}"
+                                        )
+                                    else:
+                                        logger.error(f"❌ Trade error: {result['reason']}")
 
                         except DataStaleError as e:
                             logger.warning(f"Data staleness during signal check: {e}")
