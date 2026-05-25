@@ -79,10 +79,53 @@ class TelegramConfig(BaseModel):
             self.enabled = False
 
 
+class AlphaSignalConfig(BaseModel):
+    """Configuration for the AlphaSignal sentiment service client.
+
+    Env-var equivalents (loaded by load_env):
+        ALPHASIGNAL_URL                 — base URL of AlphaSignal service
+        ALPHASIGNAL_API_KEY             — auth key (empty = no auth)
+        ALPHASIGNAL_TIMEOUT_SECONDS     — per-request timeout
+        ALPHASIGNAL_SENTIMENT_THRESHOLD — blocking threshold (negative float)
+        ALPHASIGNAL_ENABLED             — set false to skip sentiment gating
+    """
+
+    url: str = Field(
+        default="http://localhost:8000",
+        description="AlphaSignal service base URL",
+    )
+    api_key: str = Field(
+        default="",
+        description="API key (empty string = no auth required)",
+    )
+    timeout_seconds: float = Field(
+        default=3.0,
+        ge=0.1,
+        description="Per-request timeout in seconds",
+    )
+    sentiment_threshold: float = Field(
+        default=-0.3,
+        ge=-1.0,
+        le=0.0,
+        description=(
+            "Sentiment score below which long execution is suppressed. "
+            "Must be in [-1.0, 0.0]. Strong positives (> -threshold) suppress shorts."
+        ),
+    )
+    enabled: bool = Field(
+        default=True,
+        description="Set false to bypass sentiment gating entirely",
+    )
+
+
 class AppConfig(BaseModel):
     """Application-level configuration."""
     broker: BrokerConfig = Field(..., description="Broker configuration")
     telegram: TelegramConfig = Field(..., description="Telegram configuration")
+    alphasignal: AlphaSignalConfig = Field(
+        default_factory=AlphaSignalConfig,
+        description="AlphaSignal sentiment service configuration",
+    )
     log_level: str = Field(default="INFO", description="Logging level")
     dry_run: bool = Field(default=False, description="Dry run mode (no real trades)")
     trading_paused: bool = Field(default=False, description="Pause all trading")
@@ -364,10 +407,20 @@ def load_env() -> AppConfig:
         chat_id=os.getenv("TELEGRAM_CHAT_ID")
     )
 
+    # Build AlphaSignal config
+    alphasignal_config = AlphaSignalConfig(
+        url=os.getenv("ALPHASIGNAL_URL", "http://localhost:8000"),
+        api_key=os.getenv("ALPHASIGNAL_API_KEY", ""),
+        timeout_seconds=float(os.getenv("ALPHASIGNAL_TIMEOUT_SECONDS", "3.0")),
+        sentiment_threshold=float(os.getenv("ALPHASIGNAL_SENTIMENT_THRESHOLD", "-0.3")),
+        enabled=parse_bool(os.getenv("ALPHASIGNAL_ENABLED", "true")),
+    )
+
     # Build app config
     app_config = AppConfig(
         broker=broker_config,
         telegram=telegram_config,
+        alphasignal=alphasignal_config,
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         dry_run=parse_bool(os.getenv("DRY_RUN", "false")),
         trading_paused=parse_bool(os.getenv("TRADING_PAUSED", "false")),
@@ -386,6 +439,10 @@ def load_env() -> AppConfig:
     logger.debug(f"  Log Level: {app_config.log_level}")
     logger.debug(f"  Dry Run: {app_config.dry_run}")
     logger.debug(f"  Trading Paused: {app_config.trading_paused}")
+    logger.debug(
+        f"  AlphaSignal: {'Enabled' if alphasignal_config.enabled else 'Disabled'} "
+        f"({alphasignal_config.url}, threshold={alphasignal_config.sentiment_threshold})"
+    )
 
     return app_config
 
@@ -460,6 +517,15 @@ def validate_all(strategies: List[StrategySchema], app_config: AppConfig) -> boo
         logger.info(f"  ✅ Max Daily Loss: {risk.max_daily_loss_pct}% (GLOBAL across all strategies)")
         logger.info(f"  ✅ Max Open Positions: {risk.max_open_positions} (PER STRATEGY)")
         logger.info(f"  ✅ Portfolio Max Positions: {risk.portfolio_max_positions} (GLOBAL)")
+
+    # AlphaSignal
+    logger.info(f"\nALPHASIGNAL SENTIMENT FILTER:")
+    as_cfg = app_config.alphasignal
+    if as_cfg.enabled:
+        logger.info(f"  ✅ Enabled | URL: {as_cfg.url}")
+        logger.info(f"     Threshold: {as_cfg.sentiment_threshold} | Timeout: {as_cfg.timeout_seconds}s")
+    else:
+        logger.info(f"  ⚠️  Disabled (ALPHASIGNAL_ENABLED=false)")
 
     # Application settings
     logger.info(f"\nAPPLICATION SETTINGS:")
