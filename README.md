@@ -232,7 +232,9 @@ flowchart TD
     G --> H[Risk Manager<br/>10 Safety Checks]
     H --> I{Trade Allowed?}
     I -->|Blocked| J[Log Reason<br/>Continue Monitoring]
-    I -->|Approved| K[Order Manager<br/>Calculate Position Size]
+    I -->|Approved| AS[AlphaSignal<br/>Sentiment Filter]
+    AS -->|Pass / Unavailable| K[Order Manager<br/>Calculate Position Size]
+    AS -->|Blocked - negative sentiment| J
     K --> L[Alpaca Broker<br/>Execute Order]
     L --> M[Position Tracker<br/>Monitor Exits]
     M --> N[Stop Loss/Take Profit<br/>Check Every 5 Min]
@@ -253,6 +255,7 @@ flowchart TD
     U -->|WebSocket 5s push| V[Browser Dashboard<br/>localhost:8888]
 
     style H fill:#ef4444
+    style AS fill:#ec4899
     style L fill:#4ade80
     style Q fill:#3b82f6
     style U fill:#6366f1
@@ -624,7 +627,7 @@ When you switch to live trading (`ALPACA_PAPER=false`), you'll see:
 
 AlphaLive supports 8 strategies exported from AlphaLab.
 
-> ⚠️ **Performance reality check:** Walk-forward testing shows all 7 daily/intraday strategies underperform buy-and-hold SPY (~0.5% vs 13.7% CAGR). Do not go live with daily strategies until walk-forward Sharpe > 0.8 and CAGR > 13%. The `greenblatt_weekly` strategy is the current development focus.
+> ⚠️ **Performance reality check:** Walk-forward testing shows all 7 validated daily/intraday strategies underperform buy-and-hold SPY (~0.5% vs 13.7% CAGR). Do not go live with daily strategies until walk-forward Sharpe > 0.8 and CAGR > 13%. The `greenblatt_weekly` strategy is the current development focus.
 
 ### 1. MA Crossover
 **Description**: Buy when fast SMA crosses above slow SMA, sell when it crosses below.
@@ -686,21 +689,7 @@ AlphaLive supports 8 strategies exported from AlphaLab.
 
 ---
 
-### 6. RSI Simple
-**Description**: Relaxed RSI mean reversion with 40/60 thresholds (vs traditional 30/70).
-
-**Parameters**:
-- `rsi_period`: RSI period (default: 14)
-- `oversold`: Oversold threshold (default: 40)
-- `overbought`: Overbought threshold (default: 60)
-
-**Best For**: High-frequency signals on 15Min timeframes (2-5 signals/day)
-
-> ⚠️ Win rate and Sharpe figures removed — not walk-forward validated.
-
----
-
-### 7. Bollinger RSI Combo
+### 6. Bollinger RSI Combo
 **Description**: Dual confirmation—requires BOTH price ≤ BB lower AND RSI < 45 for entry.
 
 **Parameters**:
@@ -716,7 +705,7 @@ AlphaLive supports 8 strategies exported from AlphaLab.
 
 ---
 
-### 8. Trend Adaptive RSI
+### 7. Trend Adaptive RSI
 **Description**: Adjusts RSI thresholds based on market regime (uptrend/downtrend/range).
 
 **Parameters**:
@@ -733,23 +722,23 @@ AlphaLive supports 8 strategies exported from AlphaLab.
 
 ---
 
-### 9. Greenblatt Weekly (`greenblatt_weekly`) — value factor, weekly bars
+### 8. Greenblatt Weekly (`greenblatt_weekly`) — value factor, weekly bars
 
-**Designed for 3–12 month holding periods.** Run the Greenblatt screener in AlphaLab first to identify quality candidates (earnings yield + ROE ranked), then deploy weekly entry timing in AlphaLive.
+**Designed for ~1 year holding periods.** Run the Greenblatt screener in AlphaLab first to identify quality candidates (earnings yield + ROE ranked), then deploy weekly entry timing in AlphaLive.
 
 **Timeframe**: `1Week` — AlphaLive fetches daily Alpaca bars and resamples to weekly automatically.
 
 **Entry** (either condition on weekly bars):
 - Weekly RSI < 35 (oversold)
-- 10-week SMA crosses above 40-week SMA (golden cross)
+- 10-week SMA crosses above 50-week SMA (golden cross)
 
-**Exit** (after minimum 12-week hold):
-- Weekly RSI > 65, or 10w/40w SMA death-cross
-- Stop-loss always immediate (bypasses minimum hold)
+**Exit:**
+- **Default (always active):** Price drops 20% below position peak — trailing stop fires immediately, bypasses minimum hold
+- **Opt-in (disabled by default):** Weekly RSI > 65, or 10w/50w SMA death-cross — only fires after minimum hold elapsed
 
-**Key params:** `fast_sma` (10), `slow_sma` (40), `rsi_oversold` (35), `rsi_overbought` (65), `min_hold_bars` (12), `stop_loss_atr_mult` (2.0)
+**Key params:** `fast_sma` (10), `slow_sma` (50), `rsi_oversold` (35), `rsi_overbought` (65), `min_hold_bars` (52), `trailing_stop_pct` (0.20)
 
-**Minimum hold enforcement:** AlphaLive tracks `entry_timestamps` in `state.json`. SELL signals are suppressed until `min_hold_bars` weeks have elapsed, except for stop-loss exits.
+**Minimum hold enforcement:** AlphaLive tracks `entry_timestamps` in `state.json`. SELL signals are suppressed until `min_hold_bars` weeks have elapsed, except for the trailing stop which always fires immediately.
 
 ---
 
@@ -759,7 +748,7 @@ AlphaLive includes **5 production-ready strategy configs** in `configs/productio
 
 | Config | Strategy | Ticker | Timeframe | Notes |
 |--------|----------|--------|-----------|-------|
-| `rsi_simple_SPY_15Min.json` | RSI Simple | SPY | 15Min | Not walk-forward validated |
+| `rsi_simple_SPY_15Min.json` | RSI Mean Reversion (relaxed 40/60 thresholds) | SPY | 15Min | Not walk-forward validated |
 | `bollinger_rsi_SPY_15Min.json` | Bollinger RSI Combo | SPY | 15Min | Not walk-forward validated |
 | `trend_adaptive_SPY_1Hour.json` | Trend Adaptive RSI | SPY | 1Hour | Not walk-forward validated |
 | `rsi_mean_reversion_SPY_RELAXED.json` | RSI Mean Reversion | SPY | Daily | Not walk-forward validated |
