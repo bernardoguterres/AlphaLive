@@ -118,6 +118,37 @@ class AlphaSignalConfig(BaseModel):
     )
 
 
+class DeepLOBConfig(BaseModel):
+    """Configuration for the DeepLOB LOB-prediction service client.
+
+    Env-var equivalents (loaded by load_env):
+        DEEPLOB_URL                    — base URL of DeepLOB inference server
+        DEEPLOB_CONFIDENCE_THRESHOLD   — minimum softmax confidence to allow execution
+        DEEPLOB_TIMEOUT_SECONDS        — per-request timeout (keep low; must not block loop)
+        DEEPLOB_ENABLED                — set false to skip LOB filter without redeploy
+    """
+
+    url: str = Field(
+        default="http://localhost:8001",
+        description="DeepLOB inference server base URL",
+    )
+    confidence_threshold: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="Minimum softmax confidence to allow execution",
+    )
+    timeout_seconds: float = Field(
+        default=2.0,
+        ge=0.1,
+        description="Per-request timeout in seconds (must not block the execution loop)",
+    )
+    enabled: bool = Field(
+        default=True,
+        description="Set false to bypass DeepLOB gating entirely",
+    )
+
+
 class AppConfig(BaseModel):
     """Application-level configuration."""
     broker: BrokerConfig = Field(..., description="Broker configuration")
@@ -125,6 +156,10 @@ class AppConfig(BaseModel):
     alphasignal: AlphaSignalConfig = Field(
         default_factory=AlphaSignalConfig,
         description="AlphaSignal sentiment service configuration",
+    )
+    deeplob: DeepLOBConfig = Field(
+        default_factory=DeepLOBConfig,
+        description="DeepLOB LOB-prediction service configuration",
     )
     log_level: str = Field(default="INFO", description="Logging level")
     dry_run: bool = Field(default=False, description="Dry run mode (no real trades)")
@@ -416,11 +451,20 @@ def load_env() -> AppConfig:
         enabled=parse_bool(os.getenv("ALPHASIGNAL_ENABLED", "true")),
     )
 
+    # Build DeepLOB config
+    deeplob_config = DeepLOBConfig(
+        url=os.getenv("DEEPLOB_URL", "http://localhost:8001"),
+        confidence_threshold=float(os.getenv("DEEPLOB_CONFIDENCE_THRESHOLD", "0.6")),
+        timeout_seconds=float(os.getenv("DEEPLOB_TIMEOUT_SECONDS", "2.0")),
+        enabled=parse_bool(os.getenv("DEEPLOB_ENABLED", "true")),
+    )
+
     # Build app config
     app_config = AppConfig(
         broker=broker_config,
         telegram=telegram_config,
         alphasignal=alphasignal_config,
+        deeplob=deeplob_config,
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         dry_run=parse_bool(os.getenv("DRY_RUN", "false")),
         trading_paused=parse_bool(os.getenv("TRADING_PAUSED", "false")),
@@ -442,6 +486,10 @@ def load_env() -> AppConfig:
     logger.debug(
         f"  AlphaSignal: {'Enabled' if alphasignal_config.enabled else 'Disabled'} "
         f"({alphasignal_config.url}, threshold={alphasignal_config.sentiment_threshold})"
+    )
+    logger.debug(
+        f"  DeepLOB: {'Enabled' if deeplob_config.enabled else 'Disabled'} "
+        f"({deeplob_config.url}, confidence_threshold={deeplob_config.confidence_threshold})"
     )
 
     return app_config
@@ -526,6 +574,15 @@ def validate_all(strategies: List[StrategySchema], app_config: AppConfig) -> boo
         logger.info(f"     Threshold: {as_cfg.sentiment_threshold} | Timeout: {as_cfg.timeout_seconds}s")
     else:
         logger.info(f"  ⚠️  Disabled (ALPHASIGNAL_ENABLED=false)")
+
+    # DeepLOB
+    logger.info(f"\nDEEPLOB LOB-PREDICTION FILTER:")
+    dl_cfg = app_config.deeplob
+    if dl_cfg.enabled:
+        logger.info(f"  ✅ Enabled | URL: {dl_cfg.url}")
+        logger.info(f"     Confidence threshold: {dl_cfg.confidence_threshold} | Timeout: {dl_cfg.timeout_seconds}s")
+    else:
+        logger.info(f"  ⚠️  Disabled (DEEPLOB_ENABLED=false)")
 
     # Application settings
     logger.info(f"\nAPPLICATION SETTINGS:")

@@ -15,6 +15,7 @@ Export a backtested strategy from AlphaLab → deploy to Railway → it trades a
 | **[AlphaLab](https://github.com/bernardoguterres/AlphaLab)** | Strategy development & backtesting | As needed (not 24/7) | Locally on your computer |
 | **[AlphaLive](https://github.com/bernardoguterres/AlphaLive)** (this repo) | Live trading execution | 24/7 during trading hours | Railway (recommended) or locally |
 | **[AlphaSignal](https://github.com/bernardoguterres/AlphaSignal)** | Financial RAG — sentiment signals from SEC filings | Optional enrichment layer | Locally or any cloud host |
+| **[DeepLOB](https://github.com/bernardoguterres/DeepLOB)** | CNN+LSTM LOB prediction — execution timing filter | Optional (queried before each order) | Locally or any cloud host |
 
 ### AlphaLab (Development Platform)
 
@@ -232,7 +233,9 @@ flowchart TD
     G --> H[Risk Manager<br/>10 Safety Checks]
     H --> I{Trade Allowed?}
     I -->|Blocked| J[Log Reason<br/>Continue Monitoring]
-    I -->|Approved| AS[AlphaSignal<br/>Sentiment Filter]
+    I -->|Approved| DL[DeepLOB<br/>LOB Timing Filter]
+    DL -->|Pass / Unavailable| AS[AlphaSignal<br/>Sentiment Filter]
+    DL -->|Blocked - direction mismatch| J
     AS -->|Pass / Unavailable| K[Order Manager<br/>Calculate Position Size]
     AS -->|Blocked - negative sentiment| J
     K --> L[Alpaca Broker<br/>Execute Order]
@@ -255,6 +258,7 @@ flowchart TD
     U -->|WebSocket 5s push| V[Browser Dashboard<br/>localhost:8888]
 
     style H fill:#ef4444
+    style DL fill:#8b5cf6
     style AS fill:#ec4899
     style L fill:#4ade80
     style Q fill:#3b82f6
@@ -270,6 +274,7 @@ AlphaLive is a production-grade trading bot with:
 - **Risk Management**: Stop loss, take profit, trailing stop, position sizing, daily limits
 - **Order Execution**: Alpaca Markets API with retry logic, slippage checks, partial fill handling
 - **Market Data**: Real-time bars from Alpaca with caching and staleness detection
+- **Pre-Execution Gate**: DeepLOB (LOB direction prediction) and AlphaSignal (sentiment) run **concurrently** via `asyncio.gather` before each order — both must pass. Either filter fails open on timeout or unavailability.
 - **Notifications**: Telegram alerts for trades, exits, errors, daily summaries
 - **Resilience**: Auto-restart on Railway, position reconciliation, corporate action detection
 - **Web Dashboard**: Real-time monitoring UI (FastAPI + WebSocket) — live P&L charts, open positions, trailing stop levels, kill switch, CSV export, one-click Railway redeploy
@@ -562,6 +567,13 @@ Set TRADING_PAUSED=true in Variables
 | `LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
 | `DRY_RUN` | `false` | Log trades without executing |
 | `TRADING_PAUSED` | `false` | Pause trading (kill switch) |
+| `ALPHASIGNAL_URL` | `http://localhost:8000` | AlphaSignal service base URL |
+| `ALPHASIGNAL_ENABLED` | `true` | Set `false` to bypass sentiment filter |
+| `ALPHASIGNAL_SENTIMENT_THRESHOLD` | `-0.3` | Score below which longs are blocked |
+| `DEEPLOB_URL` | `http://localhost:8001` | DeepLOB inference server base URL |
+| `DEEPLOB_ENABLED` | `true` | Set `false` to bypass LOB timing filter |
+| `DEEPLOB_CONFIDENCE_THRESHOLD` | `0.6` | Minimum softmax confidence to allow execution |
+| `DEEPLOB_TIMEOUT_SECONDS` | `2.0` | Per-request timeout (keep ≤ 2 s) |
 
 ### Getting API Keys
 
@@ -995,6 +1007,8 @@ AlphaLive is part of the Alpha trading suite:
 
 - **AlphaLab**: Backtest strategies, export to AlphaLive
 - **AlphaLive**: Execute strategies 24/7 on Railway (this repo)
+- **AlphaSignal**: Optional sentiment filter — SEC filing RAG
+- **DeepLOB**: Optional LOB timing filter — CNN+LSTM mid-price predictor
 
 For questions, issues, or contributions, open an issue on GitHub.
 

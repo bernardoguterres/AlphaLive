@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 
 from alphalive.config import load_config_path, load_env, validate_all
 from alphalive.services.alphasignal_client import AlphaSignalClient, run_pre_execution_checks
+from alphalive.services.deeplob_client import DeepLOBClient
 from alphalive.state import BotState
 from alphalive.broker.alpaca_broker import AlpacaBroker
 from alphalive.data.market_data import MarketDataFetcher, DataStaleError
@@ -206,6 +207,22 @@ def main(
         )
     else:
         logger.info("AlphaSignal sentiment filter disabled (ALPHASIGNAL_ENABLED=false)")
+
+    # DeepLOB LOB-prediction client (Integration D → AL)
+    deeplob_client: DeepLOBClient | None = None
+    if app_config.deeplob.enabled:
+        deeplob_client = DeepLOBClient(
+            base_url=app_config.deeplob.url,
+            confidence_threshold=app_config.deeplob.confidence_threshold,
+            timeout_seconds=app_config.deeplob.timeout_seconds,
+        )
+        logger.info(
+            f"DeepLOB LOB-prediction filter enabled | "
+            f"URL: {app_config.deeplob.url} | "
+            f"Confidence threshold: {app_config.deeplob.confidence_threshold}"
+        )
+    else:
+        logger.info("DeepLOB LOB-prediction filter disabled (DEEPLOB_ENABLED=false)")
 
     # Multi-strategy support: Create maps for signal engines, risk managers, and order managers
     # For simplicity in this implementation, each strategy has its own risk manager
@@ -672,9 +689,10 @@ def main(
                                 _sentiment_pred: dict = {}
 
                                 if alphasignal_client is not None:
-                                    # Run DeepLOB (Integration A placeholder — always passes
-                                    # until Integration A wires deeplob_client) and AlphaSignal
-                                    # concurrently via asyncio.gather to avoid serial latency.
+                                    # Run DeepLOB and AlphaSignal concurrently via
+                                    # asyncio.gather to avoid serial latency.
+                                    # lob_snapshot=None: Alpaca free tier has no L2 feed;
+                                    # DeepLOBClient.is_execution_allowed fails open for None.
                                     (
                                         _lob_allowed,
                                         _lob_pred,
@@ -682,9 +700,9 @@ def main(
                                         _sentiment_pred,
                                     ) = asyncio.run(
                                         run_pre_execution_checks(
-                                            deeplob_client=None,   # Integration A placeholder
+                                            deeplob_client=deeplob_client,
                                             alphasignal_client=alphasignal_client,
-                                            lob_snapshot=None,     # Integration A placeholder
+                                            lob_snapshot=None,
                                             ticker=strat_cfg.ticker,
                                             signal_direction=_signal_direction,
                                         )
@@ -695,7 +713,8 @@ def main(
                                         "Execution blocked — "
                                         f"lob_allowed={_lob_allowed}, "
                                         f"sentiment_allowed={_sentiment_allowed}, "
-                                        f"sentiment_score={_sentiment_pred.get('sentiment_score', 'N/A')}"
+                                        f"sentiment_score={_sentiment_pred.get('sentiment_score', 'N/A')}, "
+                                        f"lob_prediction={_lob_pred}"
                                     )
                                     # Skip order placement; mark signal check as done below.
                                 else:
