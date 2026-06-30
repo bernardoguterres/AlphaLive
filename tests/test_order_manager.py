@@ -253,16 +253,18 @@ def test_check_recent_order(order_manager):
     # No orders yet
     assert order_manager._check_recent_order("AAPL", "BUY") is None
 
-    # Add an order
-    order_manager.order_history.append({
+    # Add an order (must update both order_history and the O(1) index)
+    _record = {
         "ticker": "AAPL",
         "side": "BUY",
         "qty": 100,
         "price": 150.0,
         "order_id": "order_123",
         "timestamp": datetime.now(ET),
-        "signal_reason": "Test"
-    })
+        "signal_reason": "Test",
+    }
+    order_manager.order_history.append(_record)
+    order_manager._recent_order_index[("AAPL", "BUY")] = _record
 
     # Should find recent order
     recent = order_manager._check_recent_order("AAPL", "BUY")

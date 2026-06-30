@@ -48,6 +48,12 @@ class SignalEngine:
         self._entry_price: float = 0.0
         self._peak_price: float = 0.0   # for greenblatt_weekly trailing stop
 
+        # Indicator cache: skip recalculation when the same bar is checked again
+        # (e.g. exit-checks during market hours reuse the morning's indicator values)
+        self._cached_df: Optional[pd.DataFrame] = None
+        self._cached_last_ts: Optional[Any] = None
+        self._cached_df_len: int = 0
+
         # Dispatch table — adding a new strategy requires only a new method + one entry here
         self._dispatch = {
             "ma_crossover":       self._ma_crossover_signal,
@@ -100,12 +106,23 @@ class SignalEngine:
             logger.error(f"Missing required columns: {missing_cols}")
             return self._no_signal(f"Missing columns: {missing_cols}", start_time)
 
-        # Add indicators for this strategy
-        try:
-            df = indicators.add_all_for_strategy(df, self.strategy_name, self.params)
-        except Exception as e:
-            logger.error(f"Failed to add indicators: {e}", exc_info=True)
-            return self._no_signal(f"Indicator calculation failed: {e}", start_time)
+        # Add indicators — skip if the last bar and row count are unchanged
+        last_ts = df.index[-1] if len(df.index) else None
+        if (
+            self._cached_df is not None
+            and last_ts == self._cached_last_ts
+            and len(df) == self._cached_df_len
+        ):
+            df = self._cached_df
+        else:
+            try:
+                df = indicators.add_all_for_strategy(df, self.strategy_name, self.params)
+            except Exception as e:
+                logger.error(f"Failed to add indicators: {e}", exc_info=True)
+                return self._no_signal(f"Indicator calculation failed: {e}", start_time)
+            self._cached_df = df
+            self._cached_last_ts = last_ts
+            self._cached_df_len = len(df)
 
         # Bear market filter: block BUY signals when not in a position and price is
         # below a declining SMA_200. Allows SELL/exits to proceed normally.

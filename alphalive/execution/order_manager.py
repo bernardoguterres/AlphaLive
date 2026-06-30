@@ -12,7 +12,7 @@ Handles order placement, tracking, and position management with:
 import os
 import time
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -66,6 +66,8 @@ class OrderManager:
         # Order tracking
         self.order_history: List[Dict[str, Any]] = []  # All orders placed today
         self.pending_orders: Dict[str, str] = {}  # {ticker: order_id}
+        # O(1) duplicate-check index: (ticker, side) → most recent order record
+        self._recent_order_index: Dict[Tuple[str, str], Dict[str, Any]] = {}
 
         logger.info(
             f"OrderManager initialized | "
@@ -240,7 +242,7 @@ class OrderManager:
                     )
 
             # 8. RECORD ORDER
-            self.order_history.append({
+            _order_record = {
                 "ticker": ticker,
                 "side": signal_action,
                 "qty": filled_qty,
@@ -248,8 +250,10 @@ class OrderManager:
                 "order_id": order_id,
                 "timestamp": datetime.now(ET),
                 "signal_reason": signal.get("reason", "N/A"),
-                "bar": current_bar
-            })
+                "bar": current_bar,
+            }
+            self.order_history.append(_order_record)
+            self._recent_order_index[(ticker, signal_action)] = _order_record
 
             logger.info(
                 f"ORDER PLACED: {signal_action} {filled_qty} {ticker} "
@@ -418,19 +422,15 @@ class OrderManager:
         """
         now = datetime.now(ET)
 
-        # Check most recent orders first (reversed list)
-        for order in reversed(self.order_history):
-            if order["ticker"] == ticker and order["side"] == side:
-                age_seconds = (now - order["timestamp"]).total_seconds()
-                if age_seconds < 60:
-                    return {
-                        "order_id": order["order_id"],
-                        "timestamp": order["timestamp"],
-                        "age_seconds": age_seconds
-                    }
-                else:
-                    # Orders are sorted by time, no need to check further
-                    break
+        order = self._recent_order_index.get((ticker, side))
+        if order is not None:
+            age_seconds = (now - order["timestamp"]).total_seconds()
+            if age_seconds < 60:
+                return {
+                    "order_id": order["order_id"],
+                    "timestamp": order["timestamp"],
+                    "age_seconds": age_seconds,
+                }
 
         return None
 
@@ -634,3 +634,4 @@ class OrderManager:
         logger.info(f"OrderManager daily reset | Orders today: {len(self.order_history)}")
         self.order_history = []
         self.pending_orders = {}
+        self._recent_order_index = {}
