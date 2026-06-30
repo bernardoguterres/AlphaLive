@@ -300,13 +300,114 @@ def add_obv(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
 
+def _indicators_ma_crossover(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+    fast_period = params.get("fast_period", 10)
+    slow_period = params.get("slow_period", 20)
+    df = add_sma(df, fast_period)
+    df = add_sma(df, slow_period)
+    logger.debug(f"Added indicators for ma_crossover: SMA_{fast_period}, SMA_{slow_period}")
+    return df
+
+
+def _indicators_rsi_mean_reversion(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+    period = params.get("period", 14)
+    df = add_rsi(df, period)
+    logger.debug(f"Added indicators for rsi_mean_reversion: RSI_{period}")
+    return df
+
+
+def _indicators_momentum_breakout(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+    atr_period = params.get("atr_period", 14)
+    df = add_atr(df, atr_period)
+    # Shifted: use PREVIOUS bar's max to match AlphaLab's high_n.iloc[i-1] logic
+    lookback = params.get("lookback", 20)
+    df["rolling_high"] = df["high"].rolling(window=lookback).max().shift(1)
+    volume_ma_period = params.get("volume_ma_period", 20)
+    df[f"volume_ma_{volume_ma_period}"] = df["volume"].rolling(window=volume_ma_period).mean()
+    logger.debug(
+        f"Added indicators for momentum_breakout: "
+        f"ATR_{atr_period}, rolling_high_{lookback}, volume_ma_{volume_ma_period}"
+    )
+    return df
+
+
+def _indicators_bollinger_breakout(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+    period = params.get("period", 20)
+    std_dev = params.get("std_dev", 2.0)
+    df = add_bollinger(df, period, std_dev)
+    volume_ma_period = params.get("volume_ma_period", 20)
+    df[f"volume_ma_{volume_ma_period}"] = df["volume"].rolling(window=volume_ma_period).mean()
+    logger.debug(
+        f"Added indicators for bollinger_breakout: BB({period},{std_dev}), volume_ma_{volume_ma_period}"
+    )
+    return df
+
+
+def _indicators_vwap_reversion(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+    df = add_vwap(df)
+    rsi_period = params.get("rsi_period", 14)
+    df = add_rsi(df, rsi_period)
+    vwap_std_period = params.get("vwap_std_period", 20)
+    df["vwap_std"] = (df["close"] - df["vwap"]).rolling(window=vwap_std_period).std()
+    logger.debug(
+        f"Added indicators for vwap_reversion: VWAP, RSI_{rsi_period}, vwap_std_{vwap_std_period}"
+    )
+    return df
+
+
+def _indicators_bollinger_rsi_combo(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+    bb_period = params.get("bb_period", 20)
+    bb_std = params.get("bb_std", 2.0)
+    df = add_bollinger(df, bb_period, bb_std)
+    rsi_period = params.get("rsi_period", 14)
+    df = add_rsi(df, rsi_period)
+    logger.debug(f"Added indicators for bollinger_rsi_combo: BB({bb_period},{bb_std}), RSI_{rsi_period}")
+    return df
+
+
+def _indicators_trend_adaptive_rsi(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+    trend_sma = params.get("trend_sma", 50)
+    df = add_sma(df, trend_sma)
+    rsi_period = params.get("rsi_period", 14)
+    df = add_rsi(df, rsi_period)
+    logger.debug(f"Added indicators for trend_adaptive_rsi: SMA_{trend_sma}, RSI_{rsi_period}")
+    return df
+
+
+def _indicators_greenblatt_weekly(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+    # Runs on weekly bars. Exit uses trailing stop pct (no ATR needed).
+    # Bear market filter uses slow_sma instead of sma_200 for this strategy.
+    fast_sma = params.get("fast_sma", 10)
+    slow_sma = params.get("slow_sma", 50)
+    df = add_sma(df, fast_sma)
+    df = add_sma(df, slow_sma)
+    rsi_period = params.get("rsi_period", 14)
+    df = add_rsi(df, rsi_period)
+    logger.debug(
+        f"Added indicators for greenblatt_weekly: SMA_{fast_sma}, SMA_{slow_sma}, RSI_{rsi_period}"
+    )
+    return df
+
+
+# Dispatch table — adding a new strategy requires only a new _indicators_* function + one entry here
+_STRATEGY_INDICATOR_DISPATCH: Dict[str, Any] = {
+    "ma_crossover": _indicators_ma_crossover,
+    "rsi_mean_reversion": _indicators_rsi_mean_reversion,
+    "momentum_breakout": _indicators_momentum_breakout,
+    "bollinger_breakout": _indicators_bollinger_breakout,
+    "vwap_reversion": _indicators_vwap_reversion,
+    "bollinger_rsi_combo": _indicators_bollinger_rsi_combo,
+    "trend_adaptive_rsi": _indicators_trend_adaptive_rsi,
+    "greenblatt_weekly": _indicators_greenblatt_weekly,
+}
+
+
 def add_all_for_strategy(
     df: pd.DataFrame,
     strategy_name: str,
-    params: Dict[str, Any]
+    params: Dict[str, Any],
 ) -> pd.DataFrame:
-    """
-    Add all indicators needed for a specific strategy.
+    """Add all indicators needed for a specific strategy.
 
     This is the main function to call. It adds only the indicators
     required by the strategy to minimize computation time.
@@ -325,128 +426,18 @@ def add_all_for_strategy(
     Performance:
         Expected <0.3s for 200 bars on Railway.
     """
-    df = df.copy()
-
-    # SMA_200 is always added for every strategy — used by the bear market filter
-    # to block BUY signals when price is below a declining 200-day SMA.
-    df = add_sma(df, 200)
-
-    if strategy_name == "ma_crossover":
-        # Needs: SMA (fast and slow periods)
-        fast_period = params.get("fast_period", 10)
-        slow_period = params.get("slow_period", 20)
-        df = add_sma(df, fast_period)
-        df = add_sma(df, slow_period)
-        logger.debug(f"Added indicators for ma_crossover: SMA_{fast_period}, SMA_{slow_period}")
-
-    elif strategy_name == "rsi_mean_reversion":
-        # Needs: RSI
-        period = params.get("period", 14)
-        df = add_rsi(df, period)
-        logger.debug(f"Added indicators for rsi_mean_reversion: RSI_{period}")
-
-    elif strategy_name == "momentum_breakout":
-        # Needs: ATR (for trailing stop), rolling high, volume MA
-        atr_period = params.get("atr_period", 14)
-        df = add_atr(df, atr_period)
-
-        # Add rolling high for breakout detection (shifted: use PREVIOUS bar's max, not current)
-        # AlphaLab uses high_n.iloc[i-1] — must match exactly
-        lookback = params.get("lookback", 20)
-        df['rolling_high'] = df['high'].rolling(window=lookback).max().shift(1)
-
-        # Add volume MA for surge detection
-        volume_ma_period = params.get("volume_ma_period", 20)
-        df[f'volume_ma_{volume_ma_period}'] = df['volume'].rolling(window=volume_ma_period).mean()
-
-        logger.debug(
-            f"Added indicators for momentum_breakout: "
-            f"ATR_{atr_period}, rolling_high_{lookback}, volume_ma_{volume_ma_period}"
-        )
-
-    elif strategy_name == "bollinger_breakout":
-        # Needs: Bollinger Bands, volume MA
-        period = params.get("period", 20)
-        std_dev = params.get("std_dev", 2.0)
-        df = add_bollinger(df, period, std_dev)
-
-        # Add volume MA for confirmation
-        volume_ma_period = params.get("volume_ma_period", 20)
-        df[f'volume_ma_{volume_ma_period}'] = df['volume'].rolling(window=volume_ma_period).mean()
-
-        logger.debug(
-            f"Added indicators for bollinger_breakout: "
-            f"BB({period},{std_dev}), volume_ma_{volume_ma_period}"
-        )
-
-    elif strategy_name == "vwap_reversion":
-        # Needs: VWAP, RSI, std dev of price from VWAP
-        df = add_vwap(df)
-
-        rsi_period = params.get("rsi_period", 14)
-        df = add_rsi(df, rsi_period)
-
-        # Calculate standard deviation of price from VWAP
-        vwap_std_period = params.get("vwap_std_period", 20)
-        df['vwap_std'] = (df['close'] - df['vwap']).rolling(window=vwap_std_period).std()
-
-        logger.debug(
-            f"Added indicators for vwap_reversion: "
-            f"VWAP, RSI_{rsi_period}, vwap_std_{vwap_std_period}"
-        )
-
-    elif strategy_name == "bollinger_rsi_combo":
-        # Needs: Bollinger Bands, RSI
-        bb_period = params.get("bb_period", 20)
-        bb_std = params.get("bb_std", 2.0)
-        df = add_bollinger(df, bb_period, bb_std)
-
-        rsi_period = params.get("rsi_period", 14)
-        df = add_rsi(df, rsi_period)
-
-        logger.debug(
-            f"Added indicators for bollinger_rsi_combo: "
-            f"BB({bb_period},{bb_std}), RSI_{rsi_period}"
-        )
-
-    elif strategy_name == "trend_adaptive_rsi":
-        # Needs: SMA (for trend regime detection), RSI
-        trend_sma = params.get("trend_sma", 50)
-        df = add_sma(df, trend_sma)
-
-        rsi_period = params.get("rsi_period", 14)
-        df = add_rsi(df, rsi_period)
-
-        logger.debug(
-            f"Added indicators for trend_adaptive_rsi: "
-            f"SMA_{trend_sma}, RSI_{rsi_period}"
-        )
-
-    elif strategy_name == "greenblatt_weekly":
-        # Runs on weekly bars. Exit uses trailing stop pct (no ATR needed).
-        # Bear market filter uses slow_sma instead of sma_200 for this strategy.
-        fast_sma = params.get("fast_sma", 10)
-        slow_sma = params.get("slow_sma", 50)
-        df = add_sma(df, fast_sma)
-        df = add_sma(df, slow_sma)
-
-        rsi_period = params.get("rsi_period", 14)
-        df = add_rsi(df, rsi_period)
-
-        logger.debug(
-            f"Added indicators for greenblatt_weekly: "
-            f"SMA_{fast_sma}, SMA_{slow_sma}, RSI_{rsi_period}"
-        )
-
-    else:
+    handler = _STRATEGY_INDICATOR_DISPATCH.get(strategy_name)
+    if handler is None:
         raise ValueError(
             f"Unknown strategy: {strategy_name}. "
-            f"Supported: ma_crossover, rsi_mean_reversion, momentum_breakout, "
-            f"bollinger_breakout, vwap_reversion, bollinger_rsi_combo, "
-            f"trend_adaptive_rsi, greenblatt_weekly"
+            f"Supported: {', '.join(sorted(_STRATEGY_INDICATOR_DISPATCH))}"
         )
 
-    return df
+    df = df.copy()
+    # SMA_200 is always added — used by the bear market filter to block BUY signals
+    # when price is below a declining 200-day SMA.
+    df = add_sma(df, 200)
+    return handler(df, params)
 
 
 def calculate_all_indicators(df: pd.DataFrame) -> pd.DataFrame:

@@ -49,6 +49,8 @@ class MarketDataFetcher:
         self.client = StockHistoricalDataClient(api_key, secret_key)
         self.cache = {}  # {ticker: {"bars": df, "timestamp": datetime, "timeframe": str}}
         self.cache_ttl_seconds = 300  # 5 minutes for intraday data
+        # Weekly bars change at most once per day; cache for a full trading day
+        self._weekly_cache_ttl_seconds = 24 * 3600
 
         logger.info("MarketDataFetcher initialized")
 
@@ -229,8 +231,11 @@ class MarketDataFetcher:
             )
             return None
 
+        ttl = (
+            self._weekly_cache_ttl_seconds if timeframe == "1Week" else self.cache_ttl_seconds
+        )
         age_seconds = (datetime.now(ET) - cached["timestamp"]).total_seconds()
-        if age_seconds < self.cache_ttl_seconds:
+        if age_seconds < ttl:
             logger.debug(f"Using cached data for {ticker} (age: {age_seconds:.0f}s)")
             return cached["bars"]
         else:
