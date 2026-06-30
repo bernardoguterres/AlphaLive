@@ -1040,7 +1040,7 @@ def main(
             logger.error(f"Main loop error: {e}", exc_info=True)
             try:
                 notifier.send_error_alert(f"Main loop error: {str(e)}")
-            except:
+            except Exception:
                 pass  # Don't let notification failure crash the loop
             time.sleep(60)  # Wait a minute before retrying
 
