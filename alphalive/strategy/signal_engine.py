@@ -48,6 +48,18 @@ class SignalEngine:
         self._entry_price: float = 0.0
         self._peak_price: float = 0.0   # for greenblatt_weekly trailing stop
 
+        # Dispatch table — adding a new strategy requires only a new method + one entry here
+        self._dispatch = {
+            "ma_crossover":       self._ma_crossover_signal,
+            "rsi_mean_reversion": self._rsi_mean_reversion_signal,
+            "momentum_breakout":  self._momentum_breakout_signal,
+            "bollinger_breakout": self._bollinger_breakout_signal,
+            "vwap_reversion":     self._vwap_reversion_signal,
+            "bollinger_rsi_combo":  self._bollinger_rsi_combo_signal,
+            "trend_adaptive_rsi": self._trend_adaptive_rsi_signal,
+            "greenblatt_weekly":  self._greenblatt_weekly_signal,
+        }
+
         logger.info(
             f"Signal engine initialized | Strategy: {self.strategy_name} | "
             f"Params: {self.params}"
@@ -114,25 +126,11 @@ class SignalEngine:
 
         # Route to strategy-specific logic
         try:
-            if self.strategy_name == "ma_crossover":
-                result = self._ma_crossover_signal(df)
-            elif self.strategy_name == "rsi_mean_reversion":
-                result = self._rsi_mean_reversion_signal(df)
-            elif self.strategy_name == "momentum_breakout":
-                result = self._momentum_breakout_signal(df)
-            elif self.strategy_name == "bollinger_breakout":
-                result = self._bollinger_breakout_signal(df)
-            elif self.strategy_name == "vwap_reversion":
-                result = self._vwap_reversion_signal(df)
-            elif self.strategy_name == "bollinger_rsi_combo":
-                result = self._bollinger_rsi_combo_signal(df)
-            elif self.strategy_name == "trend_adaptive_rsi":
-                result = self._trend_adaptive_rsi_signal(df)
-            elif self.strategy_name == "greenblatt_weekly":
-                result = self._greenblatt_weekly_signal(df)
-            else:
+            handler = self._dispatch.get(self.strategy_name)
+            if handler is None:
                 logger.error(f"Unknown strategy: {self.strategy_name}")
                 return self._no_signal(f"Unknown strategy: {self.strategy_name}", start_time)
+            result = handler(df)
 
         except Exception as e:
             logger.error(f"Signal generation failed: {e}", exc_info=True)
