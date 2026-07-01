@@ -35,9 +35,10 @@ def add_sma(df: pd.DataFrame, period: int) -> pd.DataFrame:
 
 
 def add_ema(df: pd.DataFrame, period: int) -> pd.DataFrame:
-    """Add ema_{period} column. Mutates df in place (no copy). First (period-1) rows are NaN."""
+    """Add ema_{period} column. Returns a copy; first (period-1) rows are NaN."""
     try:
         indicator = EMAIndicator(close=df["close"], window=period)
+        df = df.copy()
         df[f"ema_{period}"] = indicator.ema_indicator()
         logger.debug(f"Added EMA_{period}")
         return df

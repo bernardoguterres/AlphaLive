@@ -90,6 +90,25 @@ def _compute_daily_stats(
     return {"pnl": pnl, "win_rate": win_rate}
 
 
+def _send_eod_summary(
+    order_manager_map: dict, broker, morning_equity: float, notifier
+) -> None:
+    """Aggregate today's trades across all strategies and push the daily summary."""
+    all_orders = []
+    for ticker in order_manager_map:
+        all_orders.extend(order_manager_map[ticker].get_order_history())
+    account = broker.get_account()
+    daily_stats = _compute_daily_stats(all_orders, morning_equity, account.equity)
+    summary = {
+        "trades": len(all_orders),
+        "pnl": daily_stats["pnl"],
+        "win_rate": daily_stats["win_rate"],
+        "start_equity": morning_equity,
+        "end_equity": account.equity,
+    }
+    notifier.send_daily_summary(summary)
+
+
 def should_run_signal_check(timeframe: str, last_check_time: float) -> bool:
     """
     Determine if a signal check should run based on timeframe and last check time.
@@ -552,30 +571,12 @@ def main(
                 # After 4 PM ET: send EOD summary, then sleep until midnight
                 if now_et.hour >= 16:
                     if not eod_summary_sent:
-                        # Send EOD summary before sleeping
                         # Set flag first — prevents infinite retry loop if send fails
                         eod_summary_sent = True
                         try:
-                            # Aggregate order history across all strategies
-                            all_orders = []
-                            for ticker in order_manager_map:
-                                all_orders.extend(
-                                    order_manager_map[ticker].get_order_history()
-                                )
-
-                            account = broker.get_account()
-                            daily_stats = _compute_daily_stats(
-                                all_orders, morning_equity, account.equity
+                            _send_eod_summary(
+                                order_manager_map, broker, morning_equity, notifier
                             )
-                            summary = {
-                                "trades": len(all_orders),
-                                "pnl": daily_stats["pnl"],
-                                "win_rate": daily_stats["win_rate"],
-                                "start_equity": morning_equity,
-                                "end_equity": account.equity,
-                            }
-
-                            notifier.send_daily_summary(summary)
                             logger.info("EOD summary sent.")
                         except Exception as e:
                             logger.error(f"EOD summary error: {e}", exc_info=True)
@@ -1070,24 +1071,9 @@ def main(
             if not eod_summary_sent and now_et.hour == 15 and now_et.minute >= 55:
                 eod_summary_sent = True  # Set flag before attempting
                 try:
-                    # Aggregate order history across all strategies
-                    all_orders = []
-                    for ticker in order_manager_map:
-                        all_orders.extend(order_manager_map[ticker].get_order_history())
-
-                    account = broker.get_account()
-                    daily_stats = _compute_daily_stats(
-                        all_orders, morning_equity, account.equity
+                    _send_eod_summary(
+                        order_manager_map, broker, morning_equity, notifier
                     )
-                    summary = {
-                        "trades": len(all_orders),
-                        "pnl": daily_stats["pnl"],
-                        "win_rate": daily_stats["win_rate"],
-                        "start_equity": morning_equity,
-                        "end_equity": account.equity,
-                    }
-
-                    notifier.send_daily_summary(summary)
                     logger.info("=== End of Day Summary ===")
                 except Exception as e:
                     logger.error(f"EOD summary error: {e}", exc_info=True)
@@ -1103,24 +1089,9 @@ def main(
             if eod_summary_retry and not eod_summary_sent:
                 eod_summary_sent = True  # Set flag to prevent further retries
                 try:
-                    # Aggregate order history across all strategies
-                    all_orders = []
-                    for ticker in order_manager_map:
-                        all_orders.extend(order_manager_map[ticker].get_order_history())
-
-                    account = broker.get_account()
-                    daily_stats = _compute_daily_stats(
-                        all_orders, morning_equity, account.equity
+                    _send_eod_summary(
+                        order_manager_map, broker, morning_equity, notifier
                     )
-                    summary = {
-                        "trades": len(all_orders),
-                        "pnl": daily_stats["pnl"],
-                        "win_rate": daily_stats["win_rate"],
-                        "start_equity": morning_equity,
-                        "end_equity": account.equity,
-                    }
-
-                    notifier.send_daily_summary(summary)
                     logger.info("EOD summary sent (retry succeeded)")
                 except Exception as e:
                     logger.error(f"EOD summary retry failed: {e}", exc_info=True)
