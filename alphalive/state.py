@@ -67,7 +67,7 @@ class BotState:
             returns default state.
         """
         try:
-            with open(self.state_file, 'r') as f:
+            with open(self.state_file, "r") as f:
                 state = json.load(f)
                 logger.info(f"State loaded from {self.state_file}")
                 return state
@@ -85,12 +85,7 @@ class BotState:
             return self._default_state()
 
     def _default_state(self) -> dict:
-        """
-        Return default state.
-
-        Returns:
-            Dictionary with default state values
-        """
+        """Return the initial empty state dict."""
         return {
             "last_morning_check_date": None,
             "last_eod_summary_date": None,
@@ -100,7 +95,7 @@ class BotState:
             "entry_timestamps": {},  # {ticker: ISO timestamp} for minimum hold enforcement
             "last_startup": None,
             "dashboard_paused": False,
-            "version": "1.0"
+            "version": "1.0",
         }
 
     def save(self):
@@ -115,7 +110,7 @@ class BotState:
 
             # Write to temp file first (atomic write)
             temp_file = f"{self.state_file}.tmp"
-            with open(temp_file, 'w') as f:
+            with open(temp_file, "w") as f:
                 json.dump(self.state, f, indent=2)
 
             # Rename to actual file (atomic on POSIX)
@@ -367,6 +362,7 @@ def check_trailing_stop_requirements(strategy_config, notifier=None):
                 )
 
             import sys
+
             sys.exit(1)
 
     logger.info("Trailing stop configuration check passed")

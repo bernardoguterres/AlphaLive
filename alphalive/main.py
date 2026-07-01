@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
 
-# Timeframe-aware signal check intervals (B9b)
+# Timeframe-aware signal check intervals
 TIMEFRAME_CHECK_INTERVALS = {
     "1Day": None,  # Handled by morning_check_done flag
     "1Hour": 60,  # Check every 60 minutes
@@ -271,7 +271,7 @@ def main(
 
         logger.info(f"  Initialized components for {strategy_name} ({ticker})")
 
-    # 5. Initialize Telegram command listener (B14)
+    # 5. Initialize Telegram command listener
     # Polls for inbound commands (/status, /pause, /resume, etc.) on background thread
     # NOTE: For multi-strategy mode, uses first strategy's components
     # (command listener doesn't yet fully support multi-strategy)
@@ -296,7 +296,7 @@ def main(
 
     logger.info("All subsystems initialized successfully")
 
-    # 2.5. Startup data backfill + warmup validation (B9b + B15 multi-strategy)
+    # 2.5. Startup data backfill + warmup validation
     # On any restart (including mid-day), fetch enough bars to warm up
     # all indicators before the first signal check. This prevents
     # the bot from generating garbage signals after a Railway restart.
@@ -402,9 +402,9 @@ def main(
     eod_summary_sent = False  # Has end-of-day summary been sent?
     eod_summary_retry = False  # Did EOD summary fail? Retry once on next loop
     last_exit_check = 0  # Timestamp of last exit condition check
-    last_position_reconciliation = 0  # Timestamp of last position reconciliation (B9b)
+    last_position_reconciliation = 0  # Timestamp of last position reconciliation
 
-    # State tracking for multi-strategy (B9b + B15)
+    # State tracking for multi-strategy
     morning_checks_done = set()  # Set of tickers that have had morning check today
     last_signal_check_map = {}  # {ticker: timestamp} for 1Hour/15Min strategies
 
@@ -415,10 +415,6 @@ def main(
     DRAWDOWN_ALERT_PCT = float(
         os.getenv("DRAWDOWN_ALERT_PCT", "3.0")
     )  # Alert at 3% intraday DD
-
-    # TIMEFRAME-AWARE SIGNAL CHECKS (B9b):
-    # For 1Day: use morning_checks_done set
-    # For 1Hour/15Min: use should_run_signal_check() + last_signal_check_map
 
     # 5. SIGTERM handler for graceful Railway shutdown
     def handle_sigterm(signum, frame):
@@ -501,7 +497,7 @@ def main(
             now_et = datetime.now(ET)
             current_day = now_et.strftime("%Y-%m-%d")
 
-            # --- Check command listener thread health (B14) ---
+            # --- Check command listener thread health ---
             if cmd_listener is not None and not cmd_listener.thread.is_alive():
                 logger.error("⚠️ Telegram command listener thread died")
                 notifier.send_error_alert(
@@ -514,8 +510,8 @@ def main(
             # --- New day reset ---
             if current_day != today_str:
                 today_str = current_day
-                morning_checks_done = set()  # Reset to empty set (B9b multi-strategy)
-                last_signal_check_map = {}  # Reset signal check timestamps (B9b)
+                morning_checks_done = set()
+                last_signal_check_map = {}
                 eod_summary_sent = False
                 eod_summary_retry = False
                 peak_equity_today = 0.0
@@ -662,9 +658,8 @@ def main(
                     logger.info("=" * 80)
 
                     try:
-                        # DATA STALENESS CHECK (B9b): verify data is fresh on EVERY signal check
-                        # This catches cases where the market data feed is delayed or broken
-                        # (Alpaca API issue, network issue, etc.). Don't generate signals on stale data.
+                        # Verify data is fresh before generating signals — stale data
+                        # (API issue, network blip) must not trigger false entries.
                         df = market_data.get_latest_bars(
                             ticker=strat_cfg.ticker,
                             timeframe=strat_cfg.timeframe,
@@ -974,7 +969,7 @@ def main(
 
                 last_exit_check = time.time()
 
-            # --- Hourly position reconciliation (every 30 minutes during market hours, B9b) ---
+            # --- Position reconciliation (every 30 minutes during market hours) ---
             # If Alpaca fills an order that AlphaLive loses track of (network blip
             # during order placement, Railway restart mid-order), the bot won't know
             # until we reconcile. Check Alpaca's positions against our internal tracking

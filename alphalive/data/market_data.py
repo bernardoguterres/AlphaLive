@@ -1,5 +1,5 @@
 """
-Market Data Fetcher (B8)
+Market Data Fetcher
 
 Fetches historical and real-time market data from Alpaca using alpaca-py.
 Includes caching, data validation, and rate limit handling.
@@ -24,6 +24,7 @@ ET = ZoneInfo("America/New_York")
 
 class DataStaleError(Exception):
     """Raised when data is too old for the configured timeframe."""
+
     pass
 
 
@@ -47,7 +48,9 @@ class MarketDataFetcher:
             secret_key: Alpaca secret key
         """
         self.client = StockHistoricalDataClient(api_key, secret_key)
-        self.cache = {}  # {ticker: {"bars": df, "timestamp": datetime, "timeframe": str}}
+        self.cache = (
+            {}
+        )  # {ticker: {"bars": df, "timestamp": datetime, "timeframe": str}}
         self.cache_ttl_seconds = 300  # 5 minutes for intraday data
         # Weekly bars change at most once per day; cache for a full trading day
         self._weekly_cache_ttl_seconds = 24 * 3600
@@ -110,13 +113,11 @@ class MarketDataFetcher:
                 timeframe=fetch_tf,
                 start=start_date,
                 end=end_date,
-                feed="iex"
+                feed="iex",
             )
 
             # Fetch with retry logic
-            bars = self._fetch_with_retry(
-                lambda: self.client.get_stock_bars(request)
-            )
+            bars = self._fetch_with_retry(lambda: self.client.get_stock_bars(request))
 
             # Convert to DataFrame
             df = bars.df
@@ -132,8 +133,8 @@ class MarketDataFetcher:
 
             # Ensure timezone-aware index
             if df.index.tz is None:
-                df.index = df.index.tz_localize('UTC').tz_convert(ET)
-            elif str(df.index.tz) != 'America/New_York':
+                df.index = df.index.tz_localize("UTC").tz_convert(ET)
+            elif str(df.index.tz) != "America/New_York":
                 df.index = df.index.tz_convert(ET)
 
             # Resample daily → weekly (week ending Friday) for 1Week strategies
@@ -155,7 +156,7 @@ class MarketDataFetcher:
             self.cache[ticker] = {
                 "bars": df,
                 "timestamp": datetime.now(ET),
-                "timeframe": timeframe
+                "timeframe": timeframe,
             }
 
             return df
@@ -206,9 +207,7 @@ class MarketDataFetcher:
                 f"Unable to get current price for {ticker}: API failed and no cached data"
             )
 
-    def _get_from_cache(
-        self, ticker: str, timeframe: str
-    ) -> Optional[pd.DataFrame]:
+    def _get_from_cache(self, ticker: str, timeframe: str) -> Optional[pd.DataFrame]:
         """
         Return cached data if still fresh.
 
@@ -232,7 +231,9 @@ class MarketDataFetcher:
             return None
 
         ttl = (
-            self._weekly_cache_ttl_seconds if timeframe == "1Week" else self.cache_ttl_seconds
+            self._weekly_cache_ttl_seconds
+            if timeframe == "1Week"
+            else self.cache_ttl_seconds
         )
         age_seconds = (datetime.now(ET) - cached["timestamp"]).total_seconds()
         if age_seconds < ttl:
@@ -242,9 +243,7 @@ class MarketDataFetcher:
             logger.debug(f"Cache expired for {ticker} (age: {age_seconds:.0f}s)")
             return None
 
-    def _validate_data_quality(
-        self, df: pd.DataFrame, ticker: str, timeframe: str
-    ):
+    def _validate_data_quality(self, df: pd.DataFrame, ticker: str, timeframe: str):
         """
         Check data quality and raise errors/warnings as needed.
 
@@ -276,7 +275,7 @@ class MarketDataFetcher:
 
         # Make timezone-aware if needed
         if last_bar_time.tz is None:
-            last_bar_time = last_bar_time.tz_localize('US/Eastern')
+            last_bar_time = last_bar_time.tz_localize("US/Eastern")
 
         now = datetime.now(ET)
         age_minutes = (now - last_bar_time).total_seconds() / 60
@@ -379,13 +378,17 @@ class MarketDataFetcher:
           close = last bar of the week
           volume = sum of the week
         """
-        weekly = df.resample("W-FRI").agg(
-            open=("open", "first"),
-            high=("high", "max"),
-            low=("low", "min"),
-            close=("close", "last"),
-            volume=("volume", "sum"),
-        ).dropna(subset=["close"])
+        weekly = (
+            df.resample("W-FRI")
+            .agg(
+                open=("open", "first"),
+                high=("high", "max"),
+                low=("low", "min"),
+                close=("close", "last"),
+                volume=("volume", "sum"),
+            )
+            .dropna(subset=["close"])
+        )
 
         logger.debug(f"Resampled {len(df)} daily bars → {len(weekly)} weekly bars")
         return weekly
@@ -418,7 +421,7 @@ class MarketDataFetcher:
                     # Rate limited
                     # Try to get Retry-After header from response
                     retry_after = 5  # Default
-                    if hasattr(e, 'response') and e.response is not None:
+                    if hasattr(e, "response") and e.response is not None:
                         retry_after = int(e.response.headers.get("Retry-After", 5))
                     logger.warning(
                         f"Alpaca rate limited (429). Retry {attempt}/{max_retries} "
@@ -431,7 +434,7 @@ class MarketDataFetcher:
 
                 elif e.status_code >= 500:
                     # Server error - exponential backoff
-                    wait_time = 2 ** attempt
+                    wait_time = 2**attempt
                     logger.warning(
                         f"Alpaca server error ({e.status_code}). Retry {attempt}/{max_retries} "
                         f"after {wait_time}s..."
@@ -450,7 +453,7 @@ class MarketDataFetcher:
 
             except Exception as e:
                 if attempt < max_retries:
-                    wait_time = 2 ** attempt
+                    wait_time = 2**attempt
                     logger.warning(
                         f"Data fetch failed (attempt {attempt}/{max_retries}): {e}. "
                         f"Retrying in {wait_time}s..."
