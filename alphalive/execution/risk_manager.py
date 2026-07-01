@@ -9,7 +9,7 @@ Critical: This is the last line of defense against runaway losses.
 
 import os
 import logging
-from datetime import datetime, date, timezone, timedelta
+from datetime import datetime, date
 from typing import Dict, List, Tuple, Optional
 from zoneinfo import ZoneInfo
 
@@ -35,7 +35,7 @@ class RiskManager:
         execution_config: Execution,
         strategy_name: str,
         safety_limits: SafetyLimits,
-        notifier=None
+        notifier=None,
     ):
         """
         Initialize RiskManager.
@@ -69,12 +69,16 @@ class RiskManager:
         self.max_trades_per_day = safety_limits.max_trades_per_day
         self.max_api_calls_per_hour = safety_limits.max_api_calls_per_hour
         self.signal_timeout_seconds = safety_limits.signal_generation_timeout_seconds
-        self.broker_failure_threshold = safety_limits.broker_degraded_mode_threshold_failures
+        self.broker_failure_threshold = (
+            safety_limits.broker_degraded_mode_threshold_failures
+        )
 
         # Tracking counters (reset daily/hourly)
         self.trades_today = 0
         self.api_calls_this_hour = 0
-        self.last_hour_reset = datetime.now(ET).replace(minute=0, second=0, microsecond=0)
+        self.last_hour_reset = datetime.now(ET).replace(
+            minute=0, second=0, microsecond=0
+        )
         self.broker_consecutive_failures = 0
         self.degraded_mode = False
 
@@ -124,11 +128,7 @@ class RiskManager:
             logger.debug(f"[{self.strategy_name}] Already reset today")
 
     def calculate_position_size(
-        self,
-        ticker: str,
-        signal: str,
-        current_price: float,
-        account_equity: float
+        self, ticker: str, signal: str, current_price: float, account_equity: float
     ) -> int:
         """
         Calculate number of shares to buy/sell.
@@ -153,9 +153,7 @@ class RiskManager:
             return 0
 
         if account_equity <= 0:
-            logger.warning(
-                f"[{self.strategy_name}] Invalid equity: {account_equity}"
-            )
+            logger.warning(f"[{self.strategy_name}] Invalid equity: {account_equity}")
             return 0
 
         # Calculate max dollars for this position
@@ -174,10 +172,7 @@ class RiskManager:
         return shares
 
     def check_stop_loss(
-        self,
-        entry_price: float,
-        current_price: float,
-        side: str
+        self, entry_price: float, current_price: float, side: str
     ) -> bool:
         """
         Check if stop loss should trigger.
@@ -229,10 +224,7 @@ class RiskManager:
             return False
 
     def check_take_profit(
-        self,
-        entry_price: float,
-        current_price: float,
-        side: str
+        self, entry_price: float, current_price: float, side: str
     ) -> bool:
         """
         Check if take profit should trigger.
@@ -288,7 +280,7 @@ class RiskManager:
         entry_price: float,
         highest_since_entry: float,
         current_price: float,
-        side: str
+        side: str,
     ) -> bool:
         """
         Check if trailing stop should trigger.
@@ -329,7 +321,9 @@ class RiskManager:
             triggered = current_price <= trail_price
 
             if triggered:
-                profit_from_entry_pct = ((current_price - entry_price) / entry_price) * 100
+                profit_from_entry_pct = (
+                    (current_price - entry_price) / entry_price
+                ) * 100
                 logger.warning(
                     f"[{self.strategy_name}] TRAILING STOP TRIGGERED (long) | "
                     f"Entry: ${entry_price:.2f} | High: ${highest_since_entry:.2f} | "
@@ -344,7 +338,9 @@ class RiskManager:
             triggered = current_price >= trail_price
 
             if triggered:
-                profit_from_entry_pct = ((entry_price - current_price) / entry_price) * 100
+                profit_from_entry_pct = (
+                    (entry_price - current_price) / entry_price
+                ) * 100
                 logger.warning(
                     f"[{self.strategy_name}] TRAILING STOP TRIGGERED (short) | "
                     f"Entry: ${entry_price:.2f} | Low: ${highest_since_entry:.2f} | "
@@ -373,7 +369,9 @@ class RiskManager:
             # No losses, continue trading
             return False
 
-        max_daily_loss_dollars = account_equity * (self.risk_config.max_daily_loss_pct / 100.0)
+        max_daily_loss_dollars = account_equity * (
+            self.risk_config.max_daily_loss_pct / 100.0
+        )
         loss_pct = (abs(self.daily_pnl) / account_equity) * 100
 
         hit_limit = abs(self.daily_pnl) >= max_daily_loss_dollars
@@ -420,11 +418,7 @@ class RiskManager:
 
         return can_open
 
-    def check_cooldown(
-        self,
-        ticker: str,
-        current_bar: int
-    ) -> bool:
+    def check_cooldown(self, ticker: str, current_bar: int) -> bool:
         """
         Check if enough bars have passed since last trade for this ticker.
 
@@ -467,7 +461,7 @@ class RiskManager:
         account_equity: float,
         current_positions_count: int,
         total_portfolio_positions: int,
-        current_bar: Optional[int] = None
+        current_bar: Optional[int] = None,
     ) -> Tuple[bool, str]:
         """
         Main gatekeeper - checks ALL limits before allowing a trade.
@@ -511,7 +505,7 @@ class RiskManager:
 
         # 2. Check manual pause flag (Telegram /pause command)
         #    Instant in-memory flag (no restart required)
-        if getattr(self, 'trading_paused_manual', False):
+        if getattr(self, "trading_paused_manual", False):
             reason = "⏸ Trading paused via Telegram /pause command"
             logger.warning(f"[{self.strategy_name}] {reason}")
             return (False, reason)
@@ -624,10 +618,7 @@ class RiskManager:
         return (True, "OK")
 
     def record_trade(
-        self,
-        ticker: str,
-        pnl: float,
-        current_bar: Optional[int] = None
+        self, ticker: str, pnl: float, current_bar: Optional[int] = None
     ) -> None:
         """
         Record a completed trade's P&L for daily tracking.
@@ -660,7 +651,7 @@ class RiskManager:
             "ticker": ticker,
             "pnl": pnl,
             "timestamp": datetime.now().isoformat(),
-            "bar": current_bar
+            "bar": current_bar,
         }
         self.daily_trades.append(trade_record)
 
@@ -801,7 +792,9 @@ class RiskManager:
         if not self.degraded_mode:
             return
 
-        logger.info(f"[{self.strategy_name}] Exiting degraded mode — broker connection stable")
+        logger.info(
+            f"[{self.strategy_name}] Exiting degraded mode — broker connection stable"
+        )
         self.degraded_mode = False
         self.broker_consecutive_failures = 0
 
@@ -826,7 +819,7 @@ class RiskManager:
             "max_api_calls_per_hour": self.max_api_calls_per_hour,
             "degraded_mode": self.degraded_mode,
             "broker_consecutive_failures": self.broker_consecutive_failures,
-            "broker_failure_threshold": self.broker_failure_threshold
+            "broker_failure_threshold": self.broker_failure_threshold,
         }
 
 
@@ -851,7 +844,7 @@ class GlobalRiskManager:
             "total_pnl": 0.0,
             "start_equity": None,
             "strategies_halted": False,
-            "halt_reason": None
+            "halt_reason": None,
         }
 
         # Track individual strategy managers
@@ -871,9 +864,7 @@ class GlobalRiskManager:
         logger.info(f"Registered strategy: {strategy_name}")
 
     def check_global_daily_loss(
-        self,
-        account_equity: float,
-        max_daily_loss_pct: float
+        self, account_equity: float, max_daily_loss_pct: float
     ) -> Tuple[bool, str]:
         """
         Check if global daily loss limit has been exceeded.
@@ -899,12 +890,13 @@ class GlobalRiskManager:
         # Set start equity on first check
         if self.global_daily_stats["start_equity"] is None:
             self.global_daily_stats["start_equity"] = account_equity
-            logger.info(f"Global risk tracking started | Start equity: ${account_equity:.2f}")
+            logger.info(
+                f"Global risk tracking started | Start equity: ${account_equity:.2f}"
+            )
 
         # Calculate total daily P&L across all strategies
         total_pnl = sum(
-            manager.daily_pnl
-            for manager in self.strategy_managers.values()
+            manager.daily_pnl for manager in self.strategy_managers.values()
         )
 
         start_equity = self.global_daily_stats["start_equity"]
@@ -948,7 +940,7 @@ class GlobalRiskManager:
                 "total_pnl": 0.0,
                 "start_equity": None,
                 "strategies_halted": False,
-                "halt_reason": None
+                "halt_reason": None,
             }
 
     def record_trade(self, strategy_name: str, pnl: float) -> None:

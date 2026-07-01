@@ -13,11 +13,9 @@ from typing import Dict, Any
 
 import pandas as pd
 import numpy as np
-from ta.trend import SMAIndicator, EMAIndicator, ADXIndicator
+from ta.trend import SMAIndicator, EMAIndicator
 from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands, AverageTrueRange
-from ta.trend import MACD
-from ta.volume import OnBalanceVolumeIndicator
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +35,7 @@ def add_sma(df: pd.DataFrame, period: int) -> pd.DataFrame:
         First (period - 1) rows will be NaN.
     """
     try:
-        indicator = SMAIndicator(close=df['close'], window=period)
+        indicator = SMAIndicator(close=df["close"], window=period)
         df = df.copy()
         df[f"sma_{period}"] = indicator.sma_indicator()
         logger.debug(f"Added SMA_{period}")
@@ -63,7 +61,7 @@ def add_ema(df: pd.DataFrame, period: int) -> pd.DataFrame:
         First (period - 1) rows will be NaN.
     """
     try:
-        indicator = EMAIndicator(close=df['close'], window=period)
+        indicator = EMAIndicator(close=df["close"], window=period)
         df[f"ema_{period}"] = indicator.ema_indicator()
         logger.debug(f"Added EMA_{period}")
         return df
@@ -89,7 +87,7 @@ def add_rsi(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
         RSI ranges from 0 to 100.
     """
     try:
-        indicator = RSIIndicator(close=df['close'], window=period)
+        indicator = RSIIndicator(close=df["close"], window=period)
         df = df.copy()
         df[f"rsi_{period}"] = indicator.rsi()
         logger.debug(f"Added RSI_{period}")
@@ -104,7 +102,7 @@ def add_macd(
     df: pd.DataFrame,
     fast: int = 12,
     slow: int = 26,
-    signal: int = 9
+    signal: int = 9,
 ) -> pd.DataFrame:
     """
     Add MACD (Moving Average Convergence Divergence).
@@ -122,11 +120,10 @@ def add_macd(
         First (slow + signal - 1) rows will be NaN.
     """
     try:
+        from ta.trend import MACD  # noqa: PLC0415
+
         indicator = MACD(
-            close=df['close'],
-            window_fast=fast,
-            window_slow=slow,
-            window_sign=signal
+            close=df["close"], window_fast=fast, window_slow=slow, window_sign=signal
         )
         df["macd"] = indicator.macd()
         df["macd_signal"] = indicator.macd_signal()
@@ -142,9 +139,7 @@ def add_macd(
 
 
 def add_bollinger(
-    df: pd.DataFrame,
-    period: int = 20,
-    std_dev: float = 2.0
+    df: pd.DataFrame, period: int = 20, std_dev: float = 2.0
 ) -> pd.DataFrame:
     """
     Add Bollinger Bands.
@@ -161,11 +156,7 @@ def add_bollinger(
         First (period - 1) rows will be NaN.
     """
     try:
-        indicator = BollingerBands(
-            close=df['close'],
-            window=period,
-            window_dev=std_dev
-        )
+        indicator = BollingerBands(close=df["close"], window=period, window_dev=std_dev)
         df["bb_upper"] = indicator.bollinger_hband()
         df["bb_middle"] = indicator.bollinger_mavg()
         df["bb_lower"] = indicator.bollinger_lband()
@@ -195,10 +186,7 @@ def add_atr(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     """
     try:
         indicator = AverageTrueRange(
-            high=df['high'],
-            low=df['low'],
-            close=df['close'],
-            window=period
+            high=df["high"], low=df["low"], close=df["close"], window=period
         )
         df[f"atr_{period}"] = indicator.average_true_range()
         logger.debug(f"Added ATR_{period}")
@@ -225,11 +213,10 @@ def add_adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
         ADX ranges from 0 to 100.
     """
     try:
+        from ta.trend import ADXIndicator  # noqa: PLC0415
+
         indicator = ADXIndicator(
-            high=df['high'],
-            low=df['low'],
-            close=df['close'],
-            window=period
+            high=df["high"], low=df["low"], close=df["close"], window=period
         )
         df[f"adx_{period}"] = indicator.adx()
         logger.debug(f"Added ADX_{period}")
@@ -260,16 +247,16 @@ def add_vwap(df: pd.DataFrame) -> pd.DataFrame:
     """
     try:
         # Typical price
-        typical_price = (df['high'] + df['low'] + df['close']) / 3
+        typical_price = (df["high"] + df["low"] + df["close"]) / 3
 
         # VWAP = cumulative(typical_price * volume) / cumulative(volume)
-        df['vwap'] = (typical_price * df['volume']).cumsum() / df['volume'].cumsum()
+        df["vwap"] = (typical_price * df["volume"]).cumsum() / df["volume"].cumsum()
 
         logger.debug("Added VWAP")
         return df
     except Exception as e:
         logger.error(f"Failed to calculate VWAP: {e}")
-        df['vwap'] = np.nan
+        df["vwap"] = np.nan
         return df
 
 
@@ -287,16 +274,15 @@ def add_obv(df: pd.DataFrame) -> pd.DataFrame:
         OBV is cumulative from start of data.
     """
     try:
-        indicator = OnBalanceVolumeIndicator(
-            close=df['close'],
-            volume=df['volume']
-        )
-        df['obv'] = indicator.on_balance_volume()
+        from ta.volume import OnBalanceVolumeIndicator  # noqa: PLC0415
+
+        indicator = OnBalanceVolumeIndicator(close=df["close"], volume=df["volume"])
+        df["obv"] = indicator.on_balance_volume()
         logger.debug("Added OBV")
         return df
     except Exception as e:
         logger.error(f"Failed to calculate OBV: {e}")
-        df['obv'] = np.nan
+        df["obv"] = np.nan
         return df
 
 
@@ -305,25 +291,33 @@ def _indicators_ma_crossover(df: pd.DataFrame, params: Dict[str, Any]) -> pd.Dat
     slow_period = params.get("slow_period", 20)
     df = add_sma(df, fast_period)
     df = add_sma(df, slow_period)
-    logger.debug(f"Added indicators for ma_crossover: SMA_{fast_period}, SMA_{slow_period}")
+    logger.debug(
+        f"Added indicators for ma_crossover: SMA_{fast_period}, SMA_{slow_period}"
+    )
     return df
 
 
-def _indicators_rsi_mean_reversion(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+def _indicators_rsi_mean_reversion(
+    df: pd.DataFrame, params: Dict[str, Any]
+) -> pd.DataFrame:
     period = params.get("period", 14)
     df = add_rsi(df, period)
     logger.debug(f"Added indicators for rsi_mean_reversion: RSI_{period}")
     return df
 
 
-def _indicators_momentum_breakout(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+def _indicators_momentum_breakout(
+    df: pd.DataFrame, params: Dict[str, Any]
+) -> pd.DataFrame:
     atr_period = params.get("atr_period", 14)
     df = add_atr(df, atr_period)
     # Shifted: use PREVIOUS bar's max to match AlphaLab's high_n.iloc[i-1] logic
     lookback = params.get("lookback", 20)
     df["rolling_high"] = df["high"].rolling(window=lookback).max().shift(1)
     volume_ma_period = params.get("volume_ma_period", 20)
-    df[f"volume_ma_{volume_ma_period}"] = df["volume"].rolling(window=volume_ma_period).mean()
+    df[f"volume_ma_{volume_ma_period}"] = (
+        df["volume"].rolling(window=volume_ma_period).mean()
+    )
     logger.debug(
         f"Added indicators for momentum_breakout: "
         f"ATR_{atr_period}, rolling_high_{lookback}, volume_ma_{volume_ma_period}"
@@ -331,19 +325,25 @@ def _indicators_momentum_breakout(df: pd.DataFrame, params: Dict[str, Any]) -> p
     return df
 
 
-def _indicators_bollinger_breakout(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+def _indicators_bollinger_breakout(
+    df: pd.DataFrame, params: Dict[str, Any]
+) -> pd.DataFrame:
     period = params.get("period", 20)
     std_dev = params.get("std_dev", 2.0)
     df = add_bollinger(df, period, std_dev)
     volume_ma_period = params.get("volume_ma_period", 20)
-    df[f"volume_ma_{volume_ma_period}"] = df["volume"].rolling(window=volume_ma_period).mean()
+    df[f"volume_ma_{volume_ma_period}"] = (
+        df["volume"].rolling(window=volume_ma_period).mean()
+    )
     logger.debug(
         f"Added indicators for bollinger_breakout: BB({period},{std_dev}), volume_ma_{volume_ma_period}"
     )
     return df
 
 
-def _indicators_vwap_reversion(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+def _indicators_vwap_reversion(
+    df: pd.DataFrame, params: Dict[str, Any]
+) -> pd.DataFrame:
     df = add_vwap(df)
     rsi_period = params.get("rsi_period", 14)
     df = add_rsi(df, rsi_period)
@@ -355,26 +355,36 @@ def _indicators_vwap_reversion(df: pd.DataFrame, params: Dict[str, Any]) -> pd.D
     return df
 
 
-def _indicators_bollinger_rsi_combo(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+def _indicators_bollinger_rsi_combo(
+    df: pd.DataFrame, params: Dict[str, Any]
+) -> pd.DataFrame:
     bb_period = params.get("bb_period", 20)
     bb_std = params.get("bb_std", 2.0)
     df = add_bollinger(df, bb_period, bb_std)
     rsi_period = params.get("rsi_period", 14)
     df = add_rsi(df, rsi_period)
-    logger.debug(f"Added indicators for bollinger_rsi_combo: BB({bb_period},{bb_std}), RSI_{rsi_period}")
+    logger.debug(
+        f"Added indicators for bollinger_rsi_combo: BB({bb_period},{bb_std}), RSI_{rsi_period}"
+    )
     return df
 
 
-def _indicators_trend_adaptive_rsi(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+def _indicators_trend_adaptive_rsi(
+    df: pd.DataFrame, params: Dict[str, Any]
+) -> pd.DataFrame:
     trend_sma = params.get("trend_sma", 50)
     df = add_sma(df, trend_sma)
     rsi_period = params.get("rsi_period", 14)
     df = add_rsi(df, rsi_period)
-    logger.debug(f"Added indicators for trend_adaptive_rsi: SMA_{trend_sma}, RSI_{rsi_period}")
+    logger.debug(
+        f"Added indicators for trend_adaptive_rsi: SMA_{trend_sma}, RSI_{rsi_period}"
+    )
     return df
 
 
-def _indicators_greenblatt_weekly(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+def _indicators_greenblatt_weekly(
+    df: pd.DataFrame, params: Dict[str, Any]
+) -> pd.DataFrame:
     # Runs on weekly bars. Exit uses trailing stop pct (no ATR needed).
     # Bear market filter uses slow_sma instead of sma_200 for this strategy.
     fast_sma = params.get("fast_sma", 10)
@@ -453,7 +463,9 @@ def calculate_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         DataFrame with all indicators added
     """
-    logger.info("Calculating all indicators (this is slow - use add_all_for_strategy in production)")
+    logger.info(
+        "Calculating all indicators (this is slow - use add_all_for_strategy in production)"
+    )
 
     # Moving averages
     for period in [10, 20, 50, 100, 200]:
