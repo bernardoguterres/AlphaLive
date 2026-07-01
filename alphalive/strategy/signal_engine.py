@@ -46,7 +46,7 @@ class SignalEngine:
         # State for stateful strategies (mirrors AlphaLab's in_position tracking)
         self._in_position = False
         self._entry_price: float = 0.0
-        self._peak_price: float = 0.0   # for greenblatt_weekly trailing stop
+        self._peak_price: float = 0.0  # for greenblatt_weekly trailing stop
 
         # Indicator cache: skip recalculation when the same bar is checked again
         # (e.g. exit-checks during market hours reuse the morning's indicator values)
@@ -56,14 +56,14 @@ class SignalEngine:
 
         # Dispatch table — adding a new strategy requires only a new method + one entry here
         self._dispatch = {
-            "ma_crossover":       self._ma_crossover_signal,
+            "ma_crossover": self._ma_crossover_signal,
             "rsi_mean_reversion": self._rsi_mean_reversion_signal,
-            "momentum_breakout":  self._momentum_breakout_signal,
+            "momentum_breakout": self._momentum_breakout_signal,
             "bollinger_breakout": self._bollinger_breakout_signal,
-            "vwap_reversion":     self._vwap_reversion_signal,
-            "bollinger_rsi_combo":  self._bollinger_rsi_combo_signal,
+            "vwap_reversion": self._vwap_reversion_signal,
+            "bollinger_rsi_combo": self._bollinger_rsi_combo_signal,
             "trend_adaptive_rsi": self._trend_adaptive_rsi_signal,
-            "greenblatt_weekly":  self._greenblatt_weekly_signal,
+            "greenblatt_weekly": self._greenblatt_weekly_signal,
         }
 
         logger.info(
@@ -96,11 +96,13 @@ class SignalEngine:
 
         # Validate input
         if df.empty or len(df) < 2:
-            logger.warning("Insufficient data for signal generation (need at least 2 rows)")
+            logger.warning(
+                "Insufficient data for signal generation (need at least 2 rows)"
+            )
             return self._no_signal("Insufficient data", start_time)
 
         # Ensure required columns exist
-        required_cols = ['open', 'high', 'low', 'close', 'volume']
+        required_cols = ["open", "high", "low", "close", "volume"]
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
             logger.error(f"Missing required columns: {missing_cols}")
@@ -116,7 +118,9 @@ class SignalEngine:
             df = self._cached_df
         else:
             try:
-                df = indicators.add_all_for_strategy(df, self.strategy_name, self.params)
+                df = indicators.add_all_for_strategy(
+                    df, self.strategy_name, self.params
+                )
             except Exception as e:
                 logger.error(f"Failed to add indicators: {e}", exc_info=True)
                 return self._no_signal(f"Indicator calculation failed: {e}", start_time)
@@ -134,7 +138,10 @@ class SignalEngine:
                     f"Bear market filter: price below declining SMA_200 "
                     f"({df['close'].iloc[-1]:.2f} < {df['sma_200'].iloc[-1]:.2f}) — BUY blocked"
                 ),
-                "indicators": {"price": df["close"].iloc[-1], "sma_200": df["sma_200"].iloc[-1]},
+                "indicators": {
+                    "price": df["close"].iloc[-1],
+                    "sma_200": df["sma_200"].iloc[-1],
+                },
                 "warmup_complete": True,
                 "generation_time_ms": int((time.time() - start_time) * 1000),
             }
@@ -146,7 +153,9 @@ class SignalEngine:
             handler = self._dispatch.get(self.strategy_name)
             if handler is None:
                 logger.error(f"Unknown strategy: {self.strategy_name}")
-                return self._no_signal(f"Unknown strategy: {self.strategy_name}", start_time)
+                return self._no_signal(
+                    f"Unknown strategy: {self.strategy_name}", start_time
+                )
             result = handler(df)
 
         except Exception as e:
@@ -202,7 +211,7 @@ class SignalEngine:
             return self._no_signal(
                 f"Warmup incomplete (need {slow_period} bars)",
                 time.time(),
-                warmup_complete=False
+                warmup_complete=False,
             )
 
         # Current and previous values
@@ -211,14 +220,10 @@ class SignalEngine:
         slow_curr = df[slow_col].iloc[-1]
         slow_prev = df[slow_col].iloc[-2]
 
-        current_price = df['close'].iloc[-1]
+        current_price = df["close"].iloc[-1]
 
         # Extract indicator values
-        indicators = {
-            fast_col: fast_curr,
-            slow_col: slow_curr,
-            "price": current_price
-        }
+        indicators = {fast_col: fast_curr, slow_col: slow_curr, "price": current_price}
 
         # Detect crossover
         if fast_prev <= slow_prev and fast_curr > slow_curr:
@@ -234,7 +239,7 @@ class SignalEngine:
                     f"crossed above Slow SMA({slow_period})={slow_curr:.2f}"
                 ),
                 "indicators": indicators,
-                "warmup_complete": True
+                "warmup_complete": True,
             }
 
         elif fast_prev >= slow_prev and fast_curr < slow_curr:
@@ -250,7 +255,7 @@ class SignalEngine:
                     f"crossed below Slow SMA({slow_period})={slow_curr:.2f}"
                 ),
                 "indicators": indicators,
-                "warmup_complete": True
+                "warmup_complete": True,
             }
 
         else:
@@ -260,7 +265,7 @@ class SignalEngine:
                 "confidence": 0.0,
                 "reason": f"No crossover (Fast={fast_curr:.2f}, Slow={slow_curr:.2f})",
                 "indicators": indicators,
-                "warmup_complete": True
+                "warmup_complete": True,
             }
 
     def _rsi_mean_reversion_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -284,24 +289,26 @@ class SignalEngine:
             return self._no_signal(
                 f"Warmup incomplete (need {period + 1} bars)",
                 time.time(),
-                warmup_complete=False
+                warmup_complete=False,
             )
 
         rsi_curr = df[rsi_col].iloc[-1]
-        current_price = df['close'].iloc[-1]
+        current_price = df["close"].iloc[-1]
 
         indicators = {
             rsi_col: rsi_curr,
             "oversold": oversold,
             "overbought": overbought,
-            "price": current_price
+            "price": current_price,
         }
 
         # Check thresholds
         if rsi_curr < oversold:
             # Oversold - BUY
             distance = oversold - rsi_curr
-            confidence = min(1.0, distance / oversold)  # Further from threshold = higher confidence
+            confidence = min(
+                1.0, distance / oversold
+            )  # Further from threshold = higher confidence
 
             return {
                 "signal": "BUY",
@@ -311,7 +318,7 @@ class SignalEngine:
                     f"(distance: {distance:.2f})"
                 ),
                 "indicators": indicators,
-                "warmup_complete": True
+                "warmup_complete": True,
             }
 
         elif rsi_curr > overbought:
@@ -327,7 +334,7 @@ class SignalEngine:
                     f"(distance: {distance:.2f})"
                 ),
                 "indicators": indicators,
-                "warmup_complete": True
+                "warmup_complete": True,
             }
 
         else:
@@ -337,7 +344,7 @@ class SignalEngine:
                 "confidence": 0.0,
                 "reason": f"RSI neutral: {rsi_curr:.2f} (range: {oversold}-{overbought})",
                 "indicators": indicators,
-                "warmup_complete": True
+                "warmup_complete": True,
             }
 
     def _momentum_breakout_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -356,26 +363,26 @@ class SignalEngine:
         volume_ma_period = self.params.get("volume_ma_period", 20)
 
         # Check warmup
-        rolling_high = df['rolling_high'].iloc[-1]
-        volume_ma = df[f'volume_ma_{volume_ma_period}'].iloc[-1]
-        atr = df[f'atr_{atr_period}'].iloc[-1]
+        rolling_high = df["rolling_high"].iloc[-1]
+        volume_ma = df[f"volume_ma_{volume_ma_period}"].iloc[-1]
+        atr = df[f"atr_{atr_period}"].iloc[-1]
 
         if pd.isna(rolling_high) or pd.isna(volume_ma) or pd.isna(atr):
             return self._no_signal(
                 f"Warmup incomplete (need {max(lookback, volume_ma_period, atr_period)} bars)",
                 time.time(),
-                warmup_complete=False
+                warmup_complete=False,
             )
 
-        current_price = df['close'].iloc[-1]
-        current_volume = df['volume'].iloc[-1]
+        current_price = df["close"].iloc[-1]
+        current_volume = df["volume"].iloc[-1]
 
         indicators = {
             "price": current_price,
             "rolling_high": rolling_high,
             "volume": current_volume,
             f"volume_ma_{volume_ma_period}": volume_ma,
-            f"atr_{atr_period}": atr
+            f"atr_{atr_period}": atr,
         }
 
         # Check breakout conditions
@@ -395,7 +402,7 @@ class SignalEngine:
                     f"Volume surge {volume_surge:.2f}x (>{surge_pct}x)"
                 ),
                 "indicators": indicators,
-                "warmup_complete": True
+                "warmup_complete": True,
             }
 
         else:
@@ -408,7 +415,7 @@ class SignalEngine:
                     f"Vol surge={volume_surge:.2f}x (need >{surge_pct}x)"
                 ),
                 "indicators": indicators,
-                "warmup_complete": True
+                "warmup_complete": True,
             }
 
     def _bollinger_breakout_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -430,16 +437,16 @@ class SignalEngine:
         volume_ma_period = self.params.get("volume_ma_period", 20)
 
         # Check warmup
-        bb_upper = df['bb_upper'].iloc[-1]
-        bb_lower = df['bb_lower'].iloc[-1]
-        bb_middle = df['bb_middle'].iloc[-1]
-        volume_ma = df[f'volume_ma_{volume_ma_period}'].iloc[-1]
+        bb_upper = df["bb_upper"].iloc[-1]
+        bb_lower = df["bb_lower"].iloc[-1]
+        bb_middle = df["bb_middle"].iloc[-1]
+        volume_ma = df[f"volume_ma_{volume_ma_period}"].iloc[-1]
 
         if pd.isna(bb_upper) or pd.isna(bb_lower) or pd.isna(volume_ma):
             return self._no_signal(
                 f"Warmup incomplete (need {max(period, volume_ma_period)} bars)",
                 time.time(),
-                warmup_complete=False
+                warmup_complete=False,
             )
 
         # Need enough rows for confirmation check
@@ -447,11 +454,11 @@ class SignalEngine:
             return self._no_signal(
                 f"Need {confirmation_bars} bars for confirmation",
                 time.time(),
-                warmup_complete=False
+                warmup_complete=False,
             )
 
-        current_price = df['close'].iloc[-1]
-        current_volume = df['volume'].iloc[-1]
+        current_price = df["close"].iloc[-1]
+        current_volume = df["volume"].iloc[-1]
 
         indicators = {
             "price": current_price,
@@ -459,18 +466,18 @@ class SignalEngine:
             "bb_middle": bb_middle,
             "bb_lower": bb_lower,
             "volume": current_volume,
-            f"volume_ma_{volume_ma_period}": volume_ma
+            f"volume_ma_{volume_ma_period}": volume_ma,
         }
 
         # Check confirmation bars for upper breakout
         upper_confirmed = all(
-            df['close'].iloc[-i] > df['bb_upper'].iloc[-i]
+            df["close"].iloc[-i] > df["bb_upper"].iloc[-i]
             for i in range(1, confirmation_bars + 1)
         )
 
         # Check confirmation bars for lower breakdown
         lower_confirmed = all(
-            df['close'].iloc[-i] < df['bb_lower'].iloc[-i]
+            df["close"].iloc[-i] < df["bb_lower"].iloc[-i]
             for i in range(1, confirmation_bars + 1)
         )
 
@@ -490,7 +497,7 @@ class SignalEngine:
                     f"Volume surge {volume_surge:.2f}x"
                 ),
                 "indicators": indicators,
-                "warmup_complete": True
+                "warmup_complete": True,
             }
 
         # Lower breakdown
@@ -506,7 +513,7 @@ class SignalEngine:
                     f"BB_lower={bb_lower:.2f} for {confirmation_bars} bars"
                 ),
                 "indicators": indicators,
-                "warmup_complete": True
+                "warmup_complete": True,
             }
 
         else:
@@ -520,7 +527,7 @@ class SignalEngine:
                     f"Vol surge={volume_surge:.2f}x"
                 ),
                 "indicators": indicators,
-                "warmup_complete": True
+                "warmup_complete": True,
             }
 
     def _vwap_reversion_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -542,18 +549,18 @@ class SignalEngine:
         rsi_col = f"rsi_{rsi_period}"
 
         # Check warmup
-        vwap = df['vwap'].iloc[-1]
-        vwap_std = df['vwap_std'].iloc[-1]
+        vwap = df["vwap"].iloc[-1]
+        vwap_std = df["vwap_std"].iloc[-1]
         rsi = df[rsi_col].iloc[-1]
 
         if pd.isna(vwap) or pd.isna(vwap_std) or pd.isna(rsi):
             return self._no_signal(
                 f"Warmup incomplete (need {max(vwap_std_period, rsi_period)} bars)",
                 time.time(),
-                warmup_complete=False
+                warmup_complete=False,
             )
 
-        current_price = df['close'].iloc[-1]
+        current_price = df["close"].iloc[-1]
 
         # Calculate deviation bands
         upper_band = vwap + (deviation_threshold * vwap_std)
@@ -569,7 +576,7 @@ class SignalEngine:
             "upper_band": upper_band,
             "lower_band": lower_band,
             "deviation": deviation,
-            rsi_col: rsi
+            rsi_col: rsi,
         }
 
         # Oversold reversion (BUY)
@@ -586,7 +593,7 @@ class SignalEngine:
                     f"Deviation={deviation:.2f}σ"
                 ),
                 "indicators": indicators,
-                "warmup_complete": True
+                "warmup_complete": True,
             }
 
         # Overbought reversion (SELL)
@@ -603,7 +610,7 @@ class SignalEngine:
                     f"Deviation={deviation:.2f}σ"
                 ),
                 "indicators": indicators,
-                "warmup_complete": True
+                "warmup_complete": True,
             }
 
         else:
@@ -617,7 +624,7 @@ class SignalEngine:
                     f"RSI={rsi:.2f}"
                 ),
                 "indicators": indicators,
-                "warmup_complete": True
+                "warmup_complete": True,
             }
 
     def _bollinger_rsi_combo_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -636,9 +643,9 @@ class SignalEngine:
         rsi_overbought = self.params.get("rsi_overbought", 55)
         exit_at_middle = self.params.get("exit_at_middle", True)
 
-        bb_lower = df['bb_lower'].iloc[-1]
-        bb_middle = df['bb_middle'].iloc[-1]
-        bb_upper = df['bb_upper'].iloc[-1]
+        bb_lower = df["bb_lower"].iloc[-1]
+        bb_middle = df["bb_middle"].iloc[-1]
+        bb_upper = df["bb_upper"].iloc[-1]
         rsi_col = f"rsi_{rsi_period}"
         rsi = df[rsi_col].iloc[-1]
 
@@ -646,27 +653,31 @@ class SignalEngine:
             return self._no_signal(
                 f"Warmup incomplete (need {max(bb_period, rsi_period)} bars)",
                 time.time(),
-                warmup_complete=False
+                warmup_complete=False,
             )
 
-        current_price = df['close'].iloc[-1]
+        current_price = df["close"].iloc[-1]
 
         indicators = {
             "price": current_price,
             "bb_lower": bb_lower,
             "bb_middle": bb_middle,
             "bb_upper": bb_upper,
-            rsi_col: rsi
+            rsi_col: rsi,
         }
 
         if self._in_position:
             # Look for exit: price reached middle BB or RSI overbought
             exit_reason = None
             if exit_at_middle and current_price >= bb_middle:
-                pnl_pct = ((current_price - self._entry_price) / self._entry_price) * 100
+                pnl_pct = (
+                    (current_price - self._entry_price) / self._entry_price
+                ) * 100
                 exit_reason = f"BB middle reached (+{pnl_pct:.1f}%)"
             elif rsi > rsi_overbought:
-                pnl_pct = ((current_price - self._entry_price) / self._entry_price) * 100
+                pnl_pct = (
+                    (current_price - self._entry_price) / self._entry_price
+                ) * 100
                 exit_reason = f"RSI overbought {rsi:.1f} ({pnl_pct:+.1f}%)"
 
             if exit_reason:
@@ -677,14 +688,16 @@ class SignalEngine:
                     "confidence": conf,
                     "reason": exit_reason,
                     "indicators": indicators,
-                    "warmup_complete": True
+                    "warmup_complete": True,
                 }
         else:
             # Look for entry: price at/below lower BB AND RSI oversold
             if current_price <= bb_lower and rsi < rsi_oversold:
                 bb_penetration = (bb_lower - current_price) / bb_lower * 100
                 rsi_distance = (rsi_oversold - rsi) / rsi_oversold
-                confidence = min(1.0, max(0.3, (bb_penetration * 10 + rsi_distance) / 2))
+                confidence = min(
+                    1.0, max(0.3, (bb_penetration * 10 + rsi_distance) / 2)
+                )
                 self._in_position = True
                 self._entry_price = current_price
                 return {
@@ -692,7 +705,7 @@ class SignalEngine:
                     "confidence": confidence,
                     "reason": f"BB lower touch + RSI {rsi:.1f}",
                     "indicators": indicators,
-                    "warmup_complete": True
+                    "warmup_complete": True,
                 }
 
         return {
@@ -703,7 +716,7 @@ class SignalEngine:
                 f"[{bb_lower:.2f}, {bb_middle:.2f}], RSI {rsi:.2f}"
             ),
             "indicators": indicators,
-            "warmup_complete": True
+            "warmup_complete": True,
         }
 
     def _trend_adaptive_rsi_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -733,7 +746,7 @@ class SignalEngine:
             return self._no_signal(
                 f"Need {trend_lookback + 1} bars for trend detection",
                 time.time(),
-                warmup_complete=False
+                warmup_complete=False,
             )
 
         sma_col = f"sma_{trend_sma}"
@@ -743,10 +756,10 @@ class SignalEngine:
             return self._no_signal(
                 f"Missing required indicators: {sma_col}, {rsi_col}",
                 time.time(),
-                warmup_complete=False
+                warmup_complete=False,
             )
 
-        current_price = df['close'].iloc[-1]
+        current_price = df["close"].iloc[-1]
         sma_curr = df[sma_col].iloc[-1]
         rsi_curr = df[rsi_col].iloc[-1]
 
@@ -754,7 +767,7 @@ class SignalEngine:
             return self._no_signal(
                 f"Warmup incomplete (need {max(trend_sma, rsi_period)} bars)",
                 time.time(),
-                warmup_complete=False
+                warmup_complete=False,
             )
 
         # Detect market regime
@@ -781,7 +794,7 @@ class SignalEngine:
             rsi_col: rsi_curr,
             "regime": regime,
             "buy_threshold": buy_threshold,
-            "sell_threshold": sell_threshold
+            "sell_threshold": sell_threshold,
         }
 
         if self._in_position:
@@ -795,7 +808,7 @@ class SignalEngine:
                     "confidence": confidence,
                     "reason": f"Sell {regime}: RSI {rsi_curr:.2f} > {sell_threshold}",
                     "indicators": indicators,
-                    "warmup_complete": True
+                    "warmup_complete": True,
                 }
         else:
             # Enter when RSI drops below buy threshold
@@ -808,7 +821,7 @@ class SignalEngine:
                     "confidence": confidence,
                     "reason": f"Buy {regime}: RSI {rsi_curr:.2f} < {buy_threshold}",
                     "indicators": indicators,
-                    "warmup_complete": True
+                    "warmup_complete": True,
                 }
 
         return {
@@ -819,7 +832,7 @@ class SignalEngine:
                 f"[{buy_threshold}, {sell_threshold}]"
             ),
             "indicators": indicators,
-            "warmup_complete": True
+            "warmup_complete": True,
         }
 
     # =========================================================================
@@ -845,14 +858,16 @@ class SignalEngine:
 
         fast_col = f"sma_{fast_sma}"
         slow_col = f"sma_{slow_sma}"
-        rsi_col  = f"rsi_{p.get('rsi_period', 14)}"
+        rsi_col = f"rsi_{p.get('rsi_period', 14)}"
 
         if len(df) < 2:
             return self._no_signal("Insufficient weekly bars", 0, warmup_complete=False)
 
         for col in [fast_col, slow_col, rsi_col]:
             if col not in df.columns or pd.isna(df[col].iloc[-1]):
-                return self._no_signal(f"Warmup incomplete: {col} not ready", 0, warmup_complete=False)
+                return self._no_signal(
+                    f"Warmup incomplete: {col} not ready", 0, warmup_complete=False
+                )
 
         cur = df.iloc[-1]
         prev = df.iloc[-2]
@@ -924,7 +939,9 @@ class SignalEngine:
                 reasons.append(f"Weekly RSI oversold ({rsi_now:.1f} < {rsi_oversold})")
                 confidence = max(confidence, 0.75)
             if sma_cross_up:
-                reasons.append(f"Weekly golden cross: SMA{fast_sma}={fast_now:.2f} > SMA{slow_sma}={slow_now:.2f}")
+                reasons.append(
+                    f"Weekly golden cross: SMA{fast_sma}={fast_now:.2f} > SMA{slow_sma}={slow_now:.2f}"
+                )
                 confidence = max(confidence, 0.80)
             if rsi_os and sma_cross_up:
                 confidence = 0.90
@@ -967,7 +984,7 @@ class SignalEngine:
         """
         # Weekly strategies use slow_sma as the trend filter equivalent of SMA_200
         if self.strategy_name == "greenblatt_weekly":
-            slow = self.params.get("slow_sma", 40)
+            slow = self.params.get("slow_sma", 50)
             col = f"sma_{slow}"
             if col not in df.columns or len(df) < slow + 21:
                 return False
@@ -1001,10 +1018,7 @@ class SignalEngine:
         return price_below and sma_declining
 
     def _no_signal(
-        self,
-        reason: str,
-        start_time: float,
-        warmup_complete: bool = True
+        self, reason: str, start_time: float, warmup_complete: bool = True
     ) -> Dict[str, Any]:
         """Return a HOLD signal with reason."""
         elapsed = time.time() - start_time
@@ -1015,5 +1029,5 @@ class SignalEngine:
             "reason": reason,
             "indicators": {},
             "warmup_complete": warmup_complete,
-            "generation_time_ms": int(elapsed * 1000)
+            "generation_time_ms": int(elapsed * 1000),
         }

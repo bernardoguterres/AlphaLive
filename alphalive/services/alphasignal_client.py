@@ -188,6 +188,7 @@ class AlphaSignalClient:
 # Concurrent execution-gate helper
 # ---------------------------------------------------------------------------
 
+
 async def run_pre_execution_checks(
     deeplob_client,
     alphasignal_client: AlphaSignalClient,
@@ -228,12 +229,22 @@ async def run_pre_execution_checks(
     if deeplob_client is not None:
         lob_coro = deeplob_client.is_execution_allowed(lob_snapshot, signal_direction)
     else:
+
         async def _lob_passthrough() -> tuple[bool, dict]:
             return True, {}
 
         lob_coro = _lob_passthrough()
 
-    sentiment_coro = alphasignal_client.is_execution_allowed(ticker, signal_direction)
+    if alphasignal_client is not None:
+        sentiment_coro = alphasignal_client.is_execution_allowed(
+            ticker, signal_direction
+        )
+    else:
+
+        async def _sentiment_passthrough() -> tuple[bool, dict]:
+            return True, {}
+
+        sentiment_coro = _sentiment_passthrough()
 
     # Run both filters concurrently.
     lob_result, sentiment_result = await asyncio.gather(

@@ -18,7 +18,10 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from alphalive.config import load_config_path, load_env, validate_all
-from alphalive.services.alphasignal_client import AlphaSignalClient, run_pre_execution_checks
+from alphalive.services.alphasignal_client import (
+    AlphaSignalClient,
+    run_pre_execution_checks,
+)
 from alphalive.services.deeplob_client import DeepLOBClient
 from alphalive.state import BotState
 from alphalive.broker.alpaca_broker import AlpacaBroker
@@ -36,12 +39,14 @@ ET = ZoneInfo("America/New_York")
 # Timeframe-aware signal check intervals (B9b)
 TIMEFRAME_CHECK_INTERVALS = {
     "1Day": None,  # Handled by morning_check_done flag
-    "1Hour": 60,   # Check every 60 minutes
-    "15Min": 15    # Check every 15 minutes
+    "1Hour": 60,  # Check every 60 minutes
+    "15Min": 15,  # Check every 15 minutes
 }
 
 
-def _compute_daily_stats(all_orders: list, start_equity: float, end_equity: float) -> dict:
+def _compute_daily_stats(
+    all_orders: list, start_equity: float, end_equity: float
+) -> dict:
     """
     Compute P&L and win rate from today's order history.
 
@@ -124,7 +129,7 @@ def main(
     replay_mode: bool = False,
     replay_start: str = "2015-01-01",
     replay_end: str = "2019-12-31",
-    replay_speed: int = 0
+    replay_speed: int = 0,
 ):
     """
     Main entry point for AlphaLive.
@@ -157,9 +162,13 @@ def main(
     if len(all_strategy_configs) == 1:
         logger.info(f"Single-strategy mode: {all_strategy_configs[0].strategy.name}")
     else:
-        logger.info(f"Multi-strategy mode: {len(all_strategy_configs)} strategies loaded")
+        logger.info(
+            f"Multi-strategy mode: {len(all_strategy_configs)} strategies loaded"
+        )
         for i, cfg in enumerate(all_strategy_configs, 1):
-            logger.info(f"  [{i}] {cfg.strategy.name} on {cfg.ticker} @ {cfg.timeframe}")
+            logger.info(
+                f"  [{i}] {cfg.strategy.name} on {cfg.ticker} @ {cfg.timeframe}"
+            )
 
     # State file — used for dashboard kill switch and trailing stop persistence
     bot_state = BotState(app_config.state_file)
@@ -179,7 +188,7 @@ def main(
         api_key=app_config.broker.api_key,
         secret_key=app_config.broker.secret_key,
         paper=app_config.broker.paper,
-        base_url=app_config.broker.base_url
+        base_url=app_config.broker.base_url,
     )
 
     if not broker.connect():
@@ -187,8 +196,7 @@ def main(
         sys.exit(1)  # Railway will restart the process
 
     market_data = MarketDataFetcher(
-        api_key=app_config.broker.api_key,
-        secret_key=app_config.broker.secret_key
+        api_key=app_config.broker.api_key, secret_key=app_config.broker.secret_key
     )
 
     # AlphaSignal sentiment client (Integration AS → AL)
@@ -234,7 +242,7 @@ def main(
     notifier = TelegramNotifier(
         bot_token=app_config.telegram.bot_token,
         chat_id=app_config.telegram.chat_id,
-        enabled=app_config.telegram.enabled
+        enabled=app_config.telegram.enabled,
     )
 
     for strategy_config in all_strategy_configs:
@@ -249,7 +257,7 @@ def main(
             risk_config=strategy_config.risk,
             execution_config=strategy_config.execution,
             strategy_name=strategy_name,
-            safety_limits=strategy_config.safety_limits
+            safety_limits=strategy_config.safety_limits,
         )
 
         # Create order manager for this strategy
@@ -258,7 +266,7 @@ def main(
             risk_manager=risk_manager_map[ticker],
             config=strategy_config,
             notifier=notifier,
-            dry_run=app_config.dry_run
+            dry_run=app_config.dry_run,
         )
 
         logger.info(f"  Initialized components for {strategy_name} ({ticker})")
@@ -279,7 +287,7 @@ def main(
             risk_manager=risk_manager_map[first_ticker],
             broker=broker,
             notifier=notifier,
-            config=first_strategy
+            config=first_strategy,
         )
         cmd_listener.start()
         logger.info("Telegram command listener started (polling every 5s)")
@@ -310,7 +318,9 @@ def main(
             warmup_complete = test_signal.get("warmup_complete", True)
 
             if not warmup_complete:
-                logger.warning(f"  Indicator warmup incomplete for {ticker} — signals may be unreliable")
+                logger.warning(
+                    f"  Indicator warmup incomplete for {ticker} — signals may be unreliable"
+                )
                 notifier.send_alert(
                     f"⚠️ Indicator warmup incomplete for {ticker} on startup. Some indicators have NaN values."
                 )
@@ -319,7 +329,9 @@ def main(
                     f"  Warmup complete for {ticker}: {len(df)} bars loaded, "
                     f"test signal: {test_signal['signal']}"
                 )
-                if len(all_strategy_configs) == 1:  # Only send detailed message for single strategy
+                if (
+                    len(all_strategy_configs) == 1
+                ):  # Only send detailed message for single strategy
                     notifier.send_message(
                         f"✅ <b>Startup warmup OK</b>\n"
                         f"Strategy: {strategy_config.strategy.name}\n"
@@ -327,7 +339,7 @@ def main(
                         f"Bars loaded: {len(df)}\n"
                         f"Test signal: {test_signal['signal']}\n"
                         f"Confidence: {test_signal['confidence']:.2%}",
-                        parse_mode="HTML"
+                        parse_mode="HTML",
                     )
 
         except DataStaleError as e:
@@ -345,7 +357,7 @@ def main(
             f"✅ <b>Multi-strategy warmup complete</b>\n\n"
             f"Strategies: {len(all_strategy_configs)}\n"
             f"Tickers: {', '.join([cfg.ticker for cfg in all_strategy_configs])}",
-            parse_mode="HTML"
+            parse_mode="HTML",
         )
 
     # 3. Send startup message
@@ -368,10 +380,12 @@ def main(
         )
     else:
         # Multi-strategy mode
-        strategy_list = "\n".join([
-            f"  • {cfg.strategy.name} on {cfg.ticker} @ {cfg.timeframe}"
-            for cfg in all_strategy_configs
-        ])
+        strategy_list = "\n".join(
+            [
+                f"  • {cfg.strategy.name} on {cfg.ticker} @ {cfg.timeframe}"
+                for cfg in all_strategy_configs
+            ]
+        )
         startup_msg = (
             f"🚀 <b>AlphaLive Started</b> (Multi-Strategy)\n\n"
             f"<b>Mode:</b> {mode}\n"
@@ -384,21 +398,23 @@ def main(
     notifier.send_message(startup_msg, parse_mode="HTML")
 
     # 4. State tracking
-    today_str = None           # Track current trading day
-    eod_summary_sent = False   # Has end-of-day summary been sent?
+    today_str = None  # Track current trading day
+    eod_summary_sent = False  # Has end-of-day summary been sent?
     eod_summary_retry = False  # Did EOD summary fail? Retry once on next loop
-    last_exit_check = 0        # Timestamp of last exit condition check
+    last_exit_check = 0  # Timestamp of last exit condition check
     last_position_reconciliation = 0  # Timestamp of last position reconciliation (B9b)
 
     # State tracking for multi-strategy (B9b + B15)
     morning_checks_done = set()  # Set of tickers that have had morning check today
-    last_signal_check_map = {}   # {ticker: timestamp} for 1Hour/15Min strategies
+    last_signal_check_map = {}  # {ticker: timestamp} for 1Hour/15Min strategies
 
     # Intraday drawdown monitoring
-    peak_equity_today: float = 0.0       # Highest equity seen today (set at open)
-    morning_equity: float = 0.0          # Equity at market open (fixes TODO in EOD summary)
-    drawdown_alert_sent: bool = False    # Avoid spamming alert on same breach
-    DRAWDOWN_ALERT_PCT = float(os.getenv("DRAWDOWN_ALERT_PCT", "3.0"))  # Alert at 3% intraday DD
+    peak_equity_today: float = 0.0  # Highest equity seen today (set at open)
+    morning_equity: float = 0.0  # Equity at market open (fixes TODO in EOD summary)
+    drawdown_alert_sent: bool = False  # Avoid spamming alert on same breach
+    DRAWDOWN_ALERT_PCT = float(
+        os.getenv("DRAWDOWN_ALERT_PCT", "3.0")
+    )  # Alert at 3% intraday DD
 
     # TIMEFRAME-AWARE SIGNAL CHECKS (B9b):
     # For 1Day: use morning_checks_done set
@@ -421,12 +437,14 @@ def main(
                 all_orders.extend(order_manager_map[ticker].get_order_history())
 
             account = broker.get_account()
-            daily_stats = _compute_daily_stats(all_orders, morning_equity, account.equity)
+            daily_stats = _compute_daily_stats(
+                all_orders, morning_equity, account.equity
+            )
             summary = {
                 "trades": len(all_orders),
                 "pnl": daily_stats["pnl"],
                 "win_rate": daily_stats["win_rate"],
-                "portfolio_value": account.equity
+                "portfolio_value": account.equity,
             }
             notifier.send_shutdown_notification(summary)
         except Exception as e:
@@ -444,7 +462,9 @@ def main(
         logger.info("=" * 80)
         logger.info("🎬 REPLAY MODE")
         logger.info(f"Period: {replay_start} to {replay_end}")
-        logger.info(f"Speed: {'instant' if replay_speed == 0 else f'{replay_speed}s per day'}")
+        logger.info(
+            f"Speed: {'instant' if replay_speed == 0 else f'{replay_speed}s per day'}"
+        )
         logger.info("=" * 80)
 
         from alphalive.replay import ReplaySimulator
@@ -455,7 +475,7 @@ def main(
             start_date=replay_start,
             end_date=replay_end,
             tickers=[cfg.ticker for cfg in all_strategy_configs],
-            speed_multiplier=replay_speed
+            speed_multiplier=replay_speed,
         )
 
         # Run simulation
@@ -464,7 +484,7 @@ def main(
             signal_engines=signal_engine_map,
             risk_managers=risk_manager_map,
             order_managers=order_manager_map,
-            notifier=notifier
+            notifier=notifier,
         )
 
         # Exit after replay completes
@@ -495,7 +515,7 @@ def main(
             if current_day != today_str:
                 today_str = current_day
                 morning_checks_done = set()  # Reset to empty set (B9b multi-strategy)
-                last_signal_check_map = {}   # Reset signal check timestamps (B9b)
+                last_signal_check_map = {}  # Reset signal check timestamps (B9b)
                 eod_summary_sent = False
                 eod_summary_retry = False
                 peak_equity_today = 0.0
@@ -507,7 +527,9 @@ def main(
                     risk_manager_map[ticker].reset_daily()
                     order_manager_map[ticker].reset_daily()
 
-                logger.info(f"=== New trading day: {current_day} ({now_et.strftime('%A')}) ===")
+                logger.info(
+                    f"=== New trading day: {current_day} ({now_et.strftime('%A')}) ==="
+                )
 
             # --- Dashboard kill switch (checked every loop iteration) ---
             if bot_state.check_dashboard_paused():
@@ -525,7 +547,9 @@ def main(
 
                 # Before 9:30 AM ET: sleep until closer to open
                 if now_et.hour < 9 or (now_et.hour == 9 and now_et.minute < 30):
-                    logger.debug(f"Pre-market ({now_et.strftime('%H:%M %Z')}). Sleeping 5 min.")
+                    logger.debug(
+                        f"Pre-market ({now_et.strftime('%H:%M %Z')}). Sleeping 5 min."
+                    )
                     time.sleep(300)
                     continue
 
@@ -539,16 +563,20 @@ def main(
                             # Aggregate order history across all strategies
                             all_orders = []
                             for ticker in order_manager_map:
-                                all_orders.extend(order_manager_map[ticker].get_order_history())
+                                all_orders.extend(
+                                    order_manager_map[ticker].get_order_history()
+                                )
 
                             account = broker.get_account()
-                            daily_stats = _compute_daily_stats(all_orders, morning_equity, account.equity)
+                            daily_stats = _compute_daily_stats(
+                                all_orders, morning_equity, account.equity
+                            )
                             summary = {
                                 "trades": len(all_orders),
                                 "pnl": daily_stats["pnl"],
                                 "win_rate": daily_stats["win_rate"],
                                 "start_equity": morning_equity,
-                                "end_equity": account.equity
+                                "end_equity": account.equity,
                             }
 
                             notifier.send_daily_summary(summary)
@@ -556,7 +584,9 @@ def main(
                         except Exception as e:
                             logger.error(f"EOD summary error: {e}", exc_info=True)
 
-                    logger.debug(f"After hours ({now_et.strftime('%H:%M %Z')}). Sleeping 30 min.")
+                    logger.debug(
+                        f"After hours ({now_et.strftime('%H:%M %Z')}). Sleeping 30 min."
+                    )
                     time.sleep(1800)
                     continue
 
@@ -585,7 +615,9 @@ def main(
 
                 # Check drawdown from today's peak
                 if peak_equity_today > 0:
-                    drawdown_pct = (peak_equity_today - current_equity) / peak_equity_today * 100
+                    drawdown_pct = (
+                        (peak_equity_today - current_equity) / peak_equity_today * 100
+                    )
                     if drawdown_pct >= DRAWDOWN_ALERT_PCT and not drawdown_alert_sent:
                         logger.warning(
                             f"INTRADAY DRAWDOWN ALERT: {drawdown_pct:.2f}% from peak "
@@ -603,191 +635,227 @@ def main(
             except Exception as e:
                 logger.warning(f"Drawdown check failed: {e}")
 
-            # --- Signal checks (multi-strategy + timeframe-aware, B9b) ---
-            # For 1Day: check after 9:35 AM ET (once per day)
-            # For 1Hour/15Min: check at bar boundaries (every hour/15min)
-            if now_et.hour == 9 and now_et.minute >= 35:
-                for strat_cfg in all_strategy_configs:
-                    # Determine if this strategy should check signals now
-                    should_check = False
+            # --- Signal checks (multi-strategy + timeframe-aware) ---
+            # 1Day/1Week: once per day, checked at the 9:35 AM open window.
+            # 1Hour/15Min: bar-boundary checks throughout the session;
+            #              should_run_signal_check() handles interval gating.
+            for strat_cfg in all_strategy_configs:
+                # Determine if this strategy should check signals now
+                should_check = False
 
-                    if strat_cfg.timeframe == "1Day":
-                        # For daily: use morning_checks_done gate
+                if strat_cfg.timeframe in ("1Day", "1Week"):
+                    # Once-per-day: only during the 9:35 AM open window
+                    if now_et.hour == 9 and now_et.minute >= 35:
                         should_check = strat_cfg.ticker not in morning_checks_done
-                    else:
-                        # For intraday (1Hour/15Min): use timeframe-aware check
-                        should_check = should_run_signal_check(
-                            strat_cfg.timeframe,
-                            last_signal_check_map.get(strat_cfg.ticker, 0)
+                else:
+                    # Intraday (1Hour/15Min): check at bar boundaries throughout market hours
+                    should_check = should_run_signal_check(
+                        strat_cfg.timeframe,
+                        last_signal_check_map.get(strat_cfg.ticker, 0),
+                    )
+
+                if should_check:
+                    logger.info("=" * 80)
+                    logger.info(
+                        f"SIGNAL CHECK: {strat_cfg.strategy.name}/{strat_cfg.ticker}"
+                    )
+                    logger.info("=" * 80)
+
+                    try:
+                        # DATA STALENESS CHECK (B9b): verify data is fresh on EVERY signal check
+                        # This catches cases where the market data feed is delayed or broken
+                        # (Alpaca API issue, network issue, etc.). Don't generate signals on stale data.
+                        df = market_data.get_latest_bars(
+                            ticker=strat_cfg.ticker,
+                            timeframe=strat_cfg.timeframe,
+                            lookback_bars=200,
                         )
 
-                    if should_check:
-                        logger.info("=" * 80)
-                        logger.info(f"SIGNAL CHECK: {strat_cfg.strategy.name}/{strat_cfg.ticker}")
-                        logger.info("=" * 80)
-
-                        try:
-                            # DATA STALENESS CHECK (B9b): verify data is fresh on EVERY signal check
-                            # This catches cases where the market data feed is delayed or broken
-                            # (Alpaca API issue, network issue, etc.). Don't generate signals on stale data.
-                            df = market_data.get_latest_bars(
-                                ticker=strat_cfg.ticker,
-                                timeframe=strat_cfg.timeframe,
-                                lookback_bars=200
+                        # CRITICAL: Corporate action detection (splits, special dividends)
+                        # If price jumped >20% overnight without corresponding volume,
+                        # it's likely a stock split or reverse split. Skip signal generation
+                        # to avoid false breakout/crash signals.
+                        if len(df) >= 2:
+                            yesterday_close = df["close"].iloc[-2]
+                            today_open = df["open"].iloc[-1]
+                            pct_change = abs(
+                                (today_open - yesterday_close) / yesterday_close
                             )
 
-                            # CRITICAL: Corporate action detection (splits, special dividends)
-                            # If price jumped >20% overnight without corresponding volume,
-                            # it's likely a stock split or reverse split. Skip signal generation
-                            # to avoid false breakout/crash signals.
-                            if len(df) >= 2:
-                                yesterday_close = df['close'].iloc[-2]
-                                today_open = df['open'].iloc[-1]
-                                pct_change = abs((today_open - yesterday_close) / yesterday_close)
+                            if pct_change > 0.20:  # 20% overnight move
+                                logger.critical(
+                                    f"⚠️ SPLIT DETECTED: Price jumped {pct_change*100:.1f}% overnight "
+                                    f"(${yesterday_close:.2f} → ${today_open:.2f}). "
+                                    f"Skipping signal check to prevent false signals."
+                                )
+                                notifier.send_alert(
+                                    f"⚠️ CORPORATE ACTION DETECTED\n"
+                                    f"{strat_cfg.ticker} moved {pct_change*100:.1f}% overnight.\n"
+                                    f"Likely stock split/reverse split.\n"
+                                    f"Signal check skipped today for safety."
+                                )
+                                morning_checks_done.add(strat_cfg.ticker)
+                                continue
 
-                                if pct_change > 0.20:  # 20% overnight move
-                                    logger.critical(
-                                        f"⚠️ SPLIT DETECTED: Price jumped {pct_change*100:.1f}% overnight "
-                                        f"(${yesterday_close:.2f} → ${today_open:.2f}). "
-                                        f"Skipping signal check to prevent false signals."
+                        # Generate signal
+                        signal_result = signal_engine_map[
+                            strat_cfg.ticker
+                        ].generate_signal(df)
+                        logger.info(
+                            f"Signal: {signal_result['signal']} | Confidence: {signal_result['confidence']:.2%}"
+                        )
+                        logger.info(f"Reason: {signal_result['reason']}")
+
+                        # Log detailed indicator values for analysis
+                        if "indicators" in signal_result:
+                            indicator_str = " | ".join(
+                                [
+                                    (
+                                        f"{k}={v:.2f}"
+                                        if isinstance(v, (int, float))
+                                        else f"{k}={v}"
                                     )
-                                    notifier.send_alert(
-                                        f"⚠️ CORPORATE ACTION DETECTED\n"
-                                        f"{strat_cfg.ticker} moved {pct_change*100:.1f}% overnight.\n"
-                                        f"Likely stock split/reverse split.\n"
-                                        f"Signal check skipped today for safety."
+                                    for k, v in signal_result["indicators"].items()
+                                ]
+                            )
+                            logger.info(f"Indicators: {indicator_str}")
+
+                        # Log trade decision summary for HOLD signals too
+                        if signal_result["signal"] == "HOLD":
+                            logger.info(
+                                f"Trade decision | Signal: HOLD | "
+                                f"Action: NO TRADE | Reason: {signal_result['reason']}"
+                            )
+
+                        if signal_result["signal"] in ("BUY", "SELL"):
+                            # --- Pre-execution filters (DeepLOB + AlphaSignal) ---
+                            # Map signal string to direction int: BUY=2, SELL=0.
+                            _signal_direction = (
+                                2 if signal_result["signal"] == "BUY" else 0
+                            )
+
+                            _lob_allowed = True
+                            _lob_pred: dict = {}
+                            _sentiment_allowed = True
+                            _sentiment_pred: dict = {}
+
+                            if (
+                                deeplob_client is not None
+                                or alphasignal_client is not None
+                            ):
+                                # Run DeepLOB and AlphaSignal concurrently via
+                                # asyncio.gather to avoid serial latency.
+                                # lob_snapshot=None: Alpaca free tier has no L2 feed;
+                                # DeepLOBClient.is_execution_allowed fails open for None.
+                                # Either client can be None; run_pre_execution_checks
+                                # uses passthroughs for absent clients.
+                                (
+                                    _lob_allowed,
+                                    _lob_pred,
+                                    _sentiment_allowed,
+                                    _sentiment_pred,
+                                ) = asyncio.run(
+                                    run_pre_execution_checks(
+                                        deeplob_client=deeplob_client,
+                                        alphasignal_client=alphasignal_client,
+                                        lob_snapshot=None,
+                                        ticker=strat_cfg.ticker,
+                                        signal_direction=_signal_direction,
                                     )
-                                    morning_checks_done.add(strat_cfg.ticker)
-                                    continue
-
-                            # Generate signal
-                            signal_result = signal_engine_map[strat_cfg.ticker].generate_signal(df)
-                            logger.info(f"Signal: {signal_result['signal']} | Confidence: {signal_result['confidence']:.2%}")
-                            logger.info(f"Reason: {signal_result['reason']}")
-
-                            # Log detailed indicator values for analysis
-                            if 'indicators' in signal_result:
-                                indicator_str = " | ".join([f"{k}={v:.2f}" if isinstance(v, (int, float)) else f"{k}={v}"
-                                                            for k, v in signal_result['indicators'].items()])
-                                logger.info(f"Indicators: {indicator_str}")
-
-                            # Log trade decision summary for HOLD signals too
-                            if signal_result["signal"] == "HOLD":
-                                logger.info(
-                                    f"Trade decision | Signal: HOLD | "
-                                    f"Action: NO TRADE | Reason: {signal_result['reason']}"
                                 )
 
-                            if signal_result["signal"] in ("BUY", "SELL"):
-                                # --- Pre-execution filters (DeepLOB + AlphaSignal) ---
-                                # Map signal string to direction int: BUY=2, SELL=0.
-                                _signal_direction = 2 if signal_result["signal"] == "BUY" else 0
+                            if not _lob_allowed or not _sentiment_allowed:
+                                logger.info(
+                                    "Execution blocked — "
+                                    f"lob_allowed={_lob_allowed}, "
+                                    f"sentiment_allowed={_sentiment_allowed}, "
+                                    f"sentiment_score={_sentiment_pred.get('sentiment_score', 'N/A')}, "
+                                    f"lob_prediction={_lob_pred}"
+                                )
+                                # Skip order placement; mark signal check as done below.
+                            else:
+                                # Both filters passed — proceed to execution.
 
-                                _lob_allowed = True
-                                _lob_pred: dict = {}
-                                _sentiment_allowed = True
-                                _sentiment_pred: dict = {}
+                                # Get current price
+                                price = market_data.get_current_price(strat_cfg.ticker)
 
-                                if alphasignal_client is not None:
-                                    # Run DeepLOB and AlphaSignal concurrently via
-                                    # asyncio.gather to avoid serial latency.
-                                    # lob_snapshot=None: Alpaca free tier has no L2 feed;
-                                    # DeepLOBClient.is_execution_allowed fails open for None.
-                                    (
-                                        _lob_allowed,
-                                        _lob_pred,
-                                        _sentiment_allowed,
-                                        _sentiment_pred,
-                                    ) = asyncio.run(
-                                        run_pre_execution_checks(
-                                            deeplob_client=deeplob_client,
-                                            alphasignal_client=alphasignal_client,
-                                            lob_snapshot=None,
-                                            ticker=strat_cfg.ticker,
-                                            signal_direction=_signal_direction,
-                                        )
-                                    )
+                                # Get account info
+                                account = broker.get_account()
 
-                                if not _lob_allowed or not _sentiment_allowed:
+                                # Get position counts
+                                all_positions = broker.get_all_positions()
+                                strategy_positions = [
+                                    p
+                                    for p in all_positions
+                                    if p.symbol == strat_cfg.ticker
+                                ]
+                                current_positions_count = len(strategy_positions)
+                                total_portfolio_positions = len(all_positions)
+
+                                # Execute signal
+                                result = order_manager_map[
+                                    strat_cfg.ticker
+                                ].execute_signal(
+                                    ticker=strat_cfg.ticker,
+                                    signal=signal_result,
+                                    current_price=price,
+                                    account_equity=account.equity,
+                                    current_positions_count=current_positions_count,
+                                    total_portfolio_positions=total_portfolio_positions,
+                                    current_bar=len(df),
+                                )
+
+                                if result["status"] == "success":
                                     logger.info(
-                                        "Execution blocked — "
-                                        f"lob_allowed={_lob_allowed}, "
-                                        f"sentiment_allowed={_sentiment_allowed}, "
-                                        f"sentiment_score={_sentiment_pred.get('sentiment_score', 'N/A')}, "
-                                        f"lob_prediction={_lob_pred}"
+                                        f"✅ Order placed: {result['order_id']}"
                                     )
-                                    # Skip order placement; mark signal check as done below.
-                                else:
-                                    # Both filters passed — proceed to execution.
-
-                                    # Get current price
-                                    price = market_data.get_current_price(strat_cfg.ticker)
-
-                                    # Get account info
-                                    account = broker.get_account()
-
-                                    # Get position counts
-                                    all_positions = broker.get_all_positions()
-                                    strategy_positions = [p for p in all_positions if p.symbol == strat_cfg.ticker]
-                                    current_positions_count = len(strategy_positions)
-                                    total_portfolio_positions = len(all_positions)
-
-                                    # Execute signal
-                                    result = order_manager_map[strat_cfg.ticker].execute_signal(
+                                    logger.info(
+                                        f"Trade executed | {signal_result['signal']} {result['filled_qty']} {strat_cfg.ticker} "
+                                        f"@ ${result['filled_price']:.2f} | Total: ${result['filled_qty'] * result['filled_price']:.2f}"
+                                    )
+                                    notifier.send_trade_notification(
                                         ticker=strat_cfg.ticker,
-                                        signal=signal_result,
-                                        current_price=price,
-                                        account_equity=account.equity,
-                                        current_positions_count=current_positions_count,
-                                        total_portfolio_positions=total_portfolio_positions,
-                                        current_bar=len(df)
+                                        side=signal_result["signal"],
+                                        qty=result["filled_qty"],
+                                        price=result["filled_price"],
+                                        reason=signal_result["reason"],
                                     )
+                                elif result["status"] == "blocked":
+                                    logger.warning(
+                                        f"❌ Trade blocked: {result['reason']}"
+                                    )
+                                    logger.info(
+                                        f"Trade decision | Signal: {signal_result['signal']} | "
+                                        f"Action: BLOCKED | Reason: {result['reason']}"
+                                    )
+                                else:
+                                    logger.error(f"❌ Trade error: {result['reason']}")
 
-                                    if result["status"] == "success":
-                                        logger.info(f"✅ Order placed: {result['order_id']}")
-                                        logger.info(
-                                            f"Trade executed | {signal_result['signal']} {result['filled_qty']} {strat_cfg.ticker} "
-                                            f"@ ${result['filled_price']:.2f} | Total: ${result['filled_qty'] * result['filled_price']:.2f}"
-                                        )
-                                        notifier.send_trade_notification(
-                                            ticker=strat_cfg.ticker,
-                                            side=signal_result["signal"],
-                                            qty=result["filled_qty"],
-                                            price=result["filled_price"],
-                                            reason=signal_result["reason"]
-                                        )
-                                    elif result["status"] == "blocked":
-                                        logger.warning(f"❌ Trade blocked: {result['reason']}")
-                                        logger.info(
-                                            f"Trade decision | Signal: {signal_result['signal']} | "
-                                            f"Action: BLOCKED | Reason: {result['reason']}"
-                                        )
-                                    else:
-                                        logger.error(f"❌ Trade error: {result['reason']}")
+                    except DataStaleError as e:
+                        logger.warning(f"Data staleness during signal check: {e}")
+                        notifier.send_error_alert(
+                            f"⚠️ Data staleness on {strat_cfg.ticker}: {str(e)}"
+                        )
+                        # Skip this signal check — don't generate signals on stale data
+                        morning_checks_done.add(
+                            strat_cfg.ticker
+                        )  # Mark as done to avoid infinite retry
+                        continue
 
-                        except DataStaleError as e:
-                            logger.warning(f"Data staleness during signal check: {e}")
-                            notifier.send_error_alert(
-                                f"⚠️ Data staleness on {strat_cfg.ticker}: {str(e)}"
-                            )
-                            # Skip this signal check — don't generate signals on stale data
-                            morning_checks_done.add(strat_cfg.ticker)  # Mark as done to avoid infinite retry
-                            continue
+                    except Exception as e:
+                        logger.error(
+                            f"Signal check error [{strat_cfg.strategy.name}/{strat_cfg.ticker}]: {e}",
+                            exc_info=True,
+                        )
+                        notifier.send_error_alert(
+                            f"Signal check failed: {strat_cfg.strategy.name}/{strat_cfg.ticker}"
+                        )
+                        morning_checks_done.add(strat_cfg.ticker)  # Mark as done
+                        continue
 
-                        except Exception as e:
-                            logger.error(
-                                f"Signal check error [{strat_cfg.strategy.name}/{strat_cfg.ticker}]: {e}",
-                                exc_info=True
-                            )
-                            notifier.send_error_alert(
-                                f"Signal check failed: {strat_cfg.strategy.name}/{strat_cfg.ticker}"
-                            )
-                            morning_checks_done.add(strat_cfg.ticker)  # Mark as done
-                            continue
-
-                        # Mark as checked
-                        morning_checks_done.add(strat_cfg.ticker)
-                        last_signal_check_map[strat_cfg.ticker] = time.time()
+                    # Mark as checked
+                    morning_checks_done.add(strat_cfg.ticker)
+                    last_signal_check_map[strat_cfg.ticker] = time.time()
 
             # --- Exit condition checks (every 5 minutes during market hours) ---
             if time.time() - last_exit_check >= 300:  # 5 minutes
@@ -799,9 +867,13 @@ def main(
                         current_prices = {}
                         for pos in positions:
                             try:
-                                current_prices[pos.symbol] = market_data.get_current_price(pos.symbol)
+                                current_prices[pos.symbol] = (
+                                    market_data.get_current_price(pos.symbol)
+                                )
                             except Exception as e:
-                                logger.warning(f"Failed to get price for {pos.symbol}: {e}")
+                                logger.warning(
+                                    f"Failed to get price for {pos.symbol}: {e}"
+                                )
                                 # Use position's current_price as fallback
                                 current_prices[pos.symbol] = pos.current_price
 
@@ -811,7 +883,9 @@ def main(
 
                             # Skip if no order manager for this ticker (shouldn't happen)
                             if ticker not in order_manager_map:
-                                logger.warning(f"No order manager for {ticker}, skipping exit check")
+                                logger.warning(
+                                    f"No order manager for {ticker}, skipping exit check"
+                                )
                                 continue
 
                             # Update the persistent position high so trailing stops
@@ -820,50 +894,78 @@ def main(
                             # for exactly this purpose; it persists across Railway restarts
                             # when PERSISTENT_STORAGE=true.
                             bot_state.set_position_high(ticker, pos.current_price)
-                            known_high = bot_state.get_position_high(ticker) or pos.avg_entry_price
+                            known_high = (
+                                bot_state.get_position_high(ticker)
+                                or pos.avg_entry_price
+                            )
 
                             # Convert position to dict format
-                            pos_dict = [{
-                                "ticker": ticker,
-                                "avg_entry": pos.avg_entry_price,
-                                "side": pos.side,
-                                "qty": pos.qty,
-                                "highest_since_entry": known_high,
-                            }]
+                            pos_dict = [
+                                {
+                                    "ticker": ticker,
+                                    "avg_entry": pos.avg_entry_price,
+                                    "side": pos.side,
+                                    "qty": pos.qty,
+                                    "highest_since_entry": known_high,
+                                }
+                            ]
 
                             # Check exit conditions using the correct order manager
-                            exits = order_manager_map[ticker].check_exits(pos_dict, current_prices)
+                            exits = order_manager_map[ticker].check_exits(
+                                pos_dict, current_prices
+                            )
 
                             for exit_signal in exits:
-                                logger.info(f"EXIT: {exit_signal['ticker']} - {exit_signal['reason']}")
+                                logger.info(
+                                    f"EXIT: {exit_signal['ticker']} - {exit_signal['reason']}"
+                                )
 
                                 if app_config.dry_run:
-                                    logger.info(f"[DRY RUN] Would SELL {exit_signal['ticker']}")
-                                else:
-                                    # Close position using the correct order manager
-                                    result = order_manager_map[ticker].close_position(
-                                        ticker=exit_signal['ticker'],
-                                        reason=exit_signal['reason']
+                                    logger.info(
+                                        f"[DRY RUN] Would SELL {exit_signal['ticker']}"
                                     )
+                                    continue
+
+                                # Close position using the correct order manager
+                                result = order_manager_map[ticker].close_position(
+                                    ticker=exit_signal["ticker"],
+                                    reason=exit_signal["reason"],
+                                )
 
                                 if result["status"] == "success":
                                     # Clear the tracked high now the position is closed
                                     bot_state.clear_position_high(ticker)
 
                                     # Find the position to get details
-                                    pos = next((p for p in positions if p.symbol == exit_signal['ticker']), None)
+                                    pos = next(
+                                        (
+                                            p
+                                            for p in positions
+                                            if p.symbol == exit_signal["ticker"]
+                                        ),
+                                        None,
+                                    )
                                     if pos:
-                                        pnl = (exit_signal['current_price'] - pos.avg_entry_price) * pos.qty
-                                        pnl_pct = ((exit_signal['current_price'] - pos.avg_entry_price) / pos.avg_entry_price) * 100
+                                        pnl = (
+                                            exit_signal["current_price"]
+                                            - pos.avg_entry_price
+                                        ) * pos.qty
+                                        pnl_pct = (
+                                            (
+                                                exit_signal["current_price"]
+                                                - pos.avg_entry_price
+                                            )
+                                            / pos.avg_entry_price
+                                        ) * 100
 
                                         notifier.send_position_closed_notification(
-                                            ticker=exit_signal['ticker'],
+                                            ticker=exit_signal["ticker"],
                                             qty=pos.qty,
                                             entry_price=pos.avg_entry_price,
-                                            exit_price=exit_signal['current_price'],
+                                            exit_price=exit_signal["current_price"],
                                             pnl=pnl,
                                             pnl_pct=pnl_pct,
-                                            reason=exit_signal['reason']
+                                            reason=exit_signal["reason"],
                                         )
 
                 except Exception as e:
@@ -883,12 +985,15 @@ def main(
                     alpaca_positions = broker.get_all_positions()
 
                     # Convert to dict format for comparison
-                    alpaca_tickers = {pos.symbol: {
-                        "symbol": pos.symbol,
-                        "qty": pos.qty,
-                        "avg_entry_price": pos.avg_entry_price,
-                        "side": pos.side
-                    } for pos in alpaca_positions}
+                    alpaca_tickers = {
+                        pos.symbol: {
+                            "symbol": pos.symbol,
+                            "qty": pos.qty,
+                            "avg_entry_price": pos.avg_entry_price,
+                            "side": pos.side,
+                        }
+                        for pos in alpaca_positions
+                    }
 
                     # Get internal tracking from order manager
                     # NOTE: This requires implementing get_tracked_positions() in OrderManager
@@ -976,13 +1081,15 @@ def main(
                         all_orders.extend(order_manager_map[ticker].get_order_history())
 
                     account = broker.get_account()
-                    daily_stats = _compute_daily_stats(all_orders, morning_equity, account.equity)
+                    daily_stats = _compute_daily_stats(
+                        all_orders, morning_equity, account.equity
+                    )
                     summary = {
                         "trades": len(all_orders),
                         "pnl": daily_stats["pnl"],
                         "win_rate": daily_stats["win_rate"],
                         "start_equity": morning_equity,
-                        "end_equity": account.equity
+                        "end_equity": account.equity,
                     }
 
                     notifier.send_daily_summary(summary)
@@ -993,7 +1100,9 @@ def main(
                         # First failure — queue one retry on next loop
                         eod_summary_retry = True
                         eod_summary_sent = False
-                        logger.warning("EOD summary failed — will retry once on next loop")
+                        logger.warning(
+                            "EOD summary failed — will retry once on next loop"
+                        )
 
             # Retry EOD summary once if it failed earlier
             if eod_summary_retry and not eod_summary_sent:
@@ -1005,13 +1114,15 @@ def main(
                         all_orders.extend(order_manager_map[ticker].get_order_history())
 
                     account = broker.get_account()
-                    daily_stats = _compute_daily_stats(all_orders, morning_equity, account.equity)
+                    daily_stats = _compute_daily_stats(
+                        all_orders, morning_equity, account.equity
+                    )
                     summary = {
                         "trades": len(all_orders),
                         "pnl": daily_stats["pnl"],
                         "win_rate": daily_stats["win_rate"],
                         "start_equity": morning_equity,
-                        "end_equity": account.equity
+                        "end_equity": account.equity,
                     }
 
                     notifier.send_daily_summary(summary)
@@ -1054,27 +1165,15 @@ if __name__ == "__main__":
 
     # Parse arguments
     parser = argparse.ArgumentParser(description="AlphaLive 24/7 Trading Bot")
+    parser.add_argument("--config", required=True, help="Path to strategy config JSON")
     parser.add_argument(
-        "--config",
-        required=True,
-        help="Path to strategy config JSON"
+        "--dry-run", action="store_true", help="Log trades without executing"
     )
     parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Log trades without executing"
-    )
-    parser.add_argument(
-        "--live",
-        action="store_true",
-        help="Use live trading (default: paper)"
+        "--live", action="store_true", help="Use live trading (default: paper)"
     )
 
     args = parser.parse_args()
 
     # Run main loop
-    main(
-        config_path=args.config,
-        dry_run=args.dry_run,
-        paper=not args.live
-    )
+    main(config_path=args.config, dry_run=args.dry_run, paper=not args.live)
