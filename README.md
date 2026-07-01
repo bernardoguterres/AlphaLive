@@ -794,13 +794,13 @@ AlphaLive can run **multiple strategies simultaneously** by loading all JSONs fr
 
 When configured, you'll receive:
 
-- **Bot Started**: "AlphaLive Started"with strategy details
-- **Trade Executed**: "BUY 66 AAPL @ $150.00"
-- **Position Closed**: "Position Closed — P&L: $495.00 (+5.00%)"
-- **Stop Loss Hit**: "Stop loss triggered — AAPL -$300.00"
-- **Daily Summary**: "Daily Summary — 5 trades, $450 profit, 60% win rate"
-- **Error Alerts**: "Alpaca API timeout"
-- **Circuit Breaker**: "3 consecutive losses — trading paused"
+- **Bot Started**: "🚀 AlphaLive Started" with strategy details
+- **Trade Executed**: "🟢 BUY 66 AAPL @ $150.00"
+- **Position Closed**: "💰 Position Closed — P&L: $495.00 (+5.00%)"
+- **Stop Loss Hit**: "⚠️ Position Closed — AAPL -$300.00"
+- **Daily Summary**: "📈 Daily Summary — 5 trades, $450 profit, 60% win rate"
+- **Error Alerts**: "⚠️ Alpaca API timeout"
+- **Circuit Breaker**: "⚠️ 3 consecutive losses — trading paused"
 
 **Graceful Degradation**: If Telegram fails, trading continues (alerts are lost but trades still execute).
 
