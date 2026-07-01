@@ -551,7 +551,7 @@
                 :class="health?.last_morning_check_date
                   ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/20'
                   : 'bg-slate-700/40 text-slate-500 border border-slate-600/20'"
-                x-text="health?.last_morning_check_date ? '✓ ' + health.last_morning_check_date : 'PENDING'">—</span>
+                x-text="health?.last_morning_check_date ? ' ' + health.last_morning_check_date : 'PENDING'">—</span>
         </div>
 
         <div class="flex items-center justify-between">
@@ -1272,7 +1272,7 @@ document.addEventListener('alpine:init', () => {
         if (!r.ok) {
           this.showToast(data.detail ?? `Deploy failed (HTTP ${r.status})`, 'info');
         } else {
-          this.showToast('🚀 Redeploy triggered — Railway restarting in ~30s', 'buy');
+          this.showToast('Redeploy triggered — Railway restarting in ~30s', 'buy');
         }
       } catch(e) {
         this.showToast(`Deploy error: ${e.message}`, 'info');

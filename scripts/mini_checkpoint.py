@@ -7,11 +7,11 @@ Usage:
     python scripts/mini_checkpoint.py
 
 Expected output:
-    ✓ ma_crossover: 47 signals, 0 mismatches
-    ✓ rsi_mean_reversion: 23 signals, 0 mismatches
-    ✓ momentum_breakout: 31 signals, 0 mismatches
-    ✓ bollinger_breakout: 19 signals, 0 mismatches
-    ✓ vwap_reversion: 28 signals, 0 mismatches
+    ma_crossover: 47 signals, 0 mismatches
+    rsi_mean_reversion: 23 signals, 0 mismatches
+    momentum_breakout: 31 signals, 0 mismatches
+    bollinger_breakout: 19 signals, 0 mismatches
+    vwap_reversion: 28 signals, 0 mismatches
 
     PASS: All 5 strategies match. Proceed to B5.
 """
@@ -39,7 +39,7 @@ def load_fixture():
     """Load the canonical 500-bar fixture."""
     fixture_path = Path("tests/fixtures/aapl_fixture_500bars.csv")
     if not fixture_path.exists():
-        print(f"❌ ERROR: Fixture not found at {fixture_path}")
+        print(f"ERROR: Fixture not found at {fixture_path}")
         print("   Create this file first (copy from AlphaLab).")
         sys.exit(1)
 
@@ -64,7 +64,7 @@ def load_alphalab_signals(strategy_name):
     """
     signals_path = Path(f"tests/fixtures/expected_signals_{strategy_name}.csv")
     if not signals_path.exists():
-        print(f"⚠️  WARNING: Expected signals not found for {strategy_name}")
+        print(f"WARNING: Expected signals not found for {strategy_name}")
         print(f"   Run backtest in AlphaLab and export signals to {signals_path}")
         return None
 
@@ -121,7 +121,7 @@ def main():
         print(f"Columns: {list(df.columns)}")
         print()
     except Exception as e:
-        print(f"❌ ERROR loading fixture: {e}")
+        print(f"ERROR loading fixture: {e}")
         sys.exit(1)
 
     all_passed = True
@@ -133,7 +133,7 @@ def main():
         # Load expected signals from AlphaLab
         expected_signals = load_alphalab_signals(strategy_name)
         if expected_signals is None:
-            print("⚠️  SKIP (no expected signals)")
+            print("SKIP (no expected signals)")
             all_passed = False
             continue
 
@@ -178,7 +178,7 @@ def main():
                 }
             )
         except Exception as e:
-            print(f"❌ ERROR creating config: {e}")
+            print(f"ERROR creating config: {e}")
             all_passed = False
             continue
 
@@ -187,9 +187,9 @@ def main():
             mismatches, signal_count = run_parity_check(config, expected_signals, df)
 
             if len(mismatches) == 0:
-                print(f"✓ {signal_count} signals, 0 mismatches")
+                print(f"{signal_count} signals, 0 mismatches")
             else:
-                print(f"❌ {len(mismatches)} mismatches")
+                print(f"{len(mismatches)} mismatches")
                 for mm in mismatches[:5]:  # Show first 5
                     warmup_status = "(warmup incomplete)" if not mm['warmup_complete'] else ""
                     print(f"   Bar {mm['bar']} ({mm['timestamp']}): expected {mm['expected']}, got {mm['actual']} {warmup_status}")
@@ -197,7 +197,7 @@ def main():
                     print(f"   ... and {len(mismatches)-5} more")
                 all_passed = False
         except Exception as e:
-            print(f"❌ ERROR during parity check: {e}")
+            print(f"ERROR during parity check: {e}")
             import traceback
             traceback.print_exc()
             all_passed = False
@@ -205,11 +205,11 @@ def main():
     print()
     print("=" * 60)
     if all_passed:
-        print("✅ PASS: All strategies match. Proceed to B5.")
+        print("PASS: All strategies match. Proceed to B5.")
         print("=" * 60)
         sys.exit(0)
     else:
-        print("❌ FAIL: Fix mismatches before proceeding to B5.")
+        print("FAIL: Fix mismatches before proceeding to B5.")
         print("=" * 60)
         sys.exit(1)
 

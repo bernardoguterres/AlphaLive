@@ -137,7 +137,7 @@ def run_test(strategy_name, ticker, period_name, period_data):
                 pnl_str = line.split("$")[-1].replace(",", "").strip()
                 total_pnl = float(pnl_str)
 
-        status = "✓" if total_pnl > 0 else "✗"
+                status = "" if total_pnl > 0 else ""
         print(f"{status} {ticker}: {trades:2} trades | {win_rate:5.1f}% win | ${total_pnl:>10,.2f}")
 
         return {
@@ -150,7 +150,7 @@ def run_test(strategy_name, ticker, period_name, period_data):
             "success": result.returncode == 0
         }
     except Exception as e:
-        print(f"✗ {ticker}: Error - {e}")
+        print(f"{ticker}: Error - {e}")
         return {
             "strategy": strategy_name,
             "ticker": ticker,
@@ -176,7 +176,7 @@ def main():
     print("="*80)
 
     if not os.environ.get("ALPACA_API_KEY"):
-        print("\n❌ Error: ALPACA_API_KEY not set")
+        print("\n Error: ALPACA_API_KEY not set")
         sys.exit(1)
 
     print(f"\nStarting at {datetime.now().strftime('%H:%M:%S')}")
@@ -237,7 +237,7 @@ def main():
         ticker_results = [r for r in all_results if r["ticker"] == ticker]
         ticker_total = sum(r["total_pnl"] for r in ticker_results)
         ticker_trades = sum(r["trades"] for r in ticker_results)
-        status = "✅" if ticker_total > 0 else "❌"
+        status = "" if ticker_total > 0 else ""
         print(f"{status} {ticker:5} | {ticker_trades:3} trades | ${ticker_total:>12,.2f}")
 
     print(f"\n{'='*80}")

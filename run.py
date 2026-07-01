@@ -23,10 +23,10 @@ def print_banner(args, paper):
     print(f"  Config: {args.config}")
 
     if hasattr(args, 'replay_mode') and args.replay_mode:
-        print(f"  Mode: 🎬 REPLAY MODE (Historical Data Testing - FREE)")
+        print(f"Mode: REPLAY MODE (Historical Data Testing - FREE)")
         print(f"  Period: {args.replay_start} to {args.replay_end}")
     else:
-        print(f"  Mode: {'DRY RUN (no real orders)' if args.dry_run else ('PAPER TRADING' if paper else '🔴 LIVE TRADING 🔴')}")
+        print(f"Mode: {'DRY RUN (no real orders)' if args.dry_run else ('PAPER TRADING' if paper else 'LIVE TRADING ')}")
 
     print(f"  Platform: {'Railway' if os.environ.get('RAILWAY_ENVIRONMENT') else 'Local'}")
     print("=" * 80)
@@ -136,10 +136,10 @@ Environment Variables:
 
             # Validate
             if not validate_all(strategy_configs, app_config):
-                print("❌ Configuration validation failed")
+                print("Configuration validation failed")
                 sys.exit(1)
 
-            print("✅ Configuration valid")
+                print("Configuration valid")
             print()
 
             # Test broker connection
@@ -152,12 +152,12 @@ Environment Variables:
             )
 
             if broker.connect():
-                print("✅ Broker connection successful")
+                print("Broker connection successful")
                 account = broker.get_account()
                 print(f"   Account equity: ${account.equity:,.2f}")
                 print()
             else:
-                print("❌ Broker connection failed")
+                print("Broker connection failed")
                 sys.exit(1)
 
             # Test market data (use first strategy)
@@ -177,10 +177,10 @@ Environment Variables:
                     test_strategy.timeframe,
                     lookback_bars=50
                 )
-                print(f"✅ Market data OK ({len(df)} bars fetched for {test_strategy.ticker})")
+                print(f"Market data OK ({len(df)} bars fetched for {test_strategy.ticker})")
                 print()
             except Exception as e:
-                print(f"❌ Market data error: {e}")
+                print(f"Market data error: {e}")
                 sys.exit(1)
 
             # Test signal generation
@@ -189,13 +189,13 @@ Environment Variables:
 
             signal_engine = SignalEngine(test_strategy)
             test_signal = signal_engine.generate_signal(df)
-            print(f"✅ Signal generation OK")
+            print(f"Signal generation OK")
             print(f"   Test signal: {test_signal['signal']}")
             print(f"   Warmup complete: {test_signal.get('warmup_complete', True)}")
             print()
 
             print("=" * 80)
-            print("✅ ALL VALIDATIONS PASSED")
+            print("ALL VALIDATIONS PASSED")
             print("=" * 80)
             print()
             print("Ready to run:")
@@ -205,7 +205,7 @@ Environment Variables:
             sys.exit(0)
 
         except Exception as e:
-            print(f"❌ Validation error: {e}")
+            print(f"Validation error: {e}")
             import traceback
             traceback.print_exc()
             sys.exit(1)
@@ -213,9 +213,9 @@ Environment Variables:
     # --- Normal run ---
     if not paper:
         print()
-        print("⚠️  ⚠️  ⚠️  WARNING ⚠️  ⚠️  ⚠️")
-        print("⚠️  LIVE TRADING MODE — REAL MONEY AT RISK  ⚠️")
-        print("⚠️  ⚠️  ⚠️  WARNING ⚠️  ⚠️  ⚠️")
+        print("WARNING ")
+        print("LIVE TRADING MODE — REAL MONEY AT RISK ")
+        print("WARNING ")
         print()
 
     # Print startup banner

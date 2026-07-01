@@ -8,7 +8,7 @@
 
 ---
 
-## 🎯 Improvement Option 1: Fix Broken Strategies
+## Improvement Option 1: Fix Broken Strategies
 
 ### Momentum Breakout - Currently BROKEN (0 trades)
 
@@ -85,7 +85,7 @@ Only trade in direction of larger trend (50-day SMA):
 
 ---
 
-## 🚀 Improvement Option 2: Optimize Existing Strategies
+## Improvement Option 2: Optimize Existing Strategies
 
 ### MA Crossover - Currently $31,850
 
@@ -161,7 +161,7 @@ Only trade in direction of larger trend (50-day SMA):
 
 ---
 
-## 💡 Improvement Option 3: Add More Stocks
+## Improvement Option 3: Add More Stocks
 
 **Current:** Only testing AAPL and SPY (2 stocks)
 
@@ -191,7 +191,7 @@ Only trade in direction of larger trend (50-day SMA):
 
 ---
 
-## 🕐 Improvement Option 4: Add Intraday Timeframes
+## Improvement Option 4: Add Intraday Timeframes
 
 **Current:** 1Day timeframe only
 
@@ -229,7 +229,7 @@ Only trade in direction of larger trend (50-day SMA):
 
 ---
 
-## 📊 Improvement Impact Comparison
+## Improvement Impact Comparison
 
 | Improvement | Complexity | Expected Profit (8 yrs) | Increase vs Current |
 |-------------|------------|-------------------------|---------------------|
@@ -243,9 +243,9 @@ Only trade in direction of larger trend (50-day SMA):
 
 ---
 
-## 🎯 Best ROI Improvements (Ranked)
+## Best ROI Improvements (Ranked)
 
-### 1. **Add More Stocks** ✅ HIGHEST ROI
+### 1. **Add More Stocks** HIGHEST ROI
 
 **Effort:** LOW (just export more configs from AlphaLab)
 **Expected Gain:** +$95,000-145,000 (98-150% increase)
@@ -256,11 +256,11 @@ Only trade in direction of larger trend (50-day SMA):
 2. Deploy same 3 strategies on 4 stocks = 12 strategy-stock combos
 3. Expected: $190,000-240,000 over 8 years
 
-**Winner:** Best effort-to-reward ratio ✅
+**Winner:** Best effort-to-reward ratio
 
 ---
 
-### 2. **Optimize VWAP Reversion** ✅ HIGH ROI
+### 2. **Optimize VWAP Reversion** HIGH ROI
 
 **Effort:** LOW (tweak one parameter in AlphaLab)
 **Expected Gain:** +$20,000-45,000 (only 4 trades currently!)
@@ -273,7 +273,7 @@ Only trade in direction of larger trend (50-day SMA):
 
 ---
 
-### 3. **Fix Momentum Breakout** ✅ MEDIUM ROI
+### 3. **Fix Momentum Breakout** MEDIUM ROI
 
 **Effort:** MEDIUM (needs testing in AlphaLab)
 **Expected Gain:** +$15,000-25,000 (currently $0)
@@ -286,7 +286,7 @@ Only trade in direction of larger trend (50-day SMA):
 
 ---
 
-### 4. **Add 1Hour Timeframe** ⚠️ MEDIUM ROI, Higher Complexity
+### 4. **Add 1Hour Timeframe** MEDIUM ROI, Higher Complexity
 
 **Effort:** MEDIUM (need to test in AlphaLab)
 **Expected Gain:** +$55,000-105,000
@@ -299,7 +299,7 @@ Only trade in direction of larger trend (50-day SMA):
 
 ---
 
-### 5. **Optimize MA/RSI Parameters** ⚠️ LOWER ROI
+### 5. **Optimize MA/RSI Parameters** LOWER ROI
 
 **Effort:** MEDIUM (lots of backtesting)
 **Expected Gain:** +$10,000-20,000
@@ -312,16 +312,16 @@ Only trade in direction of larger trend (50-day SMA):
 
 ---
 
-## 🚀 Recommended Action Plan
+## Recommended Action Plan
 
 ### Phase 1: Quick Wins (1-2 weeks)
 
-1. ✅ **Add SPY, QQQ, MSFT** (keep AAPL)
+1. **Add SPY, QQQ, MSFT** (keep AAPL)
    - Export configs from AlphaLab
    - Deploy same 3 strategies on 4 stocks
    - Expected: +$95,000-145,000
 
-2. ✅ **Optimize VWAP threshold**
+2. **Optimize VWAP threshold**
    - Test deviation 1.5 in AlphaLab
    - If better Sharpe, deploy
    - Expected: +$20,000-45,000
@@ -332,12 +332,12 @@ Only trade in direction of larger trend (50-day SMA):
 
 ### Phase 2: Medium-Term Improvements (1 month)
 
-3. ✅ **Fix Momentum Breakout**
+3. **Fix Momentum Breakout**
    - Test in AlphaLab with lower thresholds
    - Deploy if profitable
    - Expected: +$15,000-25,000
 
-4. ✅ **Optimize MA parameters**
+4. **Optimize MA parameters**
    - Test 10/30 vs current 10/20
    - Deploy better version
    - Expected: +$5,000-15,000
@@ -348,7 +348,7 @@ Only trade in direction of larger trend (50-day SMA):
 
 ### Phase 3: Advanced (2-3 months)
 
-5. ✅ **Add 1Hour timeframe**
+5. **Add 1Hour timeframe**
    - Test in AlphaLab
    - Requires Premium ($99/month)
    - Expected: +$55,000-105,000
@@ -364,11 +364,11 @@ Only trade in direction of larger trend (50-day SMA):
 **After Medium-Term:** $231,766-326,766 (Phase 1+2)
 **After Advanced:** $286,766-431,766 (All phases)
 
-**Best case: $431,766 over 8 years = 53.97%/year** 🚀
+**Best case: $431,766 over 8 years = 53.97%/year**
 
 ---
 
-## 💡 My Recommendation
+## My Recommendation
 
 ### **START WITH PHASE 1 (Add More Stocks)**
 
@@ -389,7 +389,7 @@ Only trade in direction of larger trend (50-day SMA):
 
 ---
 
-## 📊 Position Sizing vs Strategy Improvement
+## Position Sizing vs Strategy Improvement
 
 | Approach | Effort | Expected Gain | Risk |
 |----------|--------|---------------|------|
@@ -398,17 +398,17 @@ Only trade in direction of larger trend (50-day SMA):
 | **Optimize strategies (Phase 2)** | 1 month | +$20,000-40,000 | Medium |
 | **Add intraday (Phase 3)** | 2-3 months | +$55,000-105,000 | Medium |
 
-**Winner: Add More Stocks** = Best effort/reward ratio! ✅
+**Winner: Add More Stocks** = Best effort/reward ratio!
 
 ---
 
-## 🎯 Your Next Step
+## Your Next Step
 
 **Should I:**
 
-1. ✅ **Update all configs to 30%** (already using in tests)
-2. ✅ **Create configs for 4 stocks × 3 strategies = 12 configs**
-3. ✅ **Test on all 6 stocks to verify 2x returns**
+1. **Update all configs to 30%** (already using in tests)
+2. **Create configs for 4 stocks × 3 strategies = 12 configs**
+3. **Test on all 6 stocks to verify 2x returns**
 
 **This would give you ~$200,000-290,000 over 8 years vs current $96,766!**
 

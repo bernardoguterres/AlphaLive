@@ -13,12 +13,12 @@ This document outlines the complete implementation plan for adding **Interactive
 | Feature | Alpaca Plus | Interactive Brokers | Tradier |
 |---------|-------------|---------------------|---------|
 | **Annual Cost** | $1,000 | $120-180 | $120 |
-| **Real-Time Data** | ✅ Yes | ✅ Yes | ✅ Yes |
+| **Real-Time Data** | Yes | Yes | Yes |
 | **API Complexity** | Easy | Medium | Easy |
-| **Implementation Time** | Done ✅ | 2-3 days | 1-2 days |
+| **Implementation Time** | Done | 2-3 days | 1-2 days |
 | **Asset Classes** | Stocks only | Stocks, Options, Futures, Forex | Stocks, Options |
 | **Global Access** | US only | 70+ countries | US only |
-| **Paper Trading** | ✅ Free | ✅ Free | ✅ Free |
+| **Paper Trading** | Free | Free | Free |
 | **AlphaLive Changes** | None | Medium | Low |
 
 ---
@@ -871,14 +871,14 @@ from alphalive.broker.ib_broker import IBBroker
 broker = IBBroker(host='127.0.0.1', port=7497)
 broker.connect()
 
-print('✅ Connection successful')
+print('Connection successful')
 
 account = broker.get_account()
-print(f'✅ Account: \${account.equity:,.2f}')
+print(f'Account: \${account.equity:,.2f}')
 
 # Test market order (paper trading)
 order = broker.place_market_order('AAPL', 1, 'buy')
-print(f'✅ Order placed: {order.id}')
+print(f'Order placed: {order.id}')
 
 broker.disconnect()
 "
@@ -1841,14 +1841,14 @@ broker = TradierBroker(
 )
 
 broker.connect()
-print('✅ Connection successful')
+print('Connection successful')
 
 account = broker.get_account()
-print(f'✅ Account: \${account.equity:,.2f}')
+print(f'Account: \${account.equity:,.2f}')
 
 # Test market order (sandbox)
 order = broker.place_market_order('AAPL', 1, 'buy')
-print(f'✅ Order placed: {order.id}')
+print(f'Order placed: {order.id}')
 "
 ```
 
@@ -2007,8 +2007,8 @@ git push origin main
 |--------|------------|---------------------|---------|
 | **Cost (5 years)** | $5,000 | $900 | $600 |
 | **Best If You...** | Already use Alpaca | Want options/futures | Want easy migration |
-| **Implementation** | Done ✅ | 2-3 days | 1-2 days |
-| **Railway Compatible** | ✅ Yes | ⚠️ Hybrid | ✅ Yes |
+| **Implementation** | Done | 2-3 days | 1-2 days |
+| **Railway Compatible** | Yes | Hybrid | Yes |
 | **Asset Classes** | Stocks only | All | Stocks + Options |
 | **API Quality** | Excellent | Good | Good |
 | **Learning Curve** | Easy | Medium | Easy |
@@ -2096,12 +2096,12 @@ git push origin main
 ## Questions?
 
 This plan covers:
-- ✅ Complete implementation for both brokers
-- ✅ Code templates ready to copy
-- ✅ Testing strategy
-- ✅ Deployment guide
-- ✅ Cost comparison
-- ✅ Decision matrix
+- Complete implementation for both brokers
+- Code templates ready to copy
+- Testing strategy
+- Deployment guide
+- Cost comparison
+- Decision matrix
 
 **Ready to implement?** Pick your broker and follow the checklist above.
 

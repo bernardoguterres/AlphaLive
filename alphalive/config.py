@@ -239,7 +239,7 @@ def load_strategy(path: str) -> StrategySchema:
         strategy_config = StrategySchema(**migrated_config)
 
         logger.info(
-            f"✓ Strategy loaded: {strategy_config.strategy.name} on "
+            f"Strategy loaded: {strategy_config.strategy.name} on "
             f"{strategy_config.ticker} @ {strategy_config.timeframe} | "
             f"Sharpe: {strategy_config.metadata.performance.sharpe_ratio:.2f}"
         )
@@ -254,7 +254,7 @@ def load_strategy(path: str) -> StrategySchema:
         # Log detailed validation errors
         for error in e.errors():
             field = " -> ".join(str(loc) for loc in error["loc"])
-            logger.error(f"  ✗ {field}: {error['msg']}")
+            logger.error(f"{field}: {error['msg']}")
         raise
     except Exception as e:
         logger.error(f"Failed to load config from {config_path}: {e}")
@@ -536,11 +536,11 @@ def validate_all(strategies: List[StrategySchema], app_config: AppConfig) -> boo
             sharpe = strategy.metadata.performance.sharpe_ratio
             total_return = strategy.metadata.performance.total_return_pct
             logger.info(
-                f"  ✅ [{i}] {strategy.strategy.name} on {strategy.ticker} @ {strategy.timeframe} | "
+                f"[{i}] {strategy.strategy.name} on {strategy.ticker} @ {strategy.timeframe} | "
                 f"Sharpe: {sharpe:.2f} | Return: {total_return:.1f}%"
             )
         except Exception as e:
-            logger.error(f"  ✗ [{i}] Invalid strategy: {e}")
+            logger.error(f"[{i}] Invalid strategy: {e}")
             all_valid = False
             errors.append(f"Strategy {i}: {e}")
 
@@ -548,11 +548,11 @@ def validate_all(strategies: List[StrategySchema], app_config: AppConfig) -> boo
     logger.info(f"\nBROKER:")
     try:
         mode = "Paper Trading" if app_config.broker.paper else "Live Trading"
-        logger.info(f"  ✅ Alpaca {mode}")
+        logger.info(f"Alpaca {mode}")
         logger.info(f"     API Key: {app_config.broker.mask_api_key()}")
         logger.info(f"     Base URL: {app_config.broker.base_url}")
     except Exception as e:
-        logger.error(f"  ✗ Broker configuration invalid: {e}")
+        logger.error(f"Broker configuration invalid: {e}")
         all_valid = False
         errors.append(f"Broker: {e}")
 
@@ -564,48 +564,48 @@ def validate_all(strategies: List[StrategySchema], app_config: AppConfig) -> boo
             if app_config.telegram.chat_id
             else "None"
         )
-        logger.info(f"  ✅ Telegram: Configured (chat: {chat_id_masked})")
+        logger.info(f"Telegram: Configured (chat: {chat_id_masked})")
     else:
-        logger.warning(f"  ⚠️  Telegram: Disabled (no bot_token or chat_id)")
+        logger.warning(f"Telegram: Disabled (no bot_token or chat_id)")
 
     # Validate risk settings (show first strategy as example)
     if strategies:
         logger.info(f"\nRISK MANAGEMENT (example from first strategy):")
         risk = strategies[0].risk
-        logger.info(f"  ✅ Stop Loss: {risk.stop_loss_pct}%")
-        logger.info(f"  ✅ Take Profit: {risk.take_profit_pct}%")
-        logger.info(f"  ✅ Max Position Size: {risk.max_position_size_pct}%")
+        logger.info(f"Stop Loss: {risk.stop_loss_pct}%")
+        logger.info(f"Take Profit: {risk.take_profit_pct}%")
+        logger.info(f"Max Position Size: {risk.max_position_size_pct}%")
         logger.info(
-            f"  ✅ Max Daily Loss: {risk.max_daily_loss_pct}% (GLOBAL across all strategies)"
+        f"Max Daily Loss: {risk.max_daily_loss_pct}% (GLOBAL across all strategies)"
         )
         logger.info(
-            f"  ✅ Max Open Positions: {risk.max_open_positions} (PER STRATEGY)"
+        f"Max Open Positions: {risk.max_open_positions} (PER STRATEGY)"
         )
         logger.info(
-            f"  ✅ Portfolio Max Positions: {risk.portfolio_max_positions} (GLOBAL)"
+        f"Portfolio Max Positions: {risk.portfolio_max_positions} (GLOBAL)"
         )
 
     # AlphaSignal
     logger.info(f"\nALPHASIGNAL SENTIMENT FILTER:")
     as_cfg = app_config.alphasignal
     if as_cfg.enabled:
-        logger.info(f"  ✅ Enabled | URL: {as_cfg.url}")
+        logger.info(f"Enabled | URL: {as_cfg.url}")
         logger.info(
             f"     Threshold: {as_cfg.sentiment_threshold} | Timeout: {as_cfg.timeout_seconds}s"
         )
     else:
-        logger.info(f"  ⚠️  Disabled (ALPHASIGNAL_ENABLED=false)")
+        logger.info(f"Disabled (ALPHASIGNAL_ENABLED=false)")
 
     # DeepLOB
     logger.info(f"\nDEEPLOB LOB-PREDICTION FILTER:")
     dl_cfg = app_config.deeplob
     if dl_cfg.enabled:
-        logger.info(f"  ✅ Enabled | URL: {dl_cfg.url}")
+        logger.info(f"Enabled | URL: {dl_cfg.url}")
         logger.info(
             f"     Confidence threshold: {dl_cfg.confidence_threshold} | Timeout: {dl_cfg.timeout_seconds}s"
         )
     else:
-        logger.info(f"  ⚠️  Disabled (DEEPLOB_ENABLED=false)")
+        logger.info(f"Disabled (DEEPLOB_ENABLED=false)")
 
     # Application settings
     logger.info(f"\nAPPLICATION SETTINGS:")
@@ -641,9 +641,9 @@ def validate_all(strategies: List[StrategySchema], app_config: AppConfig) -> boo
     # Summary
     logger.info("\n" + "=" * 80)
     if all_valid:
-        logger.info("✅ ALL CONFIGURATIONS VALID - Ready to trade!")
+        logger.info("ALL CONFIGURATIONS VALID - Ready to trade!")
     else:
-        logger.error("✗ CONFIGURATION ERRORS FOUND:")
+        logger.error("CONFIGURATION ERRORS FOUND:")
         for error in errors:
             logger.error(f"  - {error}")
         logger.error("\nPlease fix the errors above before starting AlphaLive.")

@@ -54,7 +54,7 @@ df = pd.DataFrame({
 output_path = 'tests/fixtures/aapl_fixture_500bars.csv'
 df.to_csv(output_path, index=False)
 
-print(f"✅ Generated {len(df)} bars of synthetic AAPL data")
+print(f"Generated {len(df)} bars of synthetic AAPL data")
 print(f"   Saved to: {output_path}")
 print(f"\nFirst 5 rows:")
 print(df.head())

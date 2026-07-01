@@ -74,7 +74,7 @@ def main():
     logger.info(f"{'='*80}\n")
 
     # You can now use this data for replay mode simulation
-    logger.info("✓ Historical data fetched successfully!")
+    logger.info("Historical data fetched successfully!")
     logger.info("  This data can be used for replay mode testing")
 
 

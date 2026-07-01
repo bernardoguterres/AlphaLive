@@ -49,15 +49,15 @@ def check_env_vars():
     # Check required
     for var, desc in required_vars.items():
         if not os.getenv(var):
-            print(f"✗ MISSING: {var} ({desc})")
+            print(f"MISSING: {var} ({desc})")
             issues.append(f"Missing required env var: {var}")
         else:
-            print(f"✓ {var}: set")
+            print(f"{var}: set")
 
     # Check optional
     for var, desc in optional_vars.items():
         if os.getenv(var):
-            print(f"✓ {var}: set")
+            print(f"{var}: set")
         else:
             print(f"  {var}: not set (optional)")
 
@@ -76,7 +76,7 @@ def check_strategy_configs():
     config_path = os.getenv("STRATEGY_CONFIG", "configs/")
 
     if not os.path.exists(config_path):
-        print(f"✗ Strategy config not found: {config_path}")
+        print(f"Strategy config not found: {config_path}")
         issues.append(f"Strategy config not found: {config_path}")
         return issues
 
@@ -85,11 +85,11 @@ def check_strategy_configs():
         strategies = load_config_path(config_path)
 
         if not strategies:
-            print("✗ No strategies loaded")
+            print("No strategies loaded")
             issues.append("No strategies found")
             return issues
 
-        print(f"✓ Loaded {len(strategies)} strategy(ies)")
+            print(f"Loaded {len(strategies)} strategy(ies)")
 
         # Validate each strategy
         for i, strategy in enumerate(strategies, 1):
@@ -102,18 +102,18 @@ def check_strategy_configs():
 
             # Check for risky configurations
             if strategy.risk.stop_loss_pct > 10:
-                print(f"    ⚠️  WARNING: Wide stop loss ({strategy.risk.stop_loss_pct}%)")
+                print(f"WARNING: Wide stop loss ({strategy.risk.stop_loss_pct}%)")
 
             if strategy.risk.max_position_size_pct > 20:
-                print(f"    ⚠️  WARNING: Large position size ({strategy.risk.max_position_size_pct}%)")
+                print(f"WARNING: Large position size ({strategy.risk.max_position_size_pct}%)")
 
             if strategy.safety_limits.max_trades_per_day > 50:
-                print(f"    ⚠️  WARNING: High trade frequency ({strategy.safety_limits.max_trades_per_day}/day)")
+                print(f"WARNING: High trade frequency ({strategy.safety_limits.max_trades_per_day}/day)")
 
-        print(f"\n✓ All {len(strategies)} strategies validated successfully")
+                print(f"\n All {len(strategies)} strategies validated successfully")
 
     except Exception as e:
-        print(f"✗ Strategy validation failed: {e}")
+        print(f"Strategy validation failed: {e}")
         issues.append(f"Strategy validation error: {e}")
 
     return issues
@@ -140,9 +140,9 @@ def check_dependencies():
     for package in required_packages:
         try:
             __import__(package.replace("-", "_"))
-            print(f"✓ {package}: installed")
+            print(f"{package}: installed")
         except ImportError:
-            print(f"✗ {package}: NOT installed")
+            print(f"{package}: NOT installed")
             issues.append(f"Missing package: {package}")
 
     return issues
@@ -162,9 +162,9 @@ def check_security():
         with open(gitignore_path) as f:
             gitignore = f.read()
             if ".env" in gitignore:
-                print("✓ .env is in .gitignore")
+                print(".env is in .gitignore")
             else:
-                print("✗ .env NOT in .gitignore")
+                print(".env NOT in .gitignore")
                 issues.append(".env not in .gitignore")
     else:
         print("  .gitignore not found")
@@ -179,18 +179,18 @@ def check_security():
             text=True
         )
         if result.stdout.strip():
-            print("✗ .env is tracked by git!")
+            print(".env is tracked by git!")
             issues.append(".env is tracked by git")
         else:
-            print("✓ .env not tracked by git")
+            print(".env not tracked by git")
     except Exception:
         print("  Could not check git status")
 
     # Check HEALTH_SECRET is set for production
     if not os.getenv("HEALTH_SECRET"):
-        print("⚠️  WARNING: HEALTH_SECRET not set (health endpoint will be disabled)")
+        print("WARNING: HEALTH_SECRET not set (health endpoint will be disabled)")
     else:
-        print("✓ HEALTH_SECRET is set")
+        print("HEALTH_SECRET is set")
 
     return issues
 
@@ -221,9 +221,9 @@ def check_files():
     for file_path in required_files:
         full_path = root / file_path
         if full_path.exists():
-            print(f"✓ {file_path}")
+            print(f"{file_path}")
         else:
-            print(f"✗ {file_path}: NOT FOUND")
+            print(f"{file_path}: NOT FOUND")
             issues.append(f"Missing file: {file_path}")
 
     return issues
@@ -250,14 +250,14 @@ def main():
     print("=" * 60)
 
     if not all_issues:
-        print("✅ All checks passed!")
+        print("All checks passed!")
         print("   Safe to deploy to Railway.")
         return 0
     else:
-        print(f"❌ {len(all_issues)} issue(s) found:\n")
+        print(f"{len(all_issues)} issue(s) found:\n")
         for i, issue in enumerate(all_issues, 1):
             print(f"  {i}. {issue}")
-        print("\n⚠️  Fix issues above before deploying.")
+            print("\n Fix issues above before deploying.")
         return 1
 
 

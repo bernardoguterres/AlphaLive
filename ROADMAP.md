@@ -12,7 +12,7 @@ The **AlphaLab → AlphaLive** pipeline is fully operational:
 
 ## Done
 
-### ✅ AlphaSignal Integration (2026-05-25)
+### AlphaSignal Integration (2026-05-25)
 
 [AlphaSignal](https://github.com/bernardoguterres/AlphaSignal) is now wired into AlphaLive's execution gate as a pre-trade sentiment filter.
 

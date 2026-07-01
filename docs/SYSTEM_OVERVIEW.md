@@ -59,7 +59,7 @@ The Alpha Trading System is a complete end-to-end algorithmic trading platform c
 
 ## 1. AlphaSignal (Financial Intelligence)
 
-### Rating: 8/10 ⭐⭐⭐⭐⭐⭐⭐⭐
+### Rating: 8/10
 
 ### What It Does
 
@@ -76,12 +76,12 @@ AlphaSignal is a **production-grade financial RAG (Retrieval-Augmented Generatio
 - **Extracts sentiment signals** for use in trading strategies
 
 **Key Features:**
-- ✅ Hybrid retrieval (40% BM25 + 60% dense embeddings)
-- ✅ Cross-encoder reranking for precision
-- ✅ Sentiment extraction with caching (24hr TTL)
-- ✅ FastAPI REST API with 7 endpoints
-- ✅ Comprehensive evaluation framework (50 Q&A pairs, 4 IR metrics)
-- ✅ Production-ready with proper error handling & metrics
+- Hybrid retrieval (40% BM25 + 60% dense embeddings)
+- Cross-encoder reranking for precision
+- Sentiment extraction with caching (24hr TTL)
+- FastAPI REST API with 7 endpoints
+- Comprehensive evaluation framework (50 Q&A pairs, 4 IR metrics)
+- Production-ready with proper error handling & metrics
 
 ### How It Works
 
@@ -106,18 +106,18 @@ AlphaSignal is a **production-grade financial RAG (Retrieval-Augmented Generatio
 - Example: "Increase position size if sentiment momentum is positive"
 
 ### Strengths (+)
-- ✅ Sophisticated RAG architecture (hybrid search + reranking)
-- ✅ Proper evaluation framework (MRR, NDCG, Hit@k)
-- ✅ Production-ready API with metrics
-- ✅ Sentiment caching prevents redundant LLM calls
-- ✅ Well-documented with architecture diagrams
+- Sophisticated RAG architecture (hybrid search + reranking)
+- Proper evaluation framework (MRR, NDCG, Hit@k)
+- Production-ready API with metrics
+- Sentiment caching prevents redundant LLM calls
+- Well-documented with architecture diagrams
 
 ### Weaknesses (-)
-- ❌ Requires OpenAI API (ongoing cost: ~$20-50/month)
-- ❌ Limited to text data (no charts, tables from PDFs)
-- ❌ No real-time news ingestion (relies on RSS polling)
-- ❌ FAISS index requires 4GB+ RAM for large corpus
-- ❌ Integration with AlphaLab/AlphaLive not yet implemented
+- Requires OpenAI API (ongoing cost: ~$20-50/month)
+- Limited to text data (no charts, tables from PDFs)
+- No real-time news ingestion (relies on RSS polling)
+- FAISS index requires 4GB+ RAM for large corpus
+- Integration with AlphaLab/AlphaLive not yet implemented
 
 ### Deployment
 - **Local:** Python + FastAPI + FAISS + SQLite
@@ -128,7 +128,7 @@ AlphaSignal is a **production-grade financial RAG (Retrieval-Augmented Generatio
 
 ## 2. AlphaLab (Strategy Development)
 
-### Rating: 9/10 ⭐⭐⭐⭐⭐⭐⭐⭐⭐
+### Rating: 9/10
 
 ### What It Does
 
@@ -144,14 +144,14 @@ AlphaLab is a **desktop application for backtesting algorithmic trading strategi
 - Optimize multi-strategy portfolios using Modern Portfolio Theory
 
 **Key Features:**
-- ✅ No look-ahead bias (next-bar execution)
-- ✅ Realistic costs (slippage 0.05%, commission, position limits)
-- ✅ 5 built-in strategies (MA Crossover, RSI Mean Reversion, Momentum Breakout, Bollinger Breakout, VWAP Reversion)
-- ✅ Walk-forward validation to detect overfitting
-- ✅ Monte Carlo simulation (randomized entry timing)
-- ✅ Portfolio optimization (max Sharpe, min variance, risk parity)
-- ✅ Desktop app (Tauri) OR web version
-- ✅ 210+ tests (207 passing)
+- No look-ahead bias (next-bar execution)
+- Realistic costs (slippage 0.05%, commission, position limits)
+- 5 built-in strategies (MA Crossover, RSI Mean Reversion, Momentum Breakout, Bollinger Breakout, VWAP Reversion)
+- Walk-forward validation to detect overfitting
+- Monte Carlo simulation (randomized entry timing)
+- Portfolio optimization (max Sharpe, min variance, risk parity)
+- Desktop app (Tauri) OR web version
+- 210+ tests (207 passing)
 
 ### How It Works
 
@@ -185,21 +185,21 @@ AlphaLab is a **desktop application for backtesting algorithmic trading strategi
 | **VWAP Reversion** | TBD | TBD | Intraday mean reversion |
 
 ### Strengths (+)
-- ✅ Institutional-quality backtesting (no look-ahead bias, realistic execution)
-- ✅ Comprehensive metrics (30+ metrics vs 5-10 in most tools)
-- ✅ Walk-forward validation (detects overfitting before live deployment)
-- ✅ Desktop app (native performance, offline use)
-- ✅ Portfolio optimization (MPT, Sharpe maximization)
-- ✅ 210+ tests covering edge cases (penny stocks, stock splits, zero volume)
-- ✅ Export to AlphaLive (seamless transition to live trading)
-- ✅ Well-documented (11+ markdown files)
+- Institutional-quality backtesting (no look-ahead bias, realistic execution)
+- Comprehensive metrics (30+ metrics vs 5-10 in most tools)
+- Walk-forward validation (detects overfitting before live deployment)
+- Desktop app (native performance, offline use)
+- Portfolio optimization (MPT, Sharpe maximization)
+- 210+ tests covering edge cases (penny stocks, stock splits, zero volume)
+- Export to AlphaLive (seamless transition to live trading)
+- Well-documented (11+ markdown files)
 
 ### Weaknesses (-)
-- ❌ Limited to Yahoo Finance data (no real-time data, no futures/options)
-- ❌ No machine learning strategy framework yet
-- ❌ No pairs trading or statistical arbitrage strategies
-- ❌ Desktop app requires local backend (not cloud-based)
-- ❌ Web UI styling could be more polished
+- Limited to Yahoo Finance data (no real-time data, no futures/options)
+- No machine learning strategy framework yet
+- No pairs trading or statistical arbitrage strategies
+- Desktop app requires local backend (not cloud-based)
+- Web UI styling could be more polished
 
 ### Deployment
 - **Local:** Python backend + React frontend + Tauri desktop wrapper
@@ -210,7 +210,7 @@ AlphaLab is a **desktop application for backtesting algorithmic trading strategi
 
 ## 3. AlphaLive (Live Execution)
 
-### Rating: 7/10 ⭐⭐⭐⭐⭐⭐⭐
+### Rating: 7/10
 
 ### What It Does
 
@@ -226,14 +226,14 @@ AlphaLive is a **24/7 live trading execution engine** that runs strategies expor
 - Survive Railway restarts gracefully (state persistence)
 
 **Key Features:**
-- ✅ Signal parity verification (C1 test: 0 mismatches vs AlphaLab)
-- ✅ Risk management (stop-loss, take-profit, position sizing, daily limits)
-- ✅ Circuit breakers (3 consecutive losses = pause)
-- ✅ Kill switch (TRADING_PAUSED env var)
-- ✅ Telegram command listener (/status, /pause, /resume, /close_all)
-- ✅ Multi-strategy support (run 3-5 strategies simultaneously)
-- ✅ State persistence (trailing stops, daily P&L survive restarts)
-- ✅ 100+ tests (all core functionality covered)
+- Signal parity verification (C1 test: 0 mismatches vs AlphaLab)
+- Risk management (stop-loss, take-profit, position sizing, daily limits)
+- Circuit breakers (3 consecutive losses = pause)
+- Kill switch (TRADING_PAUSED env var)
+- Telegram command listener (/status, /pause, /resume, /close_all)
+- Multi-strategy support (run 3-5 strategies simultaneously)
+- State persistence (trailing stops, daily P&L survive restarts)
+- 100+ tests (all core functionality covered)
 
 ### How It Works
 
@@ -267,23 +267,23 @@ AlphaLive is a **24/7 live trading execution engine** that runs strategies expor
 | **Live Full** | Ongoing | Full capital | Production trading |
 
 ### Strengths (+)
-- ✅ Production-grade error handling (retry logic, graceful degradation)
-- ✅ Comprehensive risk management (stop-loss, daily limits, circuit breakers)
-- ✅ Signal parity verified (0 mismatches vs AlphaLab backtest)
-- ✅ Multi-strategy coordination (global risk limits)
-- ✅ Telegram command listener (remote control from phone)
-- ✅ State persistence (survives Railway restarts)
-- ✅ Security hardening (rate limiting, chat_id auth, API key rotation)
-- ✅ 100+ tests (unit + integration + simulated trading day)
+- Production-grade error handling (retry logic, graceful degradation)
+- Comprehensive risk management (stop-loss, daily limits, circuit breakers)
+- Signal parity verified (0 mismatches vs AlphaLab backtest)
+- Multi-strategy coordination (global risk limits)
+- Telegram command listener (remote control from phone)
+- State persistence (survives Railway restarts)
+- Security hardening (rate limiting, chat_id auth, API key rotation)
+- 100+ tests (unit + integration + simulated trading day)
 
 ### Weaknesses (-)
-- ❌ No PDT (Pattern Day Trader) tracking (user must monitor manually)
-- ❌ Limited to Alpaca broker (no Interactive Brokers, TD Ameritrade)
-- ❌ No advanced order types (stop-limit, OCO, bracket)
-- ❌ Trailing stops via polling (not native broker trailing stop orders)
-- ❌ Railway memory limit (512 MB on Starter plan = max 3 strategies)
-- ❌ No automatic position reconciliation (user must verify manually)
-- ❌ No metrics file export for external monitoring
+- No PDT (Pattern Day Trader) tracking (user must monitor manually)
+- Limited to Alpaca broker (no Interactive Brokers, TD Ameritrade)
+- No advanced order types (stop-limit, OCO, bracket)
+- Trailing stops via polling (not native broker trailing stop orders)
+- Railway memory limit (512 MB on Starter plan = max 3 strategies)
+- No automatic position reconciliation (user must verify manually)
+- No metrics file export for external monitoring
 
 ### Deployment
 - **Platform:** Railway (recommended) or local 24/7
@@ -377,41 +377,41 @@ Alpaca Broker ← AlphaLive ← strategy.json
 ### AlphaSignal: 8/10
 
 **Why 8/10:**
-- ✅ Sophisticated RAG architecture (hybrid search + reranking) = +2
-- ✅ Proper evaluation framework (50 Q&A pairs, IR metrics) = +2
-- ✅ Production-ready API with metrics = +2
-- ✅ Well-documented with diagrams = +1
-- ✅ Sentiment extraction with caching = +1
-- ❌ High ongoing cost (~$50/month OpenAI) = -1
-- ❌ Integration with AlphaLab/AlphaLive not yet implemented = -1
+- Sophisticated RAG architecture (hybrid search + reranking) = +2
+- Proper evaluation framework (50 Q&A pairs, IR metrics) = +2
+- Production-ready API with metrics = +2
+- Well-documented with diagrams = +1
+- Sentiment extraction with caching = +1
+- High ongoing cost (~$50/month OpenAI) = -1
+- Integration with AlphaLab/AlphaLive not yet implemented = -1
 
 **Best Use Case:** Fundamental analysis traders who want to incorporate qualitative data (earnings sentiment, news tone) into quantitative strategies.
 
 ### AlphaLab: 9/10
 
 **Why 9/10:**
-- ✅ Institutional-quality backtesting (no look-ahead bias) = +2
-- ✅ 30+ metrics (far more than competitors) = +2
-- ✅ Walk-forward validation (catches overfitting) = +2
-- ✅ Desktop app (offline use, native performance) = +1
-- ✅ 210+ tests (edge cases covered) = +1
-- ✅ Export to AlphaLive (seamless workflow) = +1
-- ❌ Limited data sources (Yahoo Finance only) = -1
+- Institutional-quality backtesting (no look-ahead bias) = +2
+- 30+ metrics (far more than competitors) = +2
+- Walk-forward validation (catches overfitting) = +2
+- Desktop app (offline use, native performance) = +1
+- 210+ tests (edge cases covered) = +1
+- Export to AlphaLive (seamless workflow) = +1
+- Limited data sources (Yahoo Finance only) = -1
 
 **Best Use Case:** Retail traders, quant analysts, students learning algorithmic trading who want a complete local backtesting platform.
 
 ### AlphaLive: 7/10
 
 **Why 7/10:**
-- ✅ Signal parity verified (0 mismatches) = +2
-- ✅ Production-grade risk management = +2
-- ✅ Multi-strategy coordination = +1
-- ✅ Telegram command listener (remote control) = +1
-- ✅ 100+ tests (comprehensive) = +1
-- ❌ Railway memory limit (max 3 strategies on Starter) = -1
-- ❌ No PDT tracking (user must monitor) = -1
-- ❌ Limited to Alpaca broker = -1
-- ❌ No advanced order types = -1
+- Signal parity verified (0 mismatches) = +2
+- Production-grade risk management = +2
+- Multi-strategy coordination = +1
+- Telegram command listener (remote control) = +1
+- 100+ tests (comprehensive) = +1
+- Railway memory limit (max 3 strategies on Starter) = -1
+- No PDT tracking (user must monitor) = -1
+- Limited to Alpaca broker = -1
+- No advanced order types = -1
 
 **Best Use Case:** Traders who have validated strategies in AlphaLab and want automated 24/7 execution on Railway with robust risk management.
 

@@ -252,7 +252,7 @@ class RiskManager:
             if triggered:
                 profit_pct = ((current_price - entry_price) / entry_price) * 100
                 logger.info(
-                    f"[{self.strategy_name}] 🎯 TAKE PROFIT TRIGGERED (long) | "
+                    f"[{self.strategy_name}] TAKE PROFIT TRIGGERED (long) | "
                     f"Entry: ${entry_price:.2f} | Current: ${current_price:.2f} | "
                     f"Target: ${target_price:.2f} | Profit: {profit_pct:.2f}%"
                 )
@@ -265,7 +265,7 @@ class RiskManager:
             if triggered:
                 profit_pct = ((entry_price - current_price) / entry_price) * 100
                 logger.info(
-                    f"[{self.strategy_name}] 🎯 TAKE PROFIT TRIGGERED (short) | "
+                    f"[{self.strategy_name}] TAKE PROFIT TRIGGERED (short) | "
                     f"Entry: ${entry_price:.2f} | Current: ${current_price:.2f} | "
                     f"Target: ${target_price:.2f} | Profit: {profit_pct:.2f}%"
                 )
@@ -568,7 +568,7 @@ class RiskManager:
         # 7. Check consecutive loss circuit breaker
         if self.trading_paused_by_circuit_breaker:
             reason = (
-                f"⚠️ Trading paused by circuit breaker: "
+                f"Trading paused by circuit breaker: "
                 f"{self.consecutive_losses} consecutive losses "
                 f"(limit: {self.max_consecutive_losses})"
             )
@@ -608,7 +608,7 @@ class RiskManager:
 
         # All checks passed
         logger.info(
-            f"[{self.strategy_name}] ✅ Trade approved | "
+            f"[{self.strategy_name}] Trade approved | "
             f"{ticker} {signal} | "
             f"Positions: {current_positions_count}/{self.risk_config.max_open_positions} | "
             f"Portfolio: {total_portfolio_positions}/{self.risk_config.portfolio_max_positions} | "
@@ -683,7 +683,7 @@ class RiskManager:
         if self.consecutive_losses >= self.max_consecutive_losses:
             self.trading_paused_by_circuit_breaker = True
             logger.critical(
-                f"[{self.strategy_name}] ⚠️ CIRCUIT BREAKER TRIGGERED | "
+                f"[{self.strategy_name}] CIRCUIT BREAKER TRIGGERED | "
                 f"{self.consecutive_losses} consecutive losses — "
                 f"trading paused for the rest of the day"
             )

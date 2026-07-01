@@ -150,7 +150,7 @@ def run_test(strategy_name, ticker, period_name, period_data):
                 pnl_str = line.split("$")[-1].replace(",", "").strip()
                 total_pnl = float(pnl_str)
 
-        status = "✓" if total_pnl > 0 else "✗"
+                status = "" if total_pnl > 0 else ""
         print(f"{status} {ticker}: {trades} trades, {win_rate:.1f}% win, ${total_pnl:,.2f} P&L")
 
         return {
@@ -163,7 +163,7 @@ def run_test(strategy_name, ticker, period_name, period_data):
             "success": result.returncode == 0
         }
     except Exception as e:
-        print(f"✗ {ticker}: Error - {e}")
+        print(f"{ticker}: Error - {e}")
         return {
             "strategy": strategy_name,
             "ticker": ticker,
@@ -189,7 +189,7 @@ def main():
     print("="*80)
 
     if not os.environ.get("ALPACA_API_KEY"):
-        print("\n❌ Error: ALPACA_API_KEY not set")
+        print("\n Error: ALPACA_API_KEY not set")
         sys.exit(1)
 
     print(f"\nStarting at {datetime.now().strftime('%H:%M:%S')}")
@@ -224,7 +224,7 @@ def main():
 
             print(f"\n{period_name_display}:")
             for r in period_results:
-                status = "✅ PROFIT" if r["total_pnl"] > 0 else "❌ LOSS  "
+                status = "PROFIT" if r["total_pnl"] > 0 else "LOSS "
                 print(f"  {status} | {r['ticker']:4} | {r['trades']:2} trades | {r['win_rate']:5.1f}% win | ${r['total_pnl']:>9,.2f}")
 
         # Summary
@@ -236,13 +236,13 @@ def main():
         print(f"\nSummary: Pre ${pre_pnl:,.2f} | Post ${post_pnl:,.2f}", end=" | ")
 
         if pre_pnl > 0 and post_pnl > 0:
-            print("✅ CONSISTENTLY PROFITABLE")
+            print("CONSISTENTLY PROFITABLE")
         elif pre_pnl > 0 and post_pnl < 0:
-            print("⚠️  BULL MARKET ONLY")
+            print("BULL MARKET ONLY")
         elif pre_pnl < 0 and post_pnl > 0:
-            print("⚠️  VOLATILE MARKET ONLY")
+            print("VOLATILE MARKET ONLY")
         else:
-            print("❌ NOT PROFITABLE")
+            print("NOT PROFITABLE")
 
     # Overall recommendations
     print("\n\n" + "="*80)
@@ -258,7 +258,7 @@ def main():
             consistent.append((strategy_name, pre_pnl, post_pnl, pre_pnl + post_pnl))
 
     if consistent:
-        print("\n✅ CONSISTENTLY PROFITABLE (Use these):")
+        print("\n CONSISTENTLY PROFITABLE (Use these):")
         for strategy, pre, post, total in sorted(consistent, key=lambda x: x[3], reverse=True):
             print(f"   {strategy:20} | Pre: ${pre:>8,.2f} | Post: ${post:>8,.2f} | Total: ${total:>9,.2f}")
 
@@ -271,7 +271,7 @@ def main():
             market_dep.append((strategy_name, pre_pnl, post_pnl))
 
     if market_dep:
-        print("\n⚠️  MARKET-DEPENDENT (Use with caution):")
+        print("\n MARKET-DEPENDENT (Use with caution):")
         for strategy, pre, post in market_dep:
             print(f"   {strategy:20} | Pre: ${pre:>8,.2f} | Post: ${post:>8,.2f}")
 
@@ -284,7 +284,7 @@ def main():
             unprofitable.append((strategy_name, pre_pnl, post_pnl, pre_pnl + post_pnl))
 
     if unprofitable:
-        print("\n❌ NOT PROFITABLE (Avoid these):")
+        print("\n NOT PROFITABLE (Avoid these):")
         for strategy, pre, post, total in unprofitable:
             print(f"   {strategy:20} | Pre: ${pre:>8,.2f} | Post: ${post:>8,.2f} | Total: ${total:>9,.2f}")
 
