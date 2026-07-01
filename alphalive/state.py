@@ -281,49 +281,6 @@ class BotState:
             logger.info(f"Daily counters reset for {today}")
 
 
-def reconstruct_daily_pnl(broker, risk_manager) -> float:
-    """
-    Reconstruct daily P&L from broker's today's fills.
-
-    This is called on startup to restore daily_pnl after a restart.
-    If it fails (API error, no fills yet), defaults to 0.0 with WARNING.
-
-    Args:
-        broker: Broker instance
-        risk_manager: RiskManager instance
-
-    Returns:
-        Reconstructed daily P&L
-    """
-    try:
-        # Get today's fills from broker
-        fills = broker.get_todays_fills()
-
-        # Sum P&L from all fills
-        daily_pnl = sum(fill.get("pnl", 0.0) for fill in fills)
-
-        # Update risk manager
-        risk_manager.daily_pnl = daily_pnl
-
-        logger.info(
-            f"Daily P&L reconstructed from broker: ${daily_pnl:.2f} "
-            f"({len(fills)} fills today)"
-        )
-
-        return daily_pnl
-
-    except Exception as e:
-        logger.warning(
-            f"Daily P&L reconstruction failed: {e}. "
-            f"Defaulting to 0.0. Circuit breaker reset. "
-            f"Monitor manually today."
-        )
-
-        # Default to 0.0 (acceptable risk)
-        risk_manager.daily_pnl = 0.0
-        return 0.0
-
-
 def check_trailing_stop_requirements(strategy_config, notifier=None):
     """
     Check if trailing stops are properly configured.

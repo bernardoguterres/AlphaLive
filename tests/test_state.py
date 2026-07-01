@@ -10,17 +10,13 @@ import tempfile
 import pytest
 from unittest.mock import Mock, patch
 
-from alphalive.state import (
-    BotState,
-    reconstruct_daily_pnl,
-    check_trailing_stop_requirements
-)
+from alphalive.state import BotState, check_trailing_stop_requirements
 
 
 @pytest.fixture
 def temp_state_file():
     """Create a temporary state file."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         temp_path = f.name
 
     yield temp_path
@@ -113,7 +109,7 @@ def test_position_high_cleared(temp_state_file):
 def test_corrupted_state_file_returns_defaults(temp_state_file):
     """Test that corrupted state file returns defaults (no crash)."""
     # Write invalid JSON to state file
-    with open(temp_state_file, 'w') as f:
+    with open(temp_state_file, "w") as f:
         f.write("not valid json {[")
 
     # Create BotState (should not crash)
@@ -125,50 +121,6 @@ def test_corrupted_state_file_returns_defaults(temp_state_file):
     assert state.state["daily_pnl"] == 0.0
     assert state.state["trades_today"] == []
     assert state.state["position_highs"] == {}
-
-
-def test_daily_pnl_reconstruction_success():
-    """Test successful daily P&L reconstruction from broker fills."""
-    # Mock broker
-    broker = Mock()
-    broker.get_todays_fills.return_value = [
-        {"pnl": 120.0},
-        {"pnl": -45.0},
-        {"pnl": 80.0}
-    ]
-
-    # Mock risk manager
-    risk_manager = Mock()
-    risk_manager.daily_pnl = 0.0
-
-    # Reconstruct daily P&L
-    daily_pnl = reconstruct_daily_pnl(broker, risk_manager)
-
-    # Verify correct sum
-    assert daily_pnl == 155.0
-    assert risk_manager.daily_pnl == 155.0
-
-
-def test_daily_pnl_reconstruction_failure(caplog):
-    """Test daily P&L reconstruction failure (defaults to 0.0 with WARNING)."""
-    # Mock broker that throws exception
-    broker = Mock()
-    broker.get_todays_fills.side_effect = ConnectionError("Network error")
-
-    # Mock risk manager
-    risk_manager = Mock()
-    risk_manager.daily_pnl = 0.0
-
-    # Reconstruct daily P&L (should not crash)
-    daily_pnl = reconstruct_daily_pnl(broker, risk_manager)
-
-    # Verify defaults to 0.0
-    assert daily_pnl == 0.0
-    assert risk_manager.daily_pnl == 0.0
-
-    # Verify WARNING was logged
-    assert any("reconstruction failed" in record.message.lower() for record in caplog.records)
-    assert any("WARNING" in record.levelname for record in caplog.records)
 
 
 def test_state_defaults_on_fresh_start(temp_state_file):
@@ -315,6 +267,7 @@ def test_trailing_stop_enforcement_allows_without_trailing_stops(sample_strategy
 # Health Endpoint Tests
 # ============================================================================
 
+
 def test_health_returns_200_with_correct_secret(sample_strategy_dict):
     """Test health endpoint returns 200 with correct secret."""
     from alphalive.health import HealthServer
@@ -334,8 +287,8 @@ def test_health_returns_200_with_correct_secret(sample_strategy_dict):
                 "bars_loaded": 252,
                 "trading_paused": False,
                 "dry_run": False,
-                "paper": True
-            }
+                "paper": True,
+            },
         )
         health.start()
 
@@ -347,7 +300,7 @@ def test_health_returns_200_with_correct_secret(sample_strategy_dict):
             response = requests.get(
                 "http://localhost:8081/",
                 headers={"X-Health-Secret": "test_secret_123"},
-                timeout=2
+                timeout=2,
             )
 
             # Verify response
@@ -390,7 +343,7 @@ def test_health_returns_401_with_wrong_secret(sample_strategy_dict):
             response = requests.get(
                 "http://localhost:8082/",
                 headers={"X-Health-Secret": "wrong_secret"},
-                timeout=2
+                timeout=2,
             )
 
             # Verify 401 unauthorized
@@ -426,10 +379,7 @@ def test_health_returns_503_when_secret_not_configured(sample_strategy_dict, cap
 
         try:
             # Make request (no secret header needed, endpoint is disabled)
-            response = requests.get(
-                "http://localhost:8083/",
-                timeout=2
-            )
+            response = requests.get("http://localhost:8083/", timeout=2)
 
             # Verify 503 service unavailable
             assert response.status_code == 503
