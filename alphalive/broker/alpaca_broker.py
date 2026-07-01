@@ -13,7 +13,7 @@ from typing import List, Optional, Dict, Any
 
 import requests
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest, GetOrdersRequest
+from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce, OrderType, QueryOrderStatus
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
@@ -28,7 +28,7 @@ from alphalive.broker.base_broker import (
     BrokerError,
     AuthenticationError,
     RateLimitError,
-    OrderError
+    OrderError,
 )
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ class AlpacaBroker(BaseBroker):
         "5Min": TimeFrame(5, "Min"),
         "15Min": TimeFrame(15, "Min"),
         "1Hour": TimeFrame.Hour,
-        "1Day": TimeFrame.Day
+        "1Day": TimeFrame.Day,
     }
 
     # Retry configuration
@@ -60,7 +60,7 @@ class AlpacaBroker(BaseBroker):
         api_key: str,
         secret_key: str,
         paper: bool = True,
-        base_url: Optional[str] = None
+        base_url: Optional[str] = None,
     ):
         """
         Initialize Alpaca broker client.
@@ -81,7 +81,8 @@ class AlpacaBroker(BaseBroker):
             self.base_url = base_url
         else:
             self.base_url = (
-                "https://paper-api.alpaca.markets" if paper
+                "https://paper-api.alpaca.markets"
+                if paper
                 else "https://api.alpaca.markets"
             )
 
@@ -89,7 +90,9 @@ class AlpacaBroker(BaseBroker):
         self.trading_client: Optional[TradingClient] = None
         self.data_client: Optional[StockHistoricalDataClient] = None
 
-        logger.info(f"Alpaca broker initialized | Mode: {'Paper' if paper else 'Live'} | URL: {self.base_url}")
+        logger.info(
+            f"Alpaca broker initialized | Mode: {'Paper' if paper else 'Live'} | URL: {self.base_url}"
+        )
 
     def connect(self) -> bool:
         """
@@ -106,15 +109,12 @@ class AlpacaBroker(BaseBroker):
 
             # Initialize trading client
             self.trading_client = TradingClient(
-                api_key=self.api_key,
-                secret_key=self.secret_key,
-                paper=self.paper
+                api_key=self.api_key, secret_key=self.secret_key, paper=self.paper
             )
 
             # Initialize market data client
             self.data_client = StockHistoricalDataClient(
-                api_key=self.api_key,
-                secret_key=self.secret_key
+                api_key=self.api_key, secret_key=self.secret_key
             )
 
             # Verify credentials by fetching account
@@ -164,7 +164,7 @@ class AlpacaBroker(BaseBroker):
                 short_market_value=float(account.short_market_value or 0),
                 daytrade_count=int(account.daytrade_count),
                 pattern_day_trader=account.pattern_day_trader,
-                account_status=account.status
+                account_status=account.status,
             )
 
         except Exception as e:
@@ -177,8 +177,7 @@ class AlpacaBroker(BaseBroker):
 
         try:
             position = self._retry_with_backoff(
-                self.trading_client.get_open_position,
-                symbol
+                self.trading_client.get_open_position, symbol
             )
 
             return self._convert_position(position)
@@ -209,12 +208,7 @@ class AlpacaBroker(BaseBroker):
             logger.error(f"Failed to get all positions: {e}", exc_info=True)
             raise BrokerError(f"Failed to get all positions: {e}")
 
-    def place_market_order(
-        self,
-        symbol: str,
-        qty: int,
-        side: str
-    ) -> Order:
+    def place_market_order(self, symbol: str, qty: int, side: str) -> Order:
         """Place a market order."""
         self._ensure_connected()
         self._validate_order_params(symbol, qty, side)
@@ -225,19 +219,17 @@ class AlpacaBroker(BaseBroker):
 
             # Create market order request
             order_request = MarketOrderRequest(
-                symbol=symbol,
-                qty=qty,
-                side=order_side,
-                time_in_force=TimeInForce.DAY
+                symbol=symbol, qty=qty, side=order_side, time_in_force=TimeInForce.DAY
             )
 
             # Submit order
             alpaca_order = self._retry_with_backoff(
-                self.trading_client.submit_order,
-                order_request
+                self.trading_client.submit_order, order_request
             )
 
-            logger.info(f"MARKET {side.upper()} {qty} {symbol} @ market | Order ID: {alpaca_order.id}")
+            logger.info(
+                f"MARKET {side.upper()} {qty} {symbol} @ market | Order ID: {alpaca_order.id}"
+            )
 
             return self._convert_order(alpaca_order)
 
@@ -250,11 +242,7 @@ class AlpacaBroker(BaseBroker):
             raise OrderError(f"Market order failed: {e}")
 
     def place_limit_order(
-        self,
-        symbol: str,
-        qty: int,
-        side: str,
-        limit_price: float
+        self, symbol: str, qty: int, side: str, limit_price: float
     ) -> Order:
         """Place a limit order."""
         self._ensure_connected()
@@ -270,13 +258,12 @@ class AlpacaBroker(BaseBroker):
                 qty=qty,
                 side=order_side,
                 time_in_force=TimeInForce.DAY,
-                limit_price=limit_price
+                limit_price=limit_price,
             )
 
             # Submit order
             alpaca_order = self._retry_with_backoff(
-                self.trading_client.submit_order,
-                order_request
+                self.trading_client.submit_order, order_request
             )
 
             logger.info(
@@ -305,14 +292,18 @@ class AlpacaBroker(BaseBroker):
 
         except APIError as e:
             if e.status_code == 404:
-                logger.warning(f"Order {order_id} not found (may already be filled/canceled)")
+                logger.warning(
+                    f"Order {order_id} not found (may already be filled/canceled)"
+                )
                 return False
             else:
                 logger.error(f"Failed to cancel order {order_id}: {e}")
                 raise BrokerError(f"Failed to cancel order: {e}")
 
         except Exception as e:
-            logger.error(f"Unexpected error canceling order {order_id}: {e}", exc_info=True)
+            logger.error(
+                f"Unexpected error canceling order {order_id}: {e}", exc_info=True
+            )
             raise BrokerError(f"Failed to cancel order: {e}")
 
     def get_order_status(self, order_id: str) -> Optional[Order]:
@@ -321,8 +312,7 @@ class AlpacaBroker(BaseBroker):
 
         try:
             alpaca_order = self._retry_with_backoff(
-                self.trading_client.get_order_by_id,
-                order_id
+                self.trading_client.get_order_by_id, order_id
             )
 
             return self._convert_order(alpaca_order)
@@ -336,7 +326,10 @@ class AlpacaBroker(BaseBroker):
                 raise BrokerError(f"Failed to get order status: {e}")
 
         except Exception as e:
-            logger.error(f"Unexpected error getting order status for {order_id}: {e}", exc_info=True)
+            logger.error(
+                f"Unexpected error getting order status for {order_id}: {e}",
+                exc_info=True,
+            )
             raise BrokerError(f"Failed to get order status: {e}")
 
     def close_position(self, symbol: str) -> Order:
@@ -352,8 +345,7 @@ class AlpacaBroker(BaseBroker):
 
             # Close position via Alpaca API
             alpaca_order = self._retry_with_backoff(
-                self.trading_client.close_position,
-                symbol
+                self.trading_client.close_position, symbol
             )
 
             logger.info(f"Position closed: {symbol} | Order ID: {alpaca_order.id}")
@@ -366,7 +358,9 @@ class AlpacaBroker(BaseBroker):
             logger.error(f"Failed to close position {symbol}: {e}")
             raise OrderError(f"Failed to close position: {e}")
         except Exception as e:
-            logger.error(f"Unexpected error closing position {symbol}: {e}", exc_info=True)
+            logger.error(
+                f"Unexpected error closing position {symbol}: {e}", exc_info=True
+            )
             raise OrderError(f"Failed to close position: {e}")
 
     def is_market_open(self) -> bool:
@@ -392,7 +386,7 @@ class AlpacaBroker(BaseBroker):
                 "is_open": clock.is_open,
                 "next_open": clock.next_open,
                 "next_close": clock.next_close,
-                "timestamp": clock.timestamp
+                "timestamp": clock.timestamp,
             }
 
         except Exception as e:
@@ -405,7 +399,7 @@ class AlpacaBroker(BaseBroker):
         timeframe: str,
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
-        limit: Optional[int] = None
+        limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Get historical bars (OHLCV data)."""
         self._ensure_connected()
@@ -422,7 +416,7 @@ class AlpacaBroker(BaseBroker):
                 timeframe=tf,
                 start=start,
                 end=end,
-                limit=limit
+                limit=limit,
             )
 
             # Fetch bars with retry
@@ -432,14 +426,16 @@ class AlpacaBroker(BaseBroker):
             result = []
             if symbol in bars:
                 for bar in bars[symbol]:
-                    result.append({
-                        "timestamp": bar.timestamp,
-                        "open": float(bar.open),
-                        "high": float(bar.high),
-                        "low": float(bar.low),
-                        "close": float(bar.close),
-                        "volume": int(bar.volume)
-                    })
+                    result.append(
+                        {
+                            "timestamp": bar.timestamp,
+                            "open": float(bar.open),
+                            "high": float(bar.high),
+                            "low": float(bar.low),
+                            "close": float(bar.close),
+                            "volume": int(bar.volume),
+                        }
+                    )
 
             logger.debug(f"Fetched {len(result)} bars for {symbol} @ {timeframe}")
             return result
@@ -451,11 +447,7 @@ class AlpacaBroker(BaseBroker):
             raise BrokerError(f"Failed to fetch bars: {e}")
 
     def get_historical_bars(
-        self,
-        symbol: str,
-        timeframe: str,
-        start: datetime,
-        end: datetime
+        self, symbol: str, timeframe: str, start: datetime, end: datetime
     ):
         """
         Get historical bars for replay mode (returns pandas DataFrame).
@@ -500,10 +492,7 @@ class AlpacaBroker(BaseBroker):
 
             # Create request
             request = StockBarsRequest(
-                symbol_or_symbols=symbol,
-                timeframe=tf,
-                start=start,
-                end=end
+                symbol_or_symbols=symbol, timeframe=tf, start=start, end=end
             )
 
             logger.info(
@@ -532,8 +521,8 @@ class AlpacaBroker(BaseBroker):
 
             # Ensure timezone-aware index (convert to US/Eastern)
             if df.index.tz is None:
-                df.index = df.index.tz_localize('UTC').tz_convert(ET)
-            elif str(df.index.tz) != 'America/New_York':
+                df.index = df.index.tz_localize("UTC").tz_convert(ET)
+            elif str(df.index.tz) != "America/New_York":
                 df.index = df.index.tz_convert(ET)
 
             logger.info(
@@ -548,8 +537,7 @@ class AlpacaBroker(BaseBroker):
             raise  # Re-raise ValueError
         except Exception as e:
             logger.error(
-                f"Failed to fetch historical bars for {symbol}: {e}",
-                exc_info=True
+                f"Failed to fetch historical bars for {symbol}: {e}", exc_info=True
             )
             raise BrokerError(f"Failed to fetch historical bars: {e}")
 
@@ -563,11 +551,7 @@ class AlpacaBroker(BaseBroker):
             raise BrokerError("Not connected to Alpaca. Call connect() first.")
 
     def _validate_order_params(
-        self,
-        symbol: str,
-        qty: int,
-        side: str,
-        limit_price: Optional[float] = None
+        self, symbol: str, qty: int, side: str, limit_price: Optional[float] = None
     ):
         """Validate order parameters."""
         if not symbol or not isinstance(symbol, str):
@@ -579,7 +563,9 @@ class AlpacaBroker(BaseBroker):
         if side.lower() not in ("buy", "sell"):
             raise ValueError("Side must be 'buy' or 'sell'")
 
-        if limit_price is not None and (not isinstance(limit_price, (int, float)) or limit_price <= 0):
+        if limit_price is not None and (
+            not isinstance(limit_price, (int, float)) or limit_price <= 0
+        ):
             raise ValueError("Limit price must be a positive number")
 
     def _retry_with_backoff(self, func, *args, **kwargs):
@@ -632,7 +618,9 @@ class AlpacaBroker(BaseBroker):
 
                 elif e.status_code >= 500:
                     if attempt == self.MAX_RETRIES:
-                        logger.error(f"Server error after {self.MAX_RETRIES} retries: {e}")
+                        logger.error(
+                            f"Server error after {self.MAX_RETRIES} retries: {e}"
+                        )
                         raise BrokerError(f"Alpaca server error: {e}")
 
                     logger.warning(
@@ -646,11 +634,16 @@ class AlpacaBroker(BaseBroker):
                     # Other API errors - don't retry
                     raise BrokerError(f"Alpaca API error: {e}")
 
-            except (ConnectionError, TimeoutError,
-                    requests.exceptions.ConnectionError,
-                    requests.exceptions.Timeout) as e:
+            except (
+                ConnectionError,
+                TimeoutError,
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+            ) as e:
                 if attempt == self.MAX_RETRIES:
-                    logger.error(f"Connection error after {self.MAX_RETRIES} retries: {e}")
+                    logger.error(
+                        f"Connection error after {self.MAX_RETRIES} retries: {e}"
+                    )
                     raise BrokerError(f"Connection to Alpaca failed: {e}")
 
                 logger.warning(
@@ -673,8 +666,9 @@ class AlpacaBroker(BaseBroker):
             avg_entry_price=float(alpaca_position.avg_entry_price),
             current_price=float(alpaca_position.current_price),
             unrealized_pl=float(alpaca_position.unrealized_pl),
-            unrealized_plpc=float(alpaca_position.unrealized_plpc) * 100,  # Convert to percentage
-            market_value=float(alpaca_position.market_value)
+            unrealized_plpc=float(alpaca_position.unrealized_plpc)
+            * 100,  # Convert to percentage
+            market_value=float(alpaca_position.market_value),
         )
 
     def _convert_order(self, alpaca_order) -> Order:
@@ -685,10 +679,18 @@ class AlpacaBroker(BaseBroker):
             qty=float(alpaca_order.qty),
             side=alpaca_order.side.value,
             order_type=alpaca_order.order_type.value,
-            limit_price=float(alpaca_order.limit_price) if alpaca_order.limit_price else None,
+            limit_price=(
+                float(alpaca_order.limit_price) if alpaca_order.limit_price else None
+            ),
             status=alpaca_order.status.value,
-            filled_qty=float(alpaca_order.filled_qty) if alpaca_order.filled_qty else 0.0,
-            filled_avg_price=float(alpaca_order.filled_avg_price) if alpaca_order.filled_avg_price else None,
+            filled_qty=(
+                float(alpaca_order.filled_qty) if alpaca_order.filled_qty else 0.0
+            ),
+            filled_avg_price=(
+                float(alpaca_order.filled_avg_price)
+                if alpaca_order.filled_avg_price
+                else None
+            ),
             submitted_at=alpaca_order.submitted_at,
-            filled_at=alpaca_order.filled_at
+            filled_at=alpaca_order.filled_at,
         )
