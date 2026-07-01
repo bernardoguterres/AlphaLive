@@ -16,13 +16,13 @@ Usage:
     python tests/test_signal_parity.py
 
 Expected Output:
-    ma_crossover: 500 bars, 11 signals, 0 mismatches ✅
-    rsi_mean_reversion: 500 bars, 46 signals, 0 mismatches ✅
-    momentum_breakout: 500 bars, 5 signals, 0 mismatches ✅
-    bollinger_breakout: 500 bars, 9 signals, 0 mismatches ✅
-    vwap_reversion: 500 bars, 28 signals, 0 mismatches ✅
-    bollinger_rsi_combo: 500 bars, 16 signals, 0 mismatches ✅
-    trend_adaptive_rsi: 500 bars, 10 signals, 0 mismatches ✅
+    ma_crossover: 500 bars, 11 signals, 0 mismatches
+    rsi_mean_reversion: 500 bars, 46 signals, 0 mismatches
+    momentum_breakout: 500 bars, 5 signals, 0 mismatches
+    bollinger_breakout: 500 bars, 9 signals, 0 mismatches
+    vwap_reversion: 500 bars, 28 signals, 0 mismatches
+    bollinger_rsi_combo: 500 bars, 16 signals, 0 mismatches
+    trend_adaptive_rsi: 500 bars, 10 signals, 0 mismatches
 
     PASS: All 7 strategies match. AlphaLive is production-ready.
 
@@ -225,7 +225,7 @@ def save_results(results: List[Dict[str, Any]], output_dir: Path):
     with open(output_file, 'w') as f:
         json.dump(summary, f, indent=2)
 
-    print(f"\n📊 Results saved to: {output_file}")
+        print(f"\n Results saved to: {output_file}")
     return output_file
 
 
@@ -248,7 +248,7 @@ def print_results(results: List[Dict[str, Any]]) -> bool:
         signals = result['signals_generated']
         mismatches = result['mismatches']
 
-        status = "✅" if mismatches == 0 else "❌"
+        status = "" if mismatches == 0 else ""
         print(f"{status} {strategy}: {total} bars, {signals} signals, {mismatches} mismatches")
 
         if mismatches > 0:
@@ -261,7 +261,7 @@ def print_results(results: List[Dict[str, Any]]) -> bool:
                       f"Expected {mm['expected']}, Got {mm['actual']}")
 
                 if not mm['warmup_complete']:
-                    print(f"      ⚠️  Warmup incomplete")
+                    print(f"Warmup incomplete")
 
                 print(f"      Price: ${mm['price']:.2f}")
 
@@ -273,13 +273,13 @@ def print_results(results: List[Dict[str, Any]]) -> bool:
 
     print("\n" + "=" * 70)
     if all_match:
-        print("✅ PASS: All strategies match. AlphaLive is production-ready.")
+        print("PASS: All strategies match. AlphaLive is production-ready.")
         print("\nSignal parity verified:")
-        print("  ✓ AlphaLab backtest signals match AlphaLive live signals")
-        print("  ✓ Live trading will behave as backtested")
-        print("  ✓ Safe to deploy to production")
+        print("AlphaLab backtest signals match AlphaLive live signals")
+        print("Live trading will behave as backtested")
+        print("Safe to deploy to production")
     else:
-        print("❌ FAIL: Mismatches found. Fix before deploying to production.")
+        print("FAIL: Mismatches found. Fix before deploying to production.")
         print("\nCommon causes of mismatches:")
         print("  - Different parameter defaults between AlphaLab and AlphaLive")
         print("  - Off-by-one in lookback windows")
@@ -307,11 +307,11 @@ def main():
     # Load fixture
     try:
         df = load_fixture()
-        print(f"✓ Loaded test fixture: {len(df)} bars (AAPL 2022-2023)")
+        print(f"Loaded test fixture: {len(df)} bars (AAPL 2022-2023)")
         print(f"  Columns: {list(df.columns)}")
         print()
     except Exception as e:
-        print(f"❌ ERROR loading fixture: {e}")
+        print(f"ERROR loading fixture: {e}")
         return 1
 
     results = []
@@ -332,12 +332,12 @@ def main():
             results.append(result)
 
             if result['mismatches'] == 0:
-                print(f"✅ {result['signals_generated']} signals, 0 mismatches")
+                print(f"{result['signals_generated']} signals, 0 mismatches")
             else:
-                print(f"❌ {result['mismatches']} mismatches")
+                print(f"{result['mismatches']} mismatches")
 
         except FileNotFoundError as e:
-            print(f"⚠️  SKIP (missing expected signals)")
+            print(f"SKIP (missing expected signals)")
             print(f"     {e}")
             results.append({
                 "strategy": strategy_name,
@@ -348,7 +348,7 @@ def main():
                 "error": "Missing expected signals file",
             })
         except Exception as e:
-            print(f"❌ ERROR: {e}")
+            print(f"ERROR: {e}")
             import traceback
             traceback.print_exc()
             results.append({
@@ -369,10 +369,10 @@ def main():
 
     # Test status
     if all_match:
-        print("\n✅ C1 CHECKPOINT PASSED")
+        print("\n C1 CHECKPOINT PASSED")
         return 0
     else:
-        print("\n❌ C1 CHECKPOINT FAILED")
+        print("\n C1 CHECKPOINT FAILED")
         return 1
 
 

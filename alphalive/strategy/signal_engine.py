@@ -169,7 +169,7 @@ class SignalEngine:
         # Performance warning
         if elapsed > 5.0:
             logger.warning(
-                f"⚠️ Signal generation SLOW: {self.strategy_name} took {elapsed:.2f}s "
+                f"Signal generation SLOW: {self.strategy_name} took {elapsed:.2f}s "
                 f"(budget: 5s). Optimize indicators or reduce lookback."
             )
         else:
@@ -178,7 +178,7 @@ class SignalEngine:
         # Log signal
         if result["signal"] != "HOLD":
             logger.info(
-                f"🎯 SIGNAL: {result['signal']} | Confidence: {result['confidence']:.2%} | "
+                f"SIGNAL: {result['signal']} | Confidence: {result['confidence']:.2%} | "
                 f"Reason: {result['reason']}"
             )
         else:

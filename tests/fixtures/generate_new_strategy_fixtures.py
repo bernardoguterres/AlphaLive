@@ -98,9 +98,9 @@ def main():
         output_path = FIXTURES_DIR / f"expected_signals_{name}.csv"
         out.to_csv(output_path, index=False)
 
-        print(f"✓ {non_hold} signals ({buys} BUY, {sells} SELL) → {output_path.name}")
+        print(f"{non_hold} signals ({buys} BUY, {sells} SELL) → {output_path.name}")
 
-    print("\n✅ Done")
+        print("\n Done")
 
 
 if __name__ == "__main__":

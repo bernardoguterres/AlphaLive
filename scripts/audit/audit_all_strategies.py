@@ -210,7 +210,7 @@ def run_test(strategy_name, ticker, period_name, period_data):
         }
 
     except subprocess.TimeoutExpired:
-        print(f"⚠️  Timeout")
+        print(f"Timeout")
         return {
             "strategy": strategy_name,
             "ticker": ticker,
@@ -221,7 +221,7 @@ def run_test(strategy_name, ticker, period_name, period_data):
             "success": False
         }
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"Error: {e}")
         return {
             "strategy": strategy_name,
             "ticker": ticker,
@@ -250,14 +250,14 @@ def main():
 
     # Check environment
     if not os.environ.get("ALPACA_API_KEY"):
-        print("\n❌ Error: ALPACA_API_KEY not set")
+        print("\n Error: ALPACA_API_KEY not set")
         sys.exit(1)
 
     if not os.environ.get("ALPACA_SECRET_KEY"):
-        print("\n❌ Error: ALPACA_SECRET_KEY not set")
+        print("\n Error: ALPACA_SECRET_KEY not set")
         sys.exit(1)
 
-    print("\n✓ Environment configured")
+        print("\n Environment configured")
     print(f"\nStarting audit at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("This will take approximately 30-60 minutes...\n")
 
@@ -277,15 +277,15 @@ def main():
 
                 # Quick status
                 if result["success"]:
-                    status = "✓" if result["total_pnl"] > 0 else "✗"
+                    status = "" if result["total_pnl"] > 0 else ""
                     print(f"{status} {ticker}: {result['trades']} trades, {result['win_rate']:.1f}% win rate, ${result['total_pnl']:,.2f} P&L")
                 else:
-                    print(f"✗ {ticker}: Failed")
+                    print(f"{ticker}: Failed")
 
     # Generate report
     generate_report(all_results)
 
-    print(f"\n\n✅ Audit complete at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"\n\n Audit complete at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Results saved to COMPREHENSIVE_AUDIT_REPORT.md")
 
 
@@ -323,13 +323,13 @@ def generate_report(results):
 
         # Verdict
         if pre_total_pnl > 0 and post_total_pnl > 0:
-            report.append(f"\n**Verdict:** ✅ CONSISTENT PROFIT (both periods)\n")
+            report.append(f"\n**Verdict:** CONSISTENT PROFIT (both periods)\n")
         elif pre_total_pnl > 0 and post_total_pnl < 0:
-            report.append(f"\n**Verdict:** ⚠️ MARKET DEPENDENT (pre-COVID only)\n")
+            report.append(f"\n**Verdict:** MARKET DEPENDENT (pre-COVID only)\n")
         elif pre_total_pnl < 0 and post_total_pnl > 0:
-            report.append(f"\n**Verdict:** ⚠️ MARKET DEPENDENT (post-COVID only)\n")
+            report.append(f"\n**Verdict:** MARKET DEPENDENT (post-COVID only)\n")
         else:
-            report.append(f"\n**Verdict:** ❌ NOT PROFITABLE\n")
+            report.append(f"\n**Verdict:** NOT PROFITABLE\n")
 
     # Detailed results
     report.append("\n---\n")
@@ -347,7 +347,7 @@ def generate_report(results):
             period_results.sort(key=lambda x: x["total_pnl"], reverse=True)
 
             for r in period_results:
-                status = "✅" if r["total_pnl"] > 0 else "❌"
+                status = "" if r["total_pnl"] > 0 else ""
                 report.append(f"| {r['ticker']} | {r['trades']} | {r['win_rate']:.1f}% | ${r['total_pnl']:,.2f} | {status} |\n")
 
     # Best performers
@@ -403,12 +403,12 @@ def generate_report(results):
             consistent.append((strategy_name, pre_pnl, post_pnl))
 
     if consistent:
-        report.append("\n### ✅ Consistently Profitable Strategies (Both Periods)\n")
+        report.append("\n### Consistently Profitable Strategies (Both Periods)\n")
         for strategy_name, pre_pnl, post_pnl in sorted(consistent, key=lambda x: x[1] + x[2], reverse=True):
             total = pre_pnl + post_pnl
             report.append(f"- **{strategy_name}**: Pre-COVID ${pre_pnl:,.2f}, Post-COVID ${post_pnl:,.2f}, Total ${total:,.2f}\n")
     else:
-        report.append("\n### ⚠️ No Consistently Profitable Strategies\n")
+        report.append("\n### No Consistently Profitable Strategies\n")
         report.append("All strategies showed losses in at least one period.\n")
 
     # Market-dependent strategies
@@ -421,7 +421,7 @@ def generate_report(results):
             market_dep.append((strategy_name, pre_pnl, post_pnl))
 
     if market_dep:
-        report.append("\n### ⚠️ Market-Dependent Strategies\n")
+        report.append("\n### Market-Dependent Strategies\n")
         for strategy_name, pre_pnl, post_pnl in market_dep:
             report.append(f"- **{strategy_name}**: Pre-COVID ${pre_pnl:,.2f}, Post-COVID ${post_pnl:,.2f}\n")
 
@@ -435,7 +435,7 @@ def generate_report(results):
             unprofitable.append((strategy_name, pre_pnl, post_pnl))
 
     if unprofitable:
-        report.append("\n### ❌ Not Profitable (Both Periods)\n")
+        report.append("\n### Not Profitable (Both Periods)\n")
         for strategy_name, pre_pnl, post_pnl in unprofitable:
             total = pre_pnl + post_pnl
             report.append(f"- **{strategy_name}**: Pre-COVID ${pre_pnl:,.2f}, Post-COVID ${post_pnl:,.2f}, Total ${total:,.2f}\n")

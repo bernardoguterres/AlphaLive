@@ -6,7 +6,7 @@
 
 ---
 
-## 🎯 Bottom Line
+## Bottom Line
 
 **With 25% position sizing, AlphaLive is NOW COMPETITIVE with buy-and-hold SPY!**
 
@@ -21,15 +21,15 @@
 | **Win rate** | ~40-50% |
 
 **Comparison:**
-- **AlphaLive (3 strategies):** 10.1%/year ✅
+- **AlphaLive (3 strategies):** 10.1%/year
 - **SPY Buy-and-Hold:** 10-12%/year
 - **Verdict:** COMPETITIVE!
 
 ---
 
-## ✅ Deploy These 3 Strategies
+## Deploy These 3 Strategies
 
-### 1. RSI Mean Reversion 🥇 (BEST)
+### 1. RSI Mean Reversion (BEST)
 
 **Performance:**
 - Total: $34,608 over 8 years
@@ -45,11 +45,11 @@
 - Very selective (low risk exposure)
 - Big winners compensate for losers
 
-**Deploy first** ✅
+**Deploy first**
 
 ---
 
-### 2. MA Crossover 🥈 (RELIABLE)
+### 2. MA Crossover (RELIABLE)
 
 **Performance:**
 - Total: $26,609 over 8 years
@@ -65,11 +65,11 @@
 - Consistent across market conditions
 - Trend-following diversification
 
-**Deploy second** ✅
+**Deploy second**
 
 ---
 
-### 3. VWAP Reversion 🥉 (HIGH WIN RATE)
+### 3. VWAP Reversion (HIGH WIN RATE)
 
 **Performance:**
 - Total: $19,571 over 8 years
@@ -85,11 +85,11 @@
 - Very low risk (only 4 trades in 8 years)
 - Mean reversion diversification
 
-**Deploy third** ✅
+**Deploy third**
 
 ---
 
-## ❌ DO NOT Deploy These
+## DO NOT Deploy These
 
 ### Bollinger Breakout
 - Lost $565 overall with 25% sizing
@@ -103,7 +103,7 @@
 
 ---
 
-## 📊 Expected Returns by Capital Level
+## Expected Returns by Capital Level
 
 | Capital | 25% Position | Annual Profit | Monthly Profit |
 |---------|--------------|---------------|----------------|
@@ -119,7 +119,7 @@
 
 ---
 
-## 🚀 Deployment Plan
+## Deployment Plan
 
 ### Phase 1: Paper Trading (2 weeks)
 
@@ -192,7 +192,7 @@ ALPACA_PAPER=false  # LIVE MODE
 
 ---
 
-## 💰 Cost-Benefit Analysis
+## Cost-Benefit Analysis
 
 ### Costs
 
@@ -222,7 +222,7 @@ ALPACA_PAPER=false  # LIVE MODE
 
 ---
 
-## ⚠️ Risk Management
+## Risk Management
 
 ### Position-Level Risk (Per Trade)
 
@@ -259,7 +259,7 @@ ALPACA_PAPER=false  # LIVE MODE
 
 ---
 
-## 📈 Scaling Plan
+## Scaling Plan
 
 ### Year 1: $100,000 → $110,100
 - Deploy 3 strategies
@@ -283,7 +283,7 @@ ALPACA_PAPER=false  # LIVE MODE
 
 ---
 
-## ✅ Final Checklist Before Deploying
+## Final Checklist Before Deploying
 
 ### Configuration
 - [ ] All configs use `max_position_size_pct: 25.0`
@@ -311,31 +311,31 @@ ALPACA_PAPER=false  # LIVE MODE
 
 ---
 
-## 🎯 Success Criteria
+## Success Criteria
 
 ### Week 1-2 (Paper Trading)
-✅ Trade frequency: 1-2 trades/week
-✅ Position sizes: $25,000 on $100k capital
-✅ No crashes or errors
+Trade frequency: 1-2 trades/week
+Position sizes: $25,000 on $100k capital
+No crashes or errors
 
 ### Week 3-4 (Live Micro)
-✅ Real trades execute correctly
-✅ Slippage < 1%
-✅ Results within ±30% of paper
+Real trades execute correctly
+Slippage < 1%
+Results within ±30% of paper
 
 ### Month 2-3 (Full Deployment)
-✅ ROI tracking 8-12%/year
-✅ Win rate 35-50%
-✅ No major drawdowns (>10%)
+ROI tracking 8-12%/year
+Win rate 35-50%
+No major drawdowns (>10%)
 
 ### Month 4+ (Steady State)
-✅ Consistent monthly returns
-✅ Automated monitoring
-✅ Minimal manual intervention
+Consistent monthly returns
+Automated monitoring
+Minimal manual intervention
 
 ---
 
-## 🚨 When to STOP Trading
+## When to STOP Trading
 
 **Pause immediately if:**
 
@@ -349,7 +349,7 @@ ALPACA_PAPER=false  # LIVE MODE
 
 ---
 
-## 💡 Optimization Opportunities
+## Optimization Opportunities
 
 ### After 3 Months
 - Adjust position sizes (20-30% range)
@@ -368,14 +368,14 @@ ALPACA_PAPER=false  # LIVE MODE
 
 ---
 
-## 🎉 Bottom Line
+## Bottom Line
 
 **With 25% position sizing:**
 
-✅ **AlphaLive matches SPY returns (10.1%/year)**
-✅ **3 proven strategies ready to deploy**
-✅ **Clear deployment plan and risk management**
-✅ **Expected $10,100/year profit on $100k capital**
+**AlphaLive matches SPY returns (10.1%/year)**
+**3 proven strategies ready to deploy**
+**Clear deployment plan and risk management**
+**Expected $10,100/year profit on $100k capital**
 
 **Your move:**
 1. Deploy to Railway in paper mode (2 weeks)
@@ -384,4 +384,4 @@ ALPACA_PAPER=false  # LIVE MODE
 4. Scale to full $100k deployment
 5. Monitor and optimize
 
-**AlphaLive is now PRODUCTION-READY with realistic returns!** 🚀
+**AlphaLive is now PRODUCTION-READY with realistic returns!**

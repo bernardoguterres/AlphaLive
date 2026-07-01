@@ -108,7 +108,7 @@ def print_summary(results: Dict[str, List[Dict]]):
     print("=" * 80)
 
     # Signal summary
-    print(f"\n📊 SIGNAL SUMMARY")
+    print(f"\n SIGNAL SUMMARY")
     print(f"{'─' * 80}")
     signal_counts = defaultdict(int)
     for sig in results["signals"]:
@@ -118,7 +118,7 @@ def print_summary(results: Dict[str, List[Dict]]):
         print(f"  {signal}: {count}")
 
     # Trade summary
-    print(f"\n💰 TRADE EXECUTIONS: {len(results['trades'])}")
+    print(f"\n TRADE EXECUTIONS: {len(results['trades'])}")
     print(f"{'─' * 80}")
     if results["trades"]:
         for trade in results["trades"]:
@@ -129,7 +129,7 @@ def print_summary(results: Dict[str, List[Dict]]):
         print("  No trades executed")
 
     # Blocked trades
-    print(f"\n🚫 BLOCKED TRADES: {len(results['blocks'])}")
+    print(f"\n BLOCKED TRADES: {len(results['blocks'])}")
     print(f"{'─' * 80}")
     if results["blocks"]:
         block_reasons = defaultdict(int)
@@ -149,14 +149,14 @@ def print_summary(results: Dict[str, List[Dict]]):
 
     # Errors
     if results["errors"]:
-        print(f"\n⚠️  ERRORS: {len(results['errors'])}")
+        print(f"\n ERRORS: {len(results['errors'])}")
         print(f"{'─' * 80}")
         for err in results["errors"][-10:]:  # Show last 10
             print(f"  [{err['timestamp']}] {err['line'][:100]}")
 
     # Recent indicator snapshots
     if results["indicators"]:
-        print(f"\n📈 RECENT INDICATOR SNAPSHOTS")
+        print(f"\n RECENT INDICATOR SNAPSHOTS")
         print(f"{'─' * 80}")
         for ind in results["indicators"][-5:]:  # Show last 5
             print(f"  [{ind['timestamp']}]")

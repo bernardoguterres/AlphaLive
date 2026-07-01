@@ -278,7 +278,7 @@ def _check_signal_for_strategy(
 
             if pct_change > 0.20:
                 logger.critical(
-                    f"⚠️ SPLIT DETECTED: Price jumped {pct_change*100:.1f}% overnight "
+                    f"SPLIT DETECTED: Price jumped {pct_change*100:.1f}% overnight "
                     f"(${yesterday_close:.2f} → ${today_open:.2f}). "
                     f"Skipping signal check to prevent false signals."
                 )
@@ -365,7 +365,7 @@ def _check_signal_for_strategy(
                 )
 
                 if result["status"] == "success":
-                    logger.info(f"✅ Order placed: {result['order_id']}")
+                    logger.info(f"Order placed: {result['order_id']}")
                     logger.info(
                         f"Trade executed | {signal_result['signal']} "
                         f"{result['filled_qty']} {strat_cfg.ticker} "
@@ -380,13 +380,13 @@ def _check_signal_for_strategy(
                         reason=signal_result["reason"],
                     )
                 elif result["status"] == "blocked":
-                    logger.warning(f"❌ Trade blocked: {result['reason']}")
+                    logger.warning(f"Trade blocked: {result['reason']}")
                     logger.info(
                         f"Trade decision | Signal: {signal_result['signal']} | "
                         f"Action: BLOCKED | Reason: {result['reason']}"
                     )
                 else:
-                    logger.error(f"❌ Trade error: {result['reason']}")
+                    logger.error(f"Trade error: {result['reason']}")
 
     except DataStaleError as e:
         logger.warning(f"Data staleness during signal check: {e}")
@@ -536,7 +536,7 @@ def _run_position_reconciliation(
             if ticker not in internal_tickers:
                 drift_detected = True
                 logger.critical(
-                    f"🚨 POSITION DRIFT: Alpaca has {ticker} ({alpaca_pos['qty']} shares) "
+                    f"POSITION DRIFT: Alpaca has {ticker} ({alpaca_pos['qty']} shares) "
                     f"but bot has no record. This indicates a tracking failure."
                 )
                 notifier.send_alert(
@@ -553,7 +553,7 @@ def _run_position_reconciliation(
             if ticker not in alpaca_tickers:
                 drift_detected = True
                 logger.critical(
-                    f"🚨 POSITION DRIFT: Bot tracks {ticker} but Alpaca doesn't. "
+                    f"POSITION DRIFT: Bot tracks {ticker} but Alpaca doesn't. "
                     f"Position may have been closed externally or never filled."
                 )
                 notifier.send_alert(
@@ -567,7 +567,7 @@ def _run_position_reconciliation(
 
         if drift_detected:
             logger.critical(
-                "⛔ AUTO-HALTING TRADING due to position drift. "
+                "AUTO-HALTING TRADING due to position drift. "
                 "Manual intervention required. Set TRADING_PAUSED=false to resume."
             )
             os.environ["TRADING_PAUSED"] = "true"
@@ -828,7 +828,7 @@ def main(
         # === REPLAY MODE ===
         # Simulate trading through historical data (FREE - no subscription needed)
         logger.info("=" * 80)
-        logger.info("🎬 REPLAY MODE")
+        logger.info("REPLAY MODE")
         logger.info(f"Period: {replay_start} to {replay_end}")
         logger.info(
             f"Speed: {'instant' if replay_speed == 0 else f'{replay_speed}s per day'}"
@@ -871,7 +871,7 @@ def main(
 
             # --- Check command listener thread health ---
             if cmd_listener is not None and not cmd_listener.thread.is_alive():
-                logger.error("⚠️ Telegram command listener thread died")
+                logger.error("Telegram command listener thread died")
                 notifier.send_error_alert(
                     "⚠️ Command listener offline — /pause and /resume unavailable. "
                     "Restart service to restore."

@@ -125,14 +125,14 @@ class ReplaySimulator:
             # Store for this ticker
             self.historical_data[ticker] = df
 
-            logger.info(f"  ✓ Loaded {len(df)} bars for {ticker}")
+            logger.info(f"Loaded {len(df)} bars for {ticker}")
 
         # Extract trading days (days when market was open)
         first_ticker = self.tickers[0]
         self.trading_days = self.historical_data[first_ticker].index.tolist()
 
         logger.info("=" * 80)
-        logger.info(f"✓ Loaded {len(self.trading_days)} trading days")
+        logger.info(f"Loaded {len(self.trading_days)} trading days")
         logger.info(f"  First: {self.trading_days[0].strftime('%Y-%m-%d')}")
         logger.info(f"  Last: {self.trading_days[-1].strftime('%Y-%m-%d')}")
         logger.info("=" * 80)
@@ -177,7 +177,7 @@ class ReplaySimulator:
 
         logger.info("")
         logger.info("=" * 80)
-        logger.info(f"📅 {date_str} ({day_name})")
+        logger.info(f"{date_str} ({day_name})")
         logger.info("=" * 80)
 
         # For each strategy
@@ -189,7 +189,7 @@ class ReplaySimulator:
 
             if len(bars) < 50:
                 logger.warning(
-                    f"  ⚠️  Insufficient data for {ticker} (need warmup period)"
+                f"Insufficient data for {ticker} (need warmup period)"
                 )
                 continue
 
@@ -198,7 +198,7 @@ class ReplaySimulator:
             signal = signal_engine.generate_signal(bars)
 
             if not signal.get("warmup_complete", True):
-                logger.warning(f"  ⚠️  Warmup not complete for {ticker}")
+                logger.warning(f"Warmup not complete for {ticker}")
                 continue
 
             logger.info(
@@ -267,7 +267,7 @@ class ReplaySimulator:
         )
 
         if shares == 0:
-            logger.info(f"  ✗ Position size = 0 (blocked)")
+            logger.info(f"Position size = 0 (blocked)")
             return
 
         # Check risk limits
@@ -280,7 +280,7 @@ class ReplaySimulator:
         )
 
         if not can_trade:
-            logger.info(f"  ✗ Trade blocked: {reason}")
+            logger.info(f"Trade blocked: {reason}")
             return
 
         # Execute (simulated)
@@ -288,7 +288,7 @@ class ReplaySimulator:
         cost = shares * current_price
 
         logger.info(
-            f"  ✓ [REPLAY] {side} {shares} {ticker} @ ${current_price:.2f} (${cost:,.2f})"
+        f"[REPLAY] {side} {shares} {ticker} @ ${current_price:.2f} (${cost:,.2f})"
         )
 
         # Track position
@@ -403,7 +403,7 @@ class ReplaySimulator:
         pnl_pct = ((exit_price - entry_price) / entry_price) * 100
 
         logger.info(
-            f"  💰 EXIT: {ticker} @ ${exit_price:.2f} | "
+            f"EXIT: {ticker} @ ${exit_price:.2f} | "
             f"P&L: ${pnl:.2f} ({pnl_pct:+.2f}%) | Reason: {reason}"
         )
 
@@ -462,7 +462,7 @@ class ReplaySimulator:
 
         # Send startup notification
         logger.info("")
-        logger.info("🎬 Starting replay simulation...")
+        logger.info("Starting replay simulation...")
         notifier.send_message(
             f"🎬 <b>Replay Mode Started</b>\n\n"
             f"<b>Period:</b> {self.start_date.strftime('%Y-%m-%d')} to {self.end_date.strftime('%Y-%m-%d')}\n"
@@ -505,7 +505,7 @@ class ReplaySimulator:
 
         logger.info("")
         logger.info("=" * 80)
-        logger.info("🏁 REPLAY COMPLETE")
+        logger.info("REPLAY COMPLETE")
         logger.info("=" * 80)
         logger.info(
             f"Period: {self.start_date.strftime('%Y-%m-%d')} to {self.end_date.strftime('%Y-%m-%d')}"

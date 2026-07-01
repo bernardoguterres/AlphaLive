@@ -30,7 +30,7 @@ def check_environment():
     secret_key = os.getenv("ALPACA_SECRET_KEY")
 
     if not api_key or not secret_key:
-        print("❌ Error: Missing required environment variables")
+        print("Error: Missing required environment variables")
         print("")
         print("Please set:")
         print("  export ALPACA_API_KEY='your_key'")
@@ -58,7 +58,7 @@ def resolve_config_path(config_path: str) -> str:
     if os.path.exists(config_full_path):
         return config_full_path
 
-    print(f"❌ Error: Config file not found: {config_path}")
+        print(f"Error: Config file not found: {config_path}")
     print(f"   Looked in:")
     print(f"   - {os.path.abspath(config_path)}")
     print(f"   - {config_full_path}")
@@ -95,10 +95,10 @@ class PerformanceTracker:
 
             return config
         except json.JSONDecodeError as e:
-            print(f"❌ Error: Invalid JSON in config file: {e}")
+            print(f"Error: Invalid JSON in config file: {e}")
             sys.exit(1)
         except Exception as e:
-            print(f"❌ Error loading config: {e}")
+            print(f"Error loading config: {e}")
             sys.exit(1)
 
     def get_trades_since(self, days: int = 7) -> List[Dict]:
@@ -117,7 +117,7 @@ class PerformanceTracker:
             try:
                 print(f"Fetching orders from Alpaca (last {days} days)...", end='', flush=True)
                 orders = self.client.get_orders(filter=request)
-                print(f" ✅ Found {len(orders)} orders")
+                print(f"Found {len(orders)} orders")
 
                 trades = []
                 for order in orders:
@@ -136,7 +136,7 @@ class PerformanceTracker:
                 if attempt == max_retries - 1:
                     raise
                 wait_time = 2 ** attempt
-                print(f"\n⚠️  API call failed, retrying in {wait_time}s... ({attempt+1}/{max_retries})")
+                print(f"\n API call failed, retrying in {wait_time}s... ({attempt+1}/{max_retries})")
                 time.sleep(wait_time)
 
     def calculate_pnl(self, trades: List[Dict]) -> Dict:
@@ -307,9 +307,9 @@ class PerformanceTracker:
             report.append("")
 
             if comparison['performance_aligned']:
-                report.append("✅ Performance ALIGNED with backtest expectations")
+                report.append("Performance ALIGNED with backtest expectations")
             else:
-                report.append("⚠️  Performance DIVERGED from backtest (review strategy)")
+                report.append("Performance DIVERGED from backtest (review strategy)")
 
         # Recent trades
         if stats['total_trades'] > 0:
@@ -319,7 +319,7 @@ class PerformanceTracker:
             report.append("-" * 80)
 
             for trade in stats['trades'][-10:]:
-                outcome = "✅ WIN" if trade['pnl'] > 0 else "❌ LOSS"
+                outcome = "WIN" if trade['pnl'] > 0 else "LOSS"
                 report.append(
                     f"{trade['entry_time'].strftime('%m-%d %H:%M')} | "
                     f"{trade['symbol']:6s} | "
@@ -348,7 +348,7 @@ class PerformanceTracker:
             f.write(report)
 
         print(report)
-        print(f"\n📄 Report saved to: {filename}")
+        print(f"\n Report saved to: {filename}")
 
         return filename
 
@@ -376,7 +376,7 @@ def main():
             print(tracker.generate_report(days=args.days))
 
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"Error: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

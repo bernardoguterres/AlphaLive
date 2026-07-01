@@ -1,6 +1,6 @@
 # Paper Trading Deployment Guide
 
-## ✅ Audit Results Summary
+## Audit Results Summary
 
 **Test completed:** March 22, 2026
 **Position sizing:** 30%
@@ -12,21 +12,21 @@
 **4 Profitable Stocks:**
 | Stock | Profit | Annual ROI | Deploy? |
 |-------|--------|------------|---------|
-| AAPL | $64,538 | 8.07%/year | ✅ YES |
-| MSFT | $35,125 | 4.39%/year | ✅ YES |
-| QQQ | $38,590 | 4.82%/year | ✅ YES |
-| SPY | $32,229 | 4.03%/year | ✅ YES |
-| **TOTAL** | **$170,482** | **21.31%/year** | ✅ **DEPLOY** |
+| AAPL | $64,538 | 8.07%/year | YES |
+| MSFT | $35,125 | 4.39%/year | YES |
+| QQQ | $38,590 | 4.82%/year | YES |
+| SPY | $32,229 | 4.03%/year | YES |
+| **TOTAL** | **$170,482** | **21.31%/year** | **DEPLOY** |
 
 **2 Unprofitable Stocks (AVOID):**
 | Stock | Profit | Deploy? |
 |-------|--------|---------|
-| GOOGL | -$47,440 | ❌ NO |
-| AMZN | -$16,992 | ❌ NO |
+| GOOGL | -$47,440 | NO |
+| AMZN | -$16,992 | NO |
 
 ---
 
-## 🎯 Deployment Strategy
+## Deployment Strategy
 
 ### Phase 1: Paper Trading (2 weeks)
 
@@ -45,7 +45,7 @@
 
 ---
 
-## 📋 Step-by-Step Deployment
+## Step-by-Step Deployment
 
 ### Step 1: Get Alpaca Paper Trading Account (FREE)
 
@@ -158,8 +158,8 @@ Railway will auto-deploy (takes ~2-3 minutes).
 
 Check Railway logs for:
 ```
-✅ AlphaLive initialized
-✅ Multi-strategy mode: 12 strategies loaded
+AlphaLive initialized
+Multi-strategy mode: 12 strategies loaded
    [1] rsi_mean_reversion on AAPL @ 1Day
    [2] rsi_mean_reversion on MSFT @ 1Day
    ...
@@ -168,7 +168,7 @@ Check Railway logs for:
 
 ---
 
-## 📊 Monitoring Paper Trading
+## Monitoring Paper Trading
 
 ### Daily Checklist
 
@@ -181,7 +181,7 @@ Check Railway logs for:
 
 **Expected daily summary:**
 ```
-📈 Daily Summary
+Daily Summary
 
 Trades: 1-3
 P&L: -$500 to +$2,000
@@ -221,21 +221,21 @@ Positions: 1-4 active
 
 ### What to Look For
 
-**✅ Good signs (continue):**
+** Good signs (continue):**
 - Win rate 30-55% (matches backtest)
 - P&L trending positive over 2 weeks
 - Orders fill within 1% of expected price
 - No crashes or errors
 - Telegram alerts working
 
-**⚠️ Warning signs (investigate):**
+** Warning signs (investigate):**
 - Win rate < 25% for 2+ weeks
 - P&L significantly negative vs backtest
 - Frequent order rejections
 - Slippage > 2%
 - Bot crashes daily
 
-**🚨 Stop immediately if:**
+** Stop immediately if:**
 - Win rate < 15% for 2 weeks
 - P&L losses exceed -$10,000
 - Major divergence from backtest (>50% worse)
@@ -243,17 +243,17 @@ Positions: 1-4 active
 
 ---
 
-## 🎯 Decision Points
+## Decision Points
 
 ### After 1 Week
 
 **Question:** Is bot working correctly?
 
 **Check:**
-- Bot running 24/7 without crashes? ✅
-- Trades executing as expected? ✅
-- Telegram alerts working? ✅
-- Orders filling correctly? ✅
+- Bot running 24/7 without crashes?
+- Trades executing as expected?
+- Telegram alerts working?
+- Orders filling correctly?
 
 **If YES:** Continue to week 2
 **If NO:** Debug issues before continuing
@@ -271,9 +271,9 @@ Positions: 1-4 active
 **Tolerance:** Within ±50% of expected
 
 **Examples:**
-- Expected $5,000, got $2,500-7,500: ✅ OK
-- Expected $5,000, got $10,000: ✅ Great!
-- Expected $5,000, got -$5,000: ❌ Problem
+- Expected $5,000, got $2,500-7,500: OK
+- Expected $5,000, got $10,000: Great!
+- Expected $5,000, got -$5,000: Problem
 
 **If within tolerance:**
 → Ready to consider going live with SMALL capital
@@ -284,17 +284,17 @@ Positions: 1-4 active
 
 ---
 
-## 💰 Going Live (After Successful Paper Trading)
+## Going Live (After Successful Paper Trading)
 
 ### Minimum Requirements
 
 Before going live, you MUST have:
 
-1. ✅ 2 weeks successful paper trading
-2. ✅ Results within ±50% of backtest expectations
-3. ✅ No unexplained crashes or errors
-4. ✅ Comfortable with the system
-5. ✅ At least $15,000 capital (preferably $25,000+)
+1. 2 weeks successful paper trading
+2. Results within ±50% of backtest expectations
+3. No unexplained crashes or errors
+4. Comfortable with the system
+5. At least $15,000 capital (preferably $25,000+)
 
 ---
 
@@ -337,7 +337,7 @@ Before going live, you MUST have:
 
 ---
 
-## 🚨 Emergency Procedures
+## Emergency Procedures
 
 ### If Something Goes Wrong
 
@@ -373,7 +373,7 @@ Before going live, you MUST have:
 
 ---
 
-## 📈 Expected Performance Targets
+## Expected Performance Targets
 
 ### Paper Trading (2 weeks)
 
@@ -399,22 +399,22 @@ Before going live, you MUST have:
 
 ---
 
-## 🎯 Success Criteria
+## Success Criteria
 
 **Paper trading is successful if:**
 
-✅ Bot runs 24/7 without manual intervention
-✅ Win rate matches backtest (±15%)
-✅ P&L trending positive over 2 weeks
-✅ No unexplained behavior
-✅ You understand how the system works
-✅ Comfortable with daily P&L swings
+Bot runs 24/7 without manual intervention
+Win rate matches backtest (±15%)
+P&L trending positive over 2 weeks
+No unexplained behavior
+You understand how the system works
+Comfortable with daily P&L swings
 
 **Then you're ready to go live with small capital!**
 
 ---
 
-## 📊 Cost Analysis
+## Cost Analysis
 
 ### Paper Trading Costs
 
@@ -440,12 +440,12 @@ Before going live, you MUST have:
 
 ---
 
-## 🚀 Next Steps
+## Next Steps
 
 ### Today (March 22, 2026)
 
-1. ✅ Audit complete (4 profitable stocks identified)
-2. ✅ Production configs created (12 configs in `configs/production/`)
+1. Audit complete (4 profitable stocks identified)
+2. Production configs created (12 configs in `configs/production/`)
 3. ⏳ **Deploy to paper trading**
 
 ### This Week
@@ -469,4 +469,4 @@ Before going live, you MUST have:
 
 ---
 
-**You're ready to deploy! Paper trading costs $0 and will verify the system works in real-time.** 🚀
+**You're ready to deploy! Paper trading costs $0 and will verify the system works in real-time.**

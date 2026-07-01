@@ -121,11 +121,11 @@ def main():
         output_path = Path(f"tests/fixtures/expected_signals_{strategy_name}.csv")
         signals_df.to_csv(output_path, index=False)
 
-        print(f"✓ {signal_count} signals generated, saved to {output_path.name}")
+        print(f"{signal_count} signals generated, saved to {output_path.name}")
 
     print()
     print("=" * 60)
-    print("✅ All expected signals generated")
+    print("All expected signals generated")
     print("=" * 60)
 
 if __name__ == "__main__":

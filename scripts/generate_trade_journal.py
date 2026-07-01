@@ -30,7 +30,7 @@ def check_environment():
     secret_key = os.getenv("ALPACA_SECRET_KEY")
 
     if not api_key or not secret_key:
-        print("❌ Error: Missing required environment variables")
+        print("Error: Missing required environment variables")
         print("")
         print("Please set:")
         print("  export ALPACA_API_KEY='your_key'")
@@ -78,7 +78,7 @@ class TradeJournalGenerator:
             try:
                 print("Fetching orders from Alpaca...", end='', flush=True)
                 orders = self.client.get_orders(filter=request)
-                print(f" ✅ Found {len(orders)} orders")
+                print(f"Found {len(orders)} orders")
 
                 return [
                     {
@@ -100,7 +100,7 @@ class TradeJournalGenerator:
                 if attempt == max_retries - 1:
                     raise
                 wait_time = 2 ** attempt
-                print(f"\n⚠️  API call failed, retrying in {wait_time}s... ({attempt+1}/{max_retries})")
+                print(f"\n API call failed, retrying in {wait_time}s... ({attempt+1}/{max_retries})")
                 time.sleep(wait_time)
 
     def match_trades(self, orders: List[Dict]) -> List[Dict]:
@@ -199,7 +199,7 @@ class TradeJournalGenerator:
         """Export trades to CSV file"""
 
         if not trades:
-            print("⚠️  No trades to export")
+            print("No trades to export")
             return
 
         # Create output directory
@@ -217,7 +217,7 @@ class TradeJournalGenerator:
             writer.writeheader()
             writer.writerows(trades)
 
-        print(f"✅ Exported {len(trades)} trades to: {output_file}")
+            print(f"Exported {len(trades)} trades to: {output_file}")
 
     def export_statistics_csv(self, stats: Dict, output_file: str):
         """Export statistics to CSV file"""
@@ -245,7 +245,7 @@ class TradeJournalGenerator:
             writer.writerow(['Avg Hold Time (hours)', f"{stats['avg_hold_hours']:.2f}"])
             writer.writerow(['Profit Factor', f"{stats['profit_factor']:.2f}"])
 
-        print(f"✅ Exported statistics to: {output_file}")
+            print(f"Exported statistics to: {output_file}")
 
     def print_summary(self, trades: List[Dict], stats: Dict):
         """Print summary to console"""
@@ -280,7 +280,7 @@ class TradeJournalGenerator:
         print("-" * 80)
 
         for trade in trades[-10:]:
-            outcome_icon = "✅" if trade['outcome'] == 'WIN' else "❌" if trade['outcome'] == 'LOSS' else "⚪"
+            outcome_icon = "" if trade['outcome'] == 'WIN' else "" if trade['outcome'] == 'LOSS' else ""
             print(
                 f"#{trade['trade_id']:3d} | {trade['entry_date']} | {trade['symbol']:6s} | "
                 f"${trade['entry_price']:.2f} → ${trade['exit_price']:.2f} | "
@@ -348,7 +348,7 @@ def main():
         generator.print_summary(trades, stats)
 
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"Error: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

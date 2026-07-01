@@ -32,7 +32,7 @@ def check_environment():
     secret_key = os.getenv("ALPACA_SECRET_KEY")
 
     if not api_key or not secret_key:
-        print("❌ Error: Missing required environment variables")
+        print("Error: Missing required environment variables")
         print("")
         print("Please set:")
         print("  export ALPACA_API_KEY='your_key'")
@@ -157,7 +157,7 @@ class WeeklyReportGenerator:
 
         lines = []
         lines.append("=" * 80)
-        lines.append(f"📊 WEEKLY TRADING REPORT")
+        lines.append(f"WEEKLY TRADING REPORT")
         lines.append("=" * 80)
         lines.append(f"Period: {week_start} to {week_end}")
         lines.append(f"Account: {'PAPER' if self.is_paper else 'LIVE'}")
@@ -166,7 +166,7 @@ class WeeklyReportGenerator:
         lines.append("")
 
         if stats['total_trades'] == 0:
-            lines.append("⚠️  No trades executed this week")
+            lines.append("No trades executed this week")
             lines.append("")
             lines.append("Possible reasons:")
             lines.append("  - Market conditions didn't meet strategy criteria")
@@ -194,13 +194,13 @@ class WeeklyReportGenerator:
             lines.append("-" * 80)
 
             if stats['win_rate'] >= 65 and stats['total_pnl'] > 0:
-                lines.append("✅ EXCELLENT - Performing above expectations")
+                lines.append("EXCELLENT - Performing above expectations")
             elif stats['win_rate'] >= 55 and stats['total_pnl'] > 0:
-                lines.append("✅ GOOD - On track")
+                lines.append("GOOD - On track")
             elif stats['total_pnl'] > 0:
-                lines.append("⚠️  ACCEPTABLE - Profitable but below target win rate")
+                lines.append("ACCEPTABLE - Profitable but below target win rate")
             else:
-                lines.append("🔴 NEEDS ATTENTION - Review strategy parameters")
+                lines.append("NEEDS ATTENTION - Review strategy parameters")
 
             lines.append("")
 
@@ -210,7 +210,7 @@ class WeeklyReportGenerator:
             lines.append("-" * 80)
 
             for i, trade in enumerate(trades, 1):
-                outcome_icon = "✅" if trade['outcome'] == 'WIN' else "❌"
+                outcome_icon = "" if trade['outcome'] == 'WIN' else ""
                 lines.append(
                     f"{i:2d}. {trade['entry_time'].strftime('%m-%d %H:%M')} | "
                     f"{trade['symbol']:6s} | ${trade['entry_price']:.2f} → ${trade['exit_price']:.2f} | "
@@ -224,17 +224,17 @@ class WeeklyReportGenerator:
 
         if not self.is_paper and stats['total_trades'] > 0:
             if stats['win_rate'] >= 60:
-                lines.append("  ✅ Continue current strategy")
+                lines.append("Continue current strategy")
                 if stats['total_trades'] < 10:
-                    lines.append("  📈 Consider adding 2nd strategy to increase frequency")
+                    lines.append("Consider adding 2nd strategy to increase frequency")
             else:
-                lines.append("  ⚠️  Review and adjust parameters")
-                lines.append("  📊 Compare to backtest expectations")
+                lines.append("Review and adjust parameters")
+                lines.append("Compare to backtest expectations")
 
         if self.is_paper:
-            lines.append("  🔄 Continue paper trading")
+            lines.append("Continue paper trading")
             if stats['total_trades'] >= 20 and stats['win_rate'] >= 60:
-                lines.append("  ✅ Ready to consider live deployment")
+                lines.append("Ready to consider live deployment")
 
         lines.append("")
         lines.append("=" * 80)
@@ -246,7 +246,7 @@ class WeeklyReportGenerator:
     def send_telegram(self, report: str) -> bool:
         """Send report via Telegram"""
         if not self.telegram_token or not self.telegram_chat_id:
-            print("⚠️  Telegram credentials not configured")
+            print("Telegram credentials not configured")
             return False
 
         try:
@@ -270,11 +270,11 @@ class WeeklyReportGenerator:
                 }
                 httpx.post(url, json=payload, timeout=10)
 
-            print("✅ Report sent via Telegram")
+                print("Report sent via Telegram")
             return True
 
         except Exception as e:
-            print(f"❌ Failed to send Telegram message: {e}")
+            print(f"Failed to send Telegram message: {e}")
             return False
 
     def save_report(self, report: str, output_dir: str = "reports"):
@@ -287,7 +287,7 @@ class WeeklyReportGenerator:
         with open(filename, 'w') as f:
             f.write(report)
 
-        print(f"✅ Report saved to: {filename}")
+            print(f"Report saved to: {filename}")
 
 
 def main():
@@ -309,12 +309,12 @@ def main():
 
         print("Fetching trades from past week...", end='', flush=True)
         orders = generator.fetch_week_trades()
-        print(f" ✅")
+        print(f"")
 
         print("Matching trades...", end='', flush=True)
         trades = generator.match_trades(orders)
         stats = generator.calculate_stats(trades)
-        print(f" ✅ Found {len(trades)} completed trades")
+        print(f"Found {len(trades)} completed trades")
 
         report = generator.generate_report(trades, stats)
 
@@ -327,7 +327,7 @@ def main():
             generator.send_telegram(report)
 
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"Error: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

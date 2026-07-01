@@ -1,23 +1,23 @@
 # Position Size Comparison - Risk vs Reward
 
-## 📊 Performance at Different Position Sizes
+## Performance at Different Position Sizes
 
 Based on the same 89 trades over 8 years (3 strategies combined):
 
 | Position Size | Total Profit (8 yrs) | Annual ROI | Risk Level | Recommendation |
 |---------------|---------------------|------------|------------|----------------|
-| **10%** (Old) | $31,916 | 3.99%/year | ⭐ Very Low | ❌ Too conservative |
-| **15%** | $47,874 | 5.98%/year | ⭐⭐ Low | ⚠️ Still below SPY |
-| **20%** | $63,832 | 7.98%/year | ⭐⭐⭐ Moderate | ⚠️ Approaching SPY |
-| **25%** (Current) | $79,790 | 9.97%/year | ⭐⭐⭐ Moderate | ✅ Matches SPY |
-| **30%** | $95,748 | 11.97%/year | ⭐⭐⭐⭐ Aggressive | ✅ **BEATS SPY** |
-| **35%** | $111,706 | 13.96%/year | ⭐⭐⭐⭐ Aggressive | ✅ **STRONG** |
-| **40%** | $127,664 | 15.96%/year | ⭐⭐⭐⭐⭐ Very Aggressive | ⚠️ High risk |
-| **50%** | $159,580 | 19.95%/year | ⚠️ EXTREME | ❌ Too risky |
+| **10%** (Old) | $31,916 | 3.99%/year | Very Low | Too conservative |
+| **15%** | $47,874 | 5.98%/year | Low | Still below SPY |
+| **20%** | $63,832 | 7.98%/year | Moderate | Approaching SPY |
+| **25%** (Current) | $79,790 | 9.97%/year | Moderate | Matches SPY |
+| **30%** | $95,748 | 11.97%/year | Aggressive | **BEATS SPY** |
+| **35%** | $111,706 | 13.96%/year | Aggressive | **STRONG** |
+| **40%** | $127,664 | 15.96%/year | Very Aggressive | High risk |
+| **50%** | $159,580 | 19.95%/year | EXTREME | Too risky |
 
 ---
 
-## 🎯 Recommended Position Size: **30%**
+## Recommended Position Size: **30%**
 
 ### Why 30% is the Sweet Spot
 
@@ -40,7 +40,7 @@ Based on the same 89 trades over 8 years (3 strategies combined):
 
 ---
 
-## ⚠️ Risk Analysis at 30% Position Sizing
+## Risk Analysis at 30% Position Sizing
 
 ### Max Drawdown Scenario
 
@@ -62,13 +62,13 @@ Based on the same 89 trades over 8 years (3 strategies combined):
 - Diversification: AAPL + SPY + multiple strategies
 
 **Safe enough:**
-✅ Not all-in (keeps 10% cash)
-✅ Stop losses limit downside
-✅ Circuit breaker prevents spirals
+Not all-in (keeps 10% cash)
+Stop losses limit downside
+Circuit breaker prevents spirals
 
 ---
 
-## 💰 Small Account Analysis ($5,000 Starting Capital)
+## Small Account Analysis ($5,000 Starting Capital)
 
 ### Reality Check: Is $5,000 Viable?
 
@@ -82,7 +82,7 @@ Based on the same 89 trades over 8 years (3 strategies combined):
 - Railway hosting: $20/month × 12 = **$240/year**
 - **Total costs: $1,428/year**
 
-**Net profit:** $505 - $1,428 = **-$923/year LOSS** ❌
+**Net profit:** $505 - $1,428 = **-$923/year LOSS**
 
 **Verdict: NOT VIABLE**
 
@@ -94,7 +94,7 @@ Based on the same 89 trades over 8 years (3 strategies combined):
 **Annual gross profit:** $5,000 × 12% = **$600/year**
 
 **Costs:** $1,428/year
-**Net profit:** $600 - $1,428 = **-$828/year LOSS** ❌
+**Net profit:** $600 - $1,428 = **-$828/year LOSS**
 
 **Verdict: STILL NOT VIABLE**
 
@@ -106,13 +106,13 @@ Based on the same 89 trades over 8 years (3 strategies combined):
 **Annual gross profit:** $5,000 × 20% = **$1,000/year**
 
 **Costs:** $1,428/year
-**Net profit:** $1,000 - $1,428 = **-$428/year LOSS** ❌
+**Net profit:** $1,000 - $1,428 = **-$428/year LOSS**
 
 **Verdict: STILL LOSES MONEY**
 
 ---
 
-## 📊 Minimum Viable Capital
+## Minimum Viable Capital
 
 ### Break-Even Analysis
 
@@ -129,7 +129,7 @@ Based on the same 89 trades over 8 years (3 strategies combined):
 
 ---
 
-## 💡 Small Account Alternatives
+## Small Account Alternatives
 
 ### Option 1: Use Alpaca Free Tier
 
@@ -139,7 +139,7 @@ Based on the same 89 trades over 8 years (3 strategies combined):
 **With $5,000 capital at 30% sizing:**
 - Annual gross profit: $600/year
 - Costs: $240/year (Railway only)
-- **Net profit: $360/year** ✅
+- **Net profit: $360/year**
 
 **Still not great, but POSITIVE**
 
@@ -154,7 +154,7 @@ Based on the same 89 trades over 8 years (3 strategies combined):
 - Position size: $3,000 per trade
 - Annual gross profit: $1,200/year
 - Costs (free tier): $240/year
-- **Net profit: $960/year** ✅
+- **Net profit: $960/year**
 
 **Yearly return:** 9.6% net
 **Worth it?** Yes, getting reasonable
@@ -167,7 +167,7 @@ Based on the same 89 trades over 8 years (3 strategies combined):
 - Position size: $7,500 per trade
 - Annual gross profit: $3,000/year
 - Costs (premium): $1,428/year
-- **Net profit: $1,572/year** ✅
+- **Net profit: $1,572/year**
 
 **Yearly return:** 6.3% net
 **Worth it?** Yes, meaningful returns
@@ -176,9 +176,9 @@ Based on the same 89 trades over 8 years (3 strategies combined):
 
 ---
 
-## 🎯 Recommendations by Capital Level
+## Recommendations by Capital Level
 
-### $5,000 - $10,000: ⚠️ WAIT
+### $5,000 - $10,000: WAIT
 
 **Don't deploy yet:**
 - Costs eat all profits
@@ -192,7 +192,7 @@ Based on the same 89 trades over 8 years (3 strategies combined):
 
 ---
 
-### $10,000 - $15,000: ⚠️ MARGINAL
+### $10,000 - $15,000: MARGINAL
 
 **Use Alpaca FREE tier only:**
 - $0/month (delayed data fine for daily strategies)
@@ -206,7 +206,7 @@ Based on the same 89 trades over 8 years (3 strategies combined):
 
 ---
 
-### $15,000 - $25,000: ✅ VIABLE
+### $15,000 - $25,000: VIABLE
 
 **Use Alpaca FREE tier:**
 - 30% position sizing
@@ -221,7 +221,7 @@ Based on the same 89 trades over 8 years (3 strategies combined):
 
 ---
 
-### $25,000 - $50,000: ✅ GOOD
+### $25,000 - $50,000: GOOD
 
 **Use Alpaca Premium:**
 - 30% position sizing
@@ -231,7 +231,7 @@ Based on the same 89 trades over 8 years (3 strategies combined):
 
 ---
 
-### $50,000 - $100,000: ✅ EXCELLENT
+### $50,000 - $100,000: EXCELLENT
 
 **Use Alpaca Premium:**
 - 30% position sizing
@@ -241,7 +241,7 @@ Based on the same 89 trades over 8 years (3 strategies combined):
 
 ---
 
-### $100,000+: ✅ OPTIMAL
+### $100,000+: OPTIMAL
 
 **Use Alpaca Premium:**
 - 30% position sizing
@@ -256,7 +256,7 @@ Based on the same 89 trades over 8 years (3 strategies combined):
 
 ---
 
-## 🔥 Final Recommendations
+## Final Recommendations
 
 ### 1. **Position Size: 30%** (Not 25%)
 
@@ -266,7 +266,7 @@ Based on the same 89 trades over 8 years (3 strategies combined):
 - Better capital efficiency
 - $95,748 profit vs $79,790
 
-**Update configs to 30%** ✅
+**Update configs to 30%**
 
 ---
 
@@ -298,44 +298,44 @@ Based on the same 89 trades over 8 years (3 strategies combined):
 
 ---
 
-## 📊 Decision Matrix
+## Decision Matrix
 
 | Your Capital | Position Size | Use Premium? | Expected Net | Worth It? |
 |--------------|---------------|--------------|--------------|-----------|
-| $5,000 | 30% | No | -$428/yr | ❌ NO |
-| $5,000 | 30% | Free | $360/yr | ⚠️ Barely |
-| $10,000 | 30% | Free | $960/yr | ⚠️ Marginal |
-| $15,000 | 30% | Free | $1,440/yr | ✅ Yes |
-| $25,000 | 30% | Yes | $1,572/yr | ✅ Yes |
-| $50,000 | 30% | Yes | $4,572/yr | ✅ Great |
-| $100,000 | 30% | Yes | $10,572/yr | ✅ Excellent |
+| $5,000 | 30% | No | -$428/yr | NO |
+| $5,000 | 30% | Free | $360/yr | Barely |
+| $10,000 | 30% | Free | $960/yr | Marginal |
+| $15,000 | 30% | Free | $1,440/yr | Yes |
+| $25,000 | 30% | Yes | $1,572/yr | Yes |
+| $50,000 | 30% | Yes | $4,572/yr | Great |
+| $100,000 | 30% | Yes | $10,572/yr | Excellent |
 
 ---
 
-## 🎯 Your Next Steps
+## Your Next Steps
 
 **If you have $5,000:**
-1. ❌ Don't deploy yet
-2. ✅ Paper trade to learn
-3. ✅ Save $10-20k more
-4. ✅ Deploy when you have $15k+
+1. Don't deploy yet
+2. Paper trade to learn
+3. Save $10-20k more
+4. Deploy when you have $15k+
 
 **If you have $10,000:**
-1. ⚠️ Consider deploying with FREE tier
-2. ✅ Use 30% position sizing
-3. ✅ Expect ~$960/year
-4. ⚠️ Or save to $25k for better returns
+1. Consider deploying with FREE tier
+2. Use 30% position sizing
+3. Expect ~$960/year
+4. Or save to $25k for better returns
 
 **If you have $15,000+:**
-1. ✅ Deploy with FREE tier
-2. ✅ Use 30% position sizing
-3. ✅ Upgrade to Premium at $25k+
+1. Deploy with FREE tier
+2. Use 30% position sizing
+3. Upgrade to Premium at $25k+
 
 **If you have $50,000+:**
-1. ✅ Deploy NOW
-2. ✅ Use 30% position sizing
-3. ✅ Use Alpaca Premium
-4. ✅ Expect $4,500-10,500/year
+1. Deploy NOW
+2. Use 30% position sizing
+3. Use Alpaca Premium
+4. Expect $4,500-10,500/year
 
 ---
 

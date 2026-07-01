@@ -34,7 +34,7 @@ def check_environment():
     secret_key = os.getenv("ALPACA_SECRET_KEY")
 
     if not api_key or not secret_key:
-        print("❌ Error: Missing required environment variables")
+        print("Error: Missing required environment variables")
         print("")
         print("Please set:")
         print("  export ALPACA_API_KEY='your_key'")
@@ -62,7 +62,7 @@ def resolve_config_path(config_path: str) -> str:
     if os.path.exists(config_full_path):
         return config_full_path
 
-    print(f"❌ Error: Config file not found: {config_path}")
+        print(f"Error: Config file not found: {config_path}")
     print(f"   Looked in:")
     print(f"   - {os.path.abspath(config_path)}")
     print(f"   - {config_full_path}")
@@ -96,10 +96,10 @@ class LiveSignalMonitor:
 
             return config
         except json.JSONDecodeError as e:
-            print(f"❌ Error: Invalid JSON in config file: {e}")
+            print(f"Error: Invalid JSON in config file: {e}")
             sys.exit(1)
         except Exception as e:
-            print(f"❌ Error loading config: {e}")
+            print(f"Error loading config: {e}")
             sys.exit(1)
 
     def _get_timeframe(self) -> TimeFrame:
@@ -146,7 +146,7 @@ class LiveSignalMonitor:
                 if attempt == max_retries - 1:
                     raise
                 wait_time = 2 ** attempt
-                print(f"⚠️  API call failed, retrying in {wait_time}s... ({attempt+1}/{max_retries})")
+                print(f"API call failed, retrying in {wait_time}s... ({attempt+1}/{max_retries})")
                 time.sleep(wait_time)
 
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -320,10 +320,10 @@ class LiveSignalMonitor:
 
         signal = proximity['signal']
         signal_icon = {
-            'BUY': '🟢',
-            'SELL': '🔴',
-            'HOLD': '🟡'
-        }.get(signal, '⚪')
+            'BUY': '',
+            'SELL': '',
+            'HOLD': ''
+        }.get(signal, '')
 
         print(f"Signal: {signal_icon} {signal}")
         print(f"Strength: {proximity['signal_strength']:.1f}%")
@@ -343,9 +343,9 @@ class LiveSignalMonitor:
             print(f"Distance to SELL signal: {proximity['distance_to_sell']:.2f} points")
 
             if proximity['distance_to_buy'] > 0:
-                print(f"\n💡 Need RSI to drop {proximity['distance_to_buy']:.2f} points for BUY signal")
+                print(f"\n Need RSI to drop {proximity['distance_to_buy']:.2f} points for BUY signal")
             elif proximity['distance_to_sell'] > 0:
-                print(f"\n💡 Need RSI to rise {proximity['distance_to_sell']:.2f} points for SELL signal")
+                print(f"\n Need RSI to rise {proximity['distance_to_sell']:.2f} points for SELL signal")
 
         elif strategy_name == 'trend_adaptive_rsi':
             print("-" * 80)
@@ -370,11 +370,11 @@ class LiveSignalMonitor:
             print(f"Distance to BB Lower: ${proximity['distance_to_bb_lower']:.2f} ({proximity['distance_to_bb_lower_pct']:.2f}%)")
             print(f"Current RSI: {proximity['rsi']:.2f}")
             print()
-            print(f"BB Lower Touch: {'✅ YES' if proximity['bb_lower_touch'] else '❌ NO'}")
-            print(f"RSI Oversold: {'✅ YES' if proximity['rsi_oversold'] else '❌ NO'}")
+            print(f"BB Lower Touch: {'YES' if proximity['bb_lower_touch'] else 'NO'}")
+            print(f"RSI Oversold: {'YES' if proximity['rsi_oversold'] else 'NO'}")
 
             if not proximity['bb_lower_touch']:
-                print(f"\n💡 Need price to drop {proximity['distance_to_bb_lower_pct']:.2f}% to touch BB Lower")
+                print(f"\n Need price to drop {proximity['distance_to_bb_lower_pct']:.2f}% to touch BB Lower")
 
         elif 'ma_crossover' in strategy_name:
             print("-" * 80)
@@ -385,9 +385,9 @@ class LiveSignalMonitor:
             print(f"Distance: ${proximity['distance']:.2f} ({proximity['distance_pct']:.2f}%)")
 
             if proximity['distance'] > 0:
-                print("\n✅ Fast SMA above Slow SMA (Bullish)")
+                print("\n Fast SMA above Slow SMA (Bullish)")
             else:
-                print("\n❌ Fast SMA below Slow SMA (Bearish)")
+                print("\n Fast SMA below Slow SMA (Bearish)")
 
         print("=" * 80)
 
@@ -401,24 +401,24 @@ class LiveSignalMonitor:
                 try:
                     print("Fetching market data...", end='', flush=True)
                     df = self.fetch_current_data()
-                    print(" ✅")
+                    print("")
 
                     print("Calculating indicators...", end='', flush=True)
                     df = self.calculate_indicators(df)
-                    print(" ✅")
+                    print("")
 
                     proximity = self.get_signal_proximity(df)
                     self.display_status(proximity)
 
                     if proximity['signal'] != 'HOLD':
-                        print(f"\n🚨 ALERT: {proximity['signal']} SIGNAL DETECTED!")
+                        print(f"\n ALERT: {proximity['signal']} SIGNAL DETECTED!")
 
                     time.sleep(interval)
 
                 except KeyboardInterrupt:
                     raise
                 except Exception as e:
-                    print(f"\n⚠️  Error: {e}")
+                    print(f"\n Error: {e}")
                     print("Retrying in 30 seconds...")
                     time.sleep(30)
 
@@ -448,20 +448,20 @@ def main():
         else:
             print("Fetching market data...", end='', flush=True)
             df = monitor.fetch_current_data()
-            print(" ✅")
+            print("")
 
             print("Calculating indicators...", end='', flush=True)
             df = monitor.calculate_indicators(df)
-            print(" ✅")
+            print("")
 
             proximity = monitor.get_signal_proximity(df)
             monitor.display_status(proximity)
 
             if proximity['signal'] != 'HOLD':
-                print(f"\n🚨 {proximity['signal']} SIGNAL ACTIVE!")
+                print(f"\n {proximity['signal']} SIGNAL ACTIVE!")
 
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"Error: {e}")
         sys.exit(1)
 
 

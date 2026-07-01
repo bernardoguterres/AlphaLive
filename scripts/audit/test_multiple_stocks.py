@@ -157,7 +157,7 @@ def run_replay_for_stock(ticker):
         }
 
     except subprocess.TimeoutExpired:
-        print(f"⚠️  Timeout testing {ticker}")
+        print(f"Timeout testing {ticker}")
         return {
             "ticker": ticker,
             "trades": 0,
@@ -166,7 +166,7 @@ def run_replay_for_stock(ticker):
             "success": False
         }
     except Exception as e:
-        print(f"❌ Error testing {ticker}: {e}")
+        print(f"Error testing {ticker}: {e}")
         return {
             "ticker": ticker,
             "trades": 0,
@@ -192,16 +192,16 @@ def main():
 
     # Check environment
     if not os.environ.get("ALPACA_API_KEY"):
-        print("\n❌ Error: ALPACA_API_KEY not set")
+        print("\n Error: ALPACA_API_KEY not set")
         print("   export ALPACA_API_KEY='your_key'")
         sys.exit(1)
 
     if not os.environ.get("ALPACA_SECRET_KEY"):
-        print("\n❌ Error: ALPACA_SECRET_KEY not set")
+        print("\n Error: ALPACA_SECRET_KEY not set")
         print("   export ALPACA_SECRET_KEY='your_secret'")
         sys.exit(1)
 
-    print("\n✓ Environment configured")
+        print("\n Environment configured")
     print("\nStarting tests... (this may take 5-10 minutes)\n")
 
     # Test each stock
@@ -212,11 +212,11 @@ def main():
 
         # Show quick summary
         if result["success"]:
-            print(f"✓ {ticker}: {result['trades']} trades, "
+            print(f"{ticker}: {result['trades']} trades, "
                   f"{result['win_rate']:.1f}% win rate, "
                   f"${result['total_pnl']:,.2f} P&L")
         else:
-            print(f"✗ {ticker}: Failed to test")
+            print(f"{ticker}: Failed to test")
 
     # Final summary
     print("\n" + "="*80)
@@ -228,7 +228,7 @@ def main():
     successful_results = [r for r in results if r["success"]]
 
     for result in sorted(successful_results, key=lambda x: x["total_pnl"], reverse=True):
-        status = "✅" if result["total_pnl"] > 0 else "❌"
+        status = "" if result["total_pnl"] > 0 else ""
         print(f"{result['ticker']:<8} {result['trades']:<8} "
               f"{result['win_rate']:.1f}%{'':<8} "
               f"${result['total_pnl']:>12,.2f} {status}")
@@ -237,19 +237,19 @@ def main():
     if successful_results:
         best = max(successful_results, key=lambda x: x["total_pnl"])
         print("\n" + "="*80)
-        print(f"🏆 BEST PERFORMER: {best['ticker']}")
+        print(f"BEST PERFORMER: {best['ticker']}")
         print(f"   Total P&L: ${best['total_pnl']:,.2f}")
         print(f"   Win Rate: {best['win_rate']:.1f}%")
         print(f"   Trades: {best['trades']}")
         print("="*80)
 
-    print("\n💡 Recommendation:")
+        print("\n Recommendation:")
     profitable = [r for r in successful_results if r["total_pnl"] > 0]
     if len(profitable) >= len(successful_results) * 0.6:
-        print("   ✅ MA Crossover (10/20) looks promising!")
+        print("MA Crossover (10/20) looks promising!")
         print("   Consider testing with Post-COVID data (2022-2024) next.")
     else:
-        print("   ⚠️  Strategy underperformed on most stocks.")
+        print("Strategy underperformed on most stocks.")
         print("   Consider adjusting parameters in AlphaLab before live trading.")
 
 

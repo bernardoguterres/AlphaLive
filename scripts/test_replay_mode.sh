@@ -21,14 +21,14 @@ echo ""
 
 # Check if strategy config exists
 if [ ! -f "configs/ma_crossover_AAPL_2020-2024.json" ]; then
-    echo "❌ Error: Strategy config not found"
+    echo "Error: Strategy config not found"
     echo "   Please create configs/ma_crossover_AAPL_2020-2024.json first"
     exit 1
 fi
 
 # Check if environment variables are set
 if [ -z "$ALPACA_API_KEY" ] || [ -z "$ALPACA_SECRET_KEY" ]; then
-    echo "❌ Error: Alpaca API credentials not set"
+    echo "Error: Alpaca API credentials not set"
     echo ""
     echo "Please set environment variables:"
     echo "  export ALPACA_API_KEY='your_key_here'"
@@ -37,8 +37,8 @@ if [ -z "$ALPACA_API_KEY" ] || [ -z "$ALPACA_SECRET_KEY" ]; then
     exit 1
 fi
 
-echo "✓ Environment variables set"
-echo "✓ Strategy config found"
+echo "Environment variables set"
+echo "Strategy config found"
 echo ""
 
 # Ask user which period to test

@@ -119,14 +119,14 @@ Mini-Checkpoint: Signal Parity Verification
 
 Loaded fixture: 500 bars (AAPL 2022-2023)
 
-Testing ma_crossover... ✓ 47 signals, 0 mismatches
-Testing rsi_mean_reversion... ✓ 23 signals, 0 mismatches
-Testing momentum_breakout... ✓ 31 signals, 0 mismatches
-Testing bollinger_breakout... ✓ 19 signals, 0 mismatches
-Testing vwap_reversion... ✓ 28 signals, 0 mismatches
+Testing ma_crossover... 47 signals, 0 mismatches
+Testing rsi_mean_reversion... 23 signals, 0 mismatches
+Testing momentum_breakout... 31 signals, 0 mismatches
+Testing bollinger_breakout... 19 signals, 0 mismatches
+Testing vwap_reversion... 28 signals, 0 mismatches
 
 ==============================================================
-✅ PASS: All strategies match. Proceed to B5.
+PASS: All strategies match. Proceed to B5.
 ==============================================================
 ```
 

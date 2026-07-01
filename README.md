@@ -93,9 +93,9 @@ AlphaLive can run **locally on your computer** (FREE) or **on Railway** (~$5-20/
 ### Running Locally
 
 **Best for**:
-- ✅ Testing (dry run, paper trading)
-- ✅ Saving money (~$5-20/month)
-- ✅ Full control over environment
+- Testing (dry run, paper trading)
+- Saving money (~$5-20/month)
+- Full control over environment
 
 **Requirements**:
 - Your computer must be **ON 24/7** during trading hours (9:30 AM - 4:00 PM ET)
@@ -103,10 +103,10 @@ AlphaLive can run **locally on your computer** (FREE) or **on Railway** (~$5-20/
 - No sleep/hibernate during trading hours
 
 **Risks**:
-- ❌ Power outage = missed trades
-- ❌ Computer restart = bot stops until you manually restart it
-- ❌ Internet outage = no trading
-- ❌ You must be available to restart bot if it crashes
+- Power outage = missed trades
+- Computer restart = bot stops until you manually restart it
+- Internet outage = no trading
+- You must be available to restart bot if it crashes
 
 **How to run locally**:
 ```bash
@@ -126,10 +126,10 @@ pkill -f "run.py"
 ### Running on Railway (Recommended for Live Trading)
 
 **Best for**:
-- ✅ Live trading with real money
-- ✅ 24/7 reliability (professional infrastructure)
-- ✅ Auto-restart on crashes
-- ✅ Deploy updates from anywhere (git push)
+- Live trading with real money
+- 24/7 reliability (professional infrastructure)
+- Auto-restart on crashes
+- Deploy updates from anywhere (git push)
 
 **Benefits**:
 - Bot runs even when your computer is off
@@ -338,10 +338,10 @@ AlphaLive is a production-grade trading bot with:
    ```
 
    This tests:
-   - ✅ Strategy JSON is valid
-   - ✅ Alpaca connection works
-   - ✅ Market data fetch works
-   - ✅ Signal generation works
+- Strategy JSON is valid
+- Alpaca connection works
+- Market data fetch works
+- Signal generation works
 
 6. **Run in dry-run mode** (recommended for testing):
    ```bash
@@ -388,10 +388,10 @@ python run.py \
 ```
 
 **What you get:**
-- ✅ Test on 5-9 years of historical data (100% FREE)
-- ✅ See signals, trades, P&L, win rate
-- ✅ Verify strategy works before upgrading to premium
-- ✅ Smart defaults avoid COVID-19 market anomalies
+- Test on 5-9 years of historical data (100% FREE)
+- See signals, trades, P&L, win rate
+- Verify strategy works before upgrading to premium
+- Smart defaults avoid COVID-19 market anomalies
 
 **Recommended testing:**
 1. **Pre-COVID** (2015-2019): 5 years of normal markets
@@ -496,7 +496,7 @@ HEALTH_SECRET=$(openssl rand -hex 16) # generate a random string
 
 **Expected startup log**:
 ```
-✅ ALL VALIDATIONS PASSED
+ALL VALIDATIONS PASSED
 Market is closed — sleeping until 9:30 AM ET
 ```
 
@@ -626,9 +626,9 @@ AlphaLive has multiple layers of protection:
 When you switch to live trading (`ALPACA_PAPER=false`), you'll see:
 
 ```
-⚠️  ⚠️  ⚠️  WARNING ⚠️  ⚠️  ⚠️
-⚠️  LIVE TRADING MODE — REAL MONEY AT RISK  ⚠️
-⚠️  ⚠️  ⚠️  WARNING ⚠️  ⚠️  ⚠️
+WARNING
+LIVE TRADING MODE — REAL MONEY AT RISK
+WARNING
 ```
 
 **Recommendation**: Run on paper for at least 1 week before switching to live.
@@ -639,7 +639,7 @@ When you switch to live trading (`ALPACA_PAPER=false`), you'll see:
 
 AlphaLive supports 8 strategies exported from AlphaLab.
 
-> ⚠️ **Performance reality check:** Walk-forward testing shows all 7 validated daily/intraday strategies underperform buy-and-hold SPY (~0.5% vs 13.7% CAGR). Do not go live with daily strategies until walk-forward Sharpe > 0.8 and CAGR > 13%. The `greenblatt_weekly` strategy is the current development focus.
+> **Performance reality check:** Walk-forward testing shows all 7 validated daily/intraday strategies underperform buy-and-hold SPY (~0.5% vs 13.7% CAGR). Do not go live with daily strategies until walk-forward Sharpe > 0.8 and CAGR > 13%. The `greenblatt_weekly` strategy is the current development focus.
 
 ### 1. MA Crossover
 **Description**: Buy when fast SMA crosses above slow SMA, sell when it crosses below.
@@ -713,7 +713,7 @@ AlphaLive supports 8 strategies exported from AlphaLab.
 
 **Best For**: High-precision entries, 15Min or Daily timeframes (1-3 signals/day)
 
-> ⚠️ Win rate and Sharpe figures removed — not walk-forward validated.
+> Win rate and Sharpe figures removed — not walk-forward validated.
 
 ---
 
@@ -730,7 +730,7 @@ AlphaLive supports 8 strategies exported from AlphaLab.
 
 **Best For**: Adaptive to changing markets, 1Hour timeframes (1-2 signals/day)
 
-> ⚠️ Win rate and Sharpe figures removed — not walk-forward validated.
+> Win rate and Sharpe figures removed — not walk-forward validated.
 
 ---
 
@@ -766,7 +766,7 @@ AlphaLive includes **5 production-ready strategy configs** in `configs/productio
 | `rsi_mean_reversion_SPY_RELAXED.json` | RSI Mean Reversion | SPY | Daily | Not walk-forward validated |
 | `ma_crossover_AAPL_FAST.json` | MA Crossover | AAPL | Daily | Not walk-forward validated |
 
-> ⚠️ **None of these configs have passed walk-forward validation.** All daily/intraday strategies underperform buy-and-hold SPY in out-of-sample testing. Run `walk_forward_validation.py` in AlphaLab before deploying any config with real money.
+> **None of these configs have passed walk-forward validation.** All daily/intraday strategies underperform buy-and-hold SPY in out-of-sample testing. Run `walk_forward_validation.py` in AlphaLab before deploying any config with real money.
 
 ---
 
@@ -794,13 +794,13 @@ AlphaLive can run **multiple strategies simultaneously** by loading all JSONs fr
 
 When configured, you'll receive:
 
-- **Bot Started**: "🚀 AlphaLive Started" with strategy details
-- **Trade Executed**: "🟢 BUY 66 AAPL @ $150.00"
-- **Position Closed**: "💰 Position Closed — P&L: $495.00 (+5.00%)"
-- **Stop Loss Hit**: "🛑 Stop loss triggered — AAPL -$300.00"
-- **Daily Summary**: "📈 Daily Summary — 5 trades, $450 profit, 60% win rate"
-- **Error Alerts**: "⚠️ Alpaca API timeout"
-- **Circuit Breaker**: "⚠️ 3 consecutive losses — trading paused"
+- **Bot Started**: "AlphaLive Started"with strategy details
+- **Trade Executed**: "BUY 66 AAPL @ $150.00"
+- **Position Closed**: "Position Closed — P&L: $495.00 (+5.00%)"
+- **Stop Loss Hit**: "Stop loss triggered — AAPL -$300.00"
+- **Daily Summary**: "Daily Summary — 5 trades, $450 profit, 60% win rate"
+- **Error Alerts**: "Alpaca API timeout"
+- **Circuit Breaker**: "3 consecutive losses — trading paused"
 
 **Graceful Degradation**: If Telegram fails, trading continues (alerts are lost but trades still execute).
 
@@ -948,12 +948,12 @@ python scripts/automated_weekly_report.py --save-only --output-dir reports/
 ---
 
 **All scripts include:**
-- ✅ Environment variable validation with helpful errors
-- ✅ Config path resolution (works from any directory)
-- ✅ Retry logic for API calls (3 attempts, exponential backoff)
-- ✅ Progress indicators for long operations
-- ✅ `--version` flag for tracking
-- ✅ Full error tracebacks for debugging
+- Environment variable validation with helpful errors
+- Config path resolution (works from any directory)
+- Retry logic for API calls (3 attempts, exponential backoff)
+- Progress indicators for long operations
+- `--version` flag for tracking
+- Full error tracebacks for debugging
 
 ---
 

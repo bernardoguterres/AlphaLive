@@ -526,7 +526,7 @@ class AlpacaBroker(BaseBroker):
                 df.index = df.index.tz_convert(ET)
 
             logger.info(
-                f"✓ Loaded {len(df)} bars for {symbol} "
+                f"Loaded {len(df)} bars for {symbol} "
                 f"(first: {df.index[0].strftime('%Y-%m-%d')}, "
                 f"last: {df.index[-1].strftime('%Y-%m-%d')})"
             )
