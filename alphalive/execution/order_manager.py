@@ -16,6 +16,8 @@ from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from alpaca.common.exceptions import APIError as AlpacaAPIError
+
 from alphalive.broker.base_broker import BaseBroker
 from alphalive.execution.risk_manager import RiskManager
 from alphalive.strategy_schema import StrategySchema
@@ -45,7 +47,7 @@ class OrderManager:
         risk_manager: RiskManager,
         config: StrategySchema,
         notifier=None,
-        dry_run: bool = False
+        dry_run: bool = False,
     ):
         """
         Initialize order manager.
@@ -85,7 +87,7 @@ class OrderManager:
         account_equity: float,
         current_positions_count: int,
         total_portfolio_positions: int,
-        current_bar: Optional[int] = None
+        current_bar: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Execute a BUY or SELL signal.
@@ -113,7 +115,10 @@ class OrderManager:
 
         if signal_action not in ["BUY", "SELL"]:
             logger.debug(f"Ignoring non-actionable signal: {signal_action}")
-            return {"status": "blocked", "reason": f"Non-actionable signal: {signal_action}"}
+            return {
+                "status": "blocked",
+                "reason": f"Non-actionable signal: {signal_action}",
+            }
 
         # 1. RISK CHECK
         can_trade, reason = self.risk.can_trade(
@@ -122,7 +127,7 @@ class OrderManager:
             account_equity=account_equity,
             current_positions_count=current_positions_count,
             total_portfolio_positions=total_portfolio_positions,
-            current_bar=current_bar
+            current_bar=current_bar,
         )
 
         if not can_trade:
@@ -139,14 +144,12 @@ class OrderManager:
             )
             return {
                 "status": "blocked",
-                "reason": f"Duplicate prevention: order placed {recent_order['age_seconds']:.0f}s ago"
+                "reason": f"Duplicate prevention: order placed {recent_order['age_seconds']:.0f}s ago",
             }
 
         # 2b. IDEMPOTENCY KEY GENERATION
         idempotency_key = self._generate_idempotency_key(
-            ticker,
-            signal_action.lower(),
-            datetime.now(ET)
+            ticker, signal_action.lower(), datetime.now(ET)
         )
         logger.info(f"Using idempotency key: {idempotency_key}")
 
@@ -155,13 +158,13 @@ class OrderManager:
             ticker=ticker,
             signal=signal_action,
             current_price=current_price,
-            account_equity=account_equity
+            account_equity=account_equity,
         )
 
         if qty == 0:
             return {
                 "status": "blocked",
-                "reason": "Position size = 0 (below min or exceeds limit)"
+                "reason": "Position size = 0 (below min or exceeds limit)",
             }
 
         # 4. DRY RUN CHECK
@@ -175,7 +178,7 @@ class OrderManager:
                 "order_id": f"DRY_RUN_{idempotency_key}",
                 "filled_qty": qty,
                 "filled_price": current_price,
-                "slippage_pct": 0.0
+                "slippage_pct": 0.0,
             }
 
         # 5. ORDER TYPE SELECTION & PLACEMENT WITH RETRY
@@ -185,34 +188,34 @@ class OrderManager:
             if order_type == "market":
                 result = self._place_with_retry(
                     lambda: self.broker.place_market_order(
-                        symbol=ticker,
-                        qty=qty,
-                        side=signal_action.lower()
+                        symbol=ticker, qty=qty, side=signal_action.lower()
                     ),
                     ticker=ticker,
-                    max_retries=3
+                    max_retries=3,
                 )
             else:  # limit
                 limit_price = self._calculate_limit_price(
-                    current_price,
-                    signal_action,
-                    self.config.execution.limit_offset_pct
+                    current_price, signal_action, self.config.execution.limit_offset_pct
                 )
                 result = self._place_with_retry(
                     lambda: self.broker.place_limit_order(
                         symbol=ticker,
                         qty=qty,
                         side=signal_action.lower(),
-                        limit_price=limit_price
+                        limit_price=limit_price,
                     ),
                     ticker=ticker,
-                    max_retries=3
+                    max_retries=3,
                 )
 
             # Extract order details
             order_id = result.id
             filled_qty = float(result.filled_qty) if result.filled_qty else qty
-            filled_price = float(result.filled_avg_price) if result.filled_avg_price else current_price
+            filled_price = (
+                float(result.filled_avg_price)
+                if result.filled_avg_price
+                else current_price
+            )
 
             # 6. SLIPPAGE CHECK
             expected_cost = current_price * qty
@@ -265,7 +268,7 @@ class OrderManager:
                 "order_id": order_id,
                 "filled_qty": filled_qty,
                 "filled_price": filled_price,
-                "slippage_pct": slippage_pct
+                "slippage_pct": slippage_pct,
             }
 
         except Exception as e:
@@ -280,40 +283,41 @@ class OrderManager:
         self,
         order_func,
         ticker: str,
-        max_retries: int = 3
+        max_retries: int = 3,
     ):
         """
         Place order with exponential backoff retry.
 
-        Handles specific Alpaca rejection codes:
-        - 403 "insufficient buying power" → No retry
-        - 422 "market is closed" → No retry (critical error)
-        - 403 "symbol not found" → No retry (halt bot)
-        - 429 "rate limited" → Retry with exponential backoff
-        - Network errors (timeout, connection) → Retry
-        - 400 "client_order_id already exists" → Success (idempotency)
+        Routes on HTTP status code (AlpacaAPIError.status_code), not error strings:
+        - 403 Forbidden          → no retry (insufficient buying power)
+        - 409 Conflict           → no retry (duplicate client_order_id; idempotency OK)
+        - 422 Unprocessable      → no retry; sub-case by message (market closed / bad symbol)
+        - 429 Too Many Requests  → retry with 4s/8s/16s backoff
+        - 5xx / unknown 4xx      → retry with 2s/4s/8s backoff
+        - Non-API exceptions     → retry with 2s/4s/8s backoff (network, timeout)
 
         Args:
-            order_func: Function that places the order
-            ticker: Ticker symbol (for error messages)
-            max_retries: Maximum retry attempts
+            order_func: Zero-argument callable that places the order.
+            ticker: Ticker symbol (for error messages).
+            max_retries: Maximum retry attempts.
 
         Returns:
-            Order object from broker
+            Order object from broker.
 
         Raises:
-            Exception if all retries exhausted or fatal error
+            Exception if all retries exhausted or a fatal (non-retryable) error occurs.
         """
         for attempt in range(1, max_retries + 1):
             try:
                 return order_func()
 
-            except Exception as e:
-                error_str = str(e).lower()
+            except AlpacaAPIError as e:
+                status = e.status_code
 
-                # CASE 1: Insufficient buying power — DO NOT RETRY
-                if "insufficient" in error_str or "buying power" in error_str:
-                    logger.error(f"❌ ORDER REJECTED: Insufficient buying power for {ticker}")
+                if status == 403:
+                    logger.error(
+                        f"ORDER REJECTED (403): Insufficient buying power for {ticker}"
+                    )
                     if self.notifier:
                         self.notifier.send_alert(
                             f"❌ INSUFFICIENT BUYING POWER\n"
@@ -322,87 +326,87 @@ class OrderManager:
                         )
                     raise ValueError("Insufficient buying power")
 
-                # CASE 2: Market closed — DO NOT RETRY (should never happen)
-                if "market" in error_str and "closed" in error_str:
-                    logger.critical(
-                        f"❌ CRITICAL: Order attempted while market closed for {ticker}. "
-                        f"is_market_open() check failed!"
-                    )
-                    if self.notifier:
-                        self.notifier.send_alert(
-                            f"🚨 CRITICAL BUG: Order attempted while market closed.\n"
-                            f"Ticker: {ticker}\n"
-                            f"Check is_market_open() logic immediately."
-                        )
-                    raise RuntimeError("Market closed (bot logic error)")
-
-                # CASE 3: Symbol not found — DO NOT RETRY (config error)
-                if "symbol" in error_str and ("not found" in error_str or "invalid" in error_str):
-                    logger.critical(
-                        f"❌ CRITICAL: Invalid symbol {ticker} in strategy config. "
-                        f"Halting bot."
-                    )
-                    if self.notifier:
-                        self.notifier.send_alert(
-                            f"🚨 CRITICAL CONFIG ERROR\n"
-                            f"Invalid ticker: {ticker}\n"
-                            f"Fix strategy config and redeploy.\n"
-                            f"⛔ Trading halted."
-                        )
-                    # Auto-halt trading
-                    os.environ["TRADING_PAUSED"] = "true"
-                    raise ValueError(f"Invalid symbol: {ticker}")
-
-                # CASE 4: Duplicate client_order_id — Idempotency working (success)
-                if "client_order_id" in error_str and "already exists" in error_str:
+                if status == 409:
                     logger.info(
-                        f"Idempotency: client_order_id already exists for {ticker}. "
-                        f"Order was already placed (likely by previous attempt). Not an error."
+                        f"Idempotency: duplicate client_order_id for {ticker}. "
+                        f"Order was already placed by a previous attempt. Not an error."
                     )
-                    # Try to fetch the existing order details from broker
-                    # For now, re-raise to caller can handle
                     raise
 
-                # CASE 5: Rate limit — RETRY with backoff
-                if "rate" in error_str or "429" in error_str:
-                    logger.warning(f"Rate limited on order for {ticker}. Retrying...")
-                    if attempt < max_retries:
-                        wait_time = (2 ** attempt) * 2  # 4s, 8s, 16s
-                        logger.info(f"Waiting {wait_time}s before retry...")
-                        time.sleep(wait_time)
-                        continue
-                    else:
-                        logger.error(f"Rate limit retries exhausted for {ticker}")
-                        raise
-
-                # CASE 6: Network/timeout errors — RETRY
-                if "timeout" in error_str or "connection" in error_str:
-                    logger.warning(f"Network error on order for {ticker}: {e}")
-                    if attempt < max_retries:
-                        wait_time = 2 ** attempt  # 2s, 4s, 8s
-                        logger.warning(
-                            f"Order placement failed (attempt {attempt}/{max_retries}): {e}. "
-                            f"Retrying in {wait_time}s..."
+                if status == 422:
+                    # Two distinct 422 sub-cases share this status code; minimal string
+                    # check is the only way to distinguish them.
+                    error_str = str(e).lower()
+                    if "closed" in error_str:
+                        logger.critical(
+                            f"CRITICAL: Order attempted while market closed for {ticker}. "
+                            f"is_market_open() check failed!"
                         )
+                        if self.notifier:
+                            self.notifier.send_alert(
+                                f"🚨 CRITICAL BUG: Order attempted while market closed.\n"
+                                f"Ticker: {ticker}\n"
+                                f"Check is_market_open() logic immediately."
+                            )
+                        raise RuntimeError("Market closed (bot logic error)")
+                    if "symbol" in error_str or "unknown" in error_str:
+                        logger.critical(
+                            f"CRITICAL: Invalid symbol {ticker} in strategy config. "
+                            f"Halting bot."
+                        )
+                        if self.notifier:
+                            self.notifier.send_alert(
+                                f"🚨 CRITICAL CONFIG ERROR\n"
+                                f"Invalid ticker: {ticker}\n"
+                                f"Fix strategy config and redeploy.\n"
+                                f"⛔ Trading halted."
+                            )
+                        os.environ["TRADING_PAUSED"] = "true"
+                        raise ValueError(f"Invalid symbol: {ticker}")
+                    # Other 422 (invalid quantity, bad params) — no retry
+                    logger.error(f"ORDER REJECTED (422): {ticker} — {e}")
+                    raise
+
+                if status == 429:
+                    wait_time = (2**attempt) * 2  # 4s, 8s, 16s
+                    logger.warning(
+                        f"Rate limited on order for {ticker}. "
+                        f"Retrying in {wait_time}s..."
+                    )
+                    if attempt < max_retries:
                         time.sleep(wait_time)
                         continue
-                    else:
-                        logger.error(f"All {max_retries} retry attempts exhausted for {ticker}")
-                        raise
+                    logger.error(f"Rate limit retries exhausted for {ticker}")
+                    raise
 
-                # CASE 7: Unknown error — RETRY (generic fallback)
+                # Any other API error (5xx, unknown 4xx) — retry with backoff
+                if attempt < max_retries:
+                    wait_time = 2**attempt  # 2s, 4s, 8s
+                    logger.warning(
+                        f"API error on {ticker} (attempt {attempt}/{max_retries}, "
+                        f"HTTP {status}): {e}. Retrying in {wait_time}s..."
+                    )
+                    time.sleep(wait_time)
                 else:
-                    if attempt < max_retries:
-                        wait_time = 2 ** attempt  # 2s, 4s, 8s
-                        logger.warning(
-                            f"Order placement failed (attempt {attempt}/{max_retries}): {e}. "
-                            f"Retrying in {wait_time}s..."
-                        )
-                        time.sleep(wait_time)
-                        continue
-                    else:
-                        logger.error(f"All {max_retries} retry attempts exhausted for {ticker}")
-                        raise
+                    logger.error(
+                        f"All {max_retries} retry attempts exhausted for {ticker}"
+                    )
+                    raise
+
+            except Exception as e:
+                # Non-API errors: network timeout, connection reset, etc.
+                if attempt < max_retries:
+                    wait_time = 2**attempt  # 2s, 4s, 8s
+                    logger.warning(
+                        f"Order placement failed (attempt {attempt}/{max_retries}): {e}. "
+                        f"Retrying in {wait_time}s..."
+                    )
+                    time.sleep(wait_time)
+                else:
+                    logger.error(
+                        f"All {max_retries} retry attempts exhausted for {ticker}"
+                    )
+                    raise
 
     def _check_recent_order(self, ticker: str, side: str) -> Optional[Dict[str, Any]]:
         """
@@ -435,10 +439,7 @@ class OrderManager:
         return None
 
     def _generate_idempotency_key(
-        self,
-        ticker: str,
-        side: str,
-        signal_timestamp: datetime
+        self, ticker: str, side: str, signal_timestamp: datetime
     ) -> str:
         """
         Generate idempotency key for order.
@@ -463,10 +464,7 @@ class OrderManager:
         return f"{ticker}_{side}_{signal_timestamp.strftime('%Y%m%d_%H%M%S')}"
 
     def _calculate_limit_price(
-        self,
-        current_price: float,
-        side: str,
-        offset_pct: float
+        self, current_price: float, side: str, offset_pct: float
     ) -> float:
         """
         Calculate limit price with offset.
@@ -488,9 +486,7 @@ class OrderManager:
             return current_price * (1 - offset_pct / 100)
 
     def check_exits(
-        self,
-        positions: List[Dict[str, Any]],
-        current_prices: Dict[str, float]
+        self, positions: List[Dict[str, Any]], current_prices: Dict[str, float]
     ) -> List[Dict[str, Any]]:
         """
         Check all open positions for exit conditions.
@@ -525,32 +521,36 @@ class OrderManager:
             if self.risk.check_stop_loss(
                 entry_price=pos["avg_entry"],
                 current_price=current_price,
-                side=pos["side"]
+                side=pos["side"],
             ):
-                exits.append({
-                    "ticker": ticker,
-                    "reason": (
-                        f"Stop loss hit (entry ${pos['avg_entry']:.2f}, "
-                        f"now ${current_price:.2f})"
-                    ),
-                    "current_price": current_price
-                })
+                exits.append(
+                    {
+                        "ticker": ticker,
+                        "reason": (
+                            f"Stop loss hit (entry ${pos['avg_entry']:.2f}, "
+                            f"now ${current_price:.2f})"
+                        ),
+                        "current_price": current_price,
+                    }
+                )
                 continue
 
             # Take profit check
             if self.risk.check_take_profit(
                 entry_price=pos["avg_entry"],
                 current_price=current_price,
-                side=pos["side"]
+                side=pos["side"],
             ):
-                exits.append({
-                    "ticker": ticker,
-                    "reason": (
-                        f"Take profit hit (entry ${pos['avg_entry']:.2f}, "
-                        f"now ${current_price:.2f})"
-                    ),
-                    "current_price": current_price
-                })
+                exits.append(
+                    {
+                        "ticker": ticker,
+                        "reason": (
+                            f"Take profit hit (entry ${pos['avg_entry']:.2f}, "
+                            f"now ${current_price:.2f})"
+                        ),
+                        "current_price": current_price,
+                    }
+                )
                 continue
 
             # Trailing stop check (if enabled)
@@ -560,24 +560,22 @@ class OrderManager:
                     entry_price=pos["avg_entry"],
                     highest_since_entry=highest,
                     current_price=current_price,
-                    side=pos["side"]
+                    side=pos["side"],
                 ):
-                    exits.append({
-                        "ticker": ticker,
-                        "reason": (
-                            f"Trailing stop hit (high ${highest:.2f}, "
-                            f"now ${current_price:.2f})"
-                        ),
-                        "current_price": current_price
-                    })
+                    exits.append(
+                        {
+                            "ticker": ticker,
+                            "reason": (
+                                f"Trailing stop hit (high ${highest:.2f}, "
+                                f"now ${current_price:.2f})"
+                            ),
+                            "current_price": current_price,
+                        }
+                    )
 
         return exits
 
-    def close_position(
-        self,
-        ticker: str,
-        reason: str
-    ) -> Dict[str, Any]:
+    def close_position(self, ticker: str, reason: str) -> Dict[str, Any]:
         """
         Close an entire position.
 
@@ -590,7 +588,9 @@ class OrderManager:
         """
         try:
             if self.dry_run:
-                logger.info(f"[DRY RUN] Would close position: {ticker} | Reason: {reason}")
+                logger.info(
+                    f"[DRY RUN] Would close position: {ticker} | Reason: {reason}"
+                )
                 return {"status": "success", "reason": "Dry run"}
 
             # Use broker's close_position method
@@ -602,11 +602,7 @@ class OrderManager:
                 f"Reason: {reason}"
             )
 
-            return {
-                "status": "success",
-                "order_id": order.id,
-                "reason": reason
-            }
+            return {"status": "success", "order_id": order.id, "reason": reason}
 
         except Exception as e:
             logger.error(f"Failed to close position {ticker}: {e}", exc_info=True)
@@ -631,7 +627,9 @@ class OrderManager:
 
         Call at start of each trading day.
         """
-        logger.info(f"OrderManager daily reset | Orders today: {len(self.order_history)}")
+        logger.info(
+            f"OrderManager daily reset | Orders today: {len(self.order_history)}"
+        )
         self.order_history = []
         self.pending_orders = {}
         self._recent_order_index = {}
