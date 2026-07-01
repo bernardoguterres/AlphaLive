@@ -26,25 +26,28 @@ logger = logging.getLogger(__name__)
 # Pydantic Configuration Models
 # =============================================================================
 
+
 class BrokerConfig(BaseModel):
     """Broker API configuration."""
+
     api_key: str = Field(..., description="Alpaca API key")
     secret_key: str = Field(..., description="Alpaca secret key")
     paper: bool = Field(default=True, description="Use paper trading")
     base_url: Optional[str] = Field(
         default=None,
-        description="Custom base URL (auto-set based on paper flag if None)"
+        description="Custom base URL (auto-set based on paper flag if None)",
     )
 
     def model_post_init(self, __context):
         """Set base_url based on paper flag if not provided."""
         if self.base_url is None:
             self.base_url = (
-                "https://paper-api.alpaca.markets" if self.paper
+                "https://paper-api.alpaca.markets"
+                if self.paper
                 else "https://api.alpaca.markets"
             )
 
-    @field_validator('api_key', 'secret_key')
+    @field_validator("api_key", "secret_key")
     @classmethod
     def validate_not_empty(cls, v: str) -> str:
         """Ensure API keys are not empty."""
@@ -67,6 +70,7 @@ class BrokerConfig(BaseModel):
 
 class TelegramConfig(BaseModel):
     """Telegram notification configuration."""
+
     bot_token: Optional[str] = Field(default=None, description="Telegram bot token")
     chat_id: Optional[str] = Field(default=None, description="Telegram chat ID")
     enabled: bool = Field(default=False, description="Enable notifications")
@@ -151,6 +155,7 @@ class DeepLOBConfig(BaseModel):
 
 class AppConfig(BaseModel):
     """Application-level configuration."""
+
     broker: BrokerConfig = Field(..., description="Broker configuration")
     telegram: TelegramConfig = Field(..., description="Telegram configuration")
     alphasignal: AlphaSignalConfig = Field(
@@ -165,17 +170,15 @@ class AppConfig(BaseModel):
     dry_run: bool = Field(default=False, description="Dry run mode (no real trades)")
     trading_paused: bool = Field(default=False, description="Pause all trading")
     state_file: str = Field(
-        default="/tmp/alphalive_state.json",
-        description="State persistence file path"
+        default="/tmp/alphalive_state.json", description="State persistence file path"
     )
     health_port: int = Field(default=8080, description="Health check HTTP port")
     health_secret: str = Field(default="", description="Health check secret token")
     persistent_storage: bool = Field(
-        default=False,
-        description="Enable persistent storage (Railway volumes)"
+        default=False, description="Enable persistent storage (Railway volumes)"
     )
 
-    @field_validator('log_level')
+    @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, v: str) -> str:
         """Validate log level."""
@@ -189,6 +192,7 @@ class AppConfig(BaseModel):
 # =============================================================================
 # Strategy Loading Functions
 # =============================================================================
+
 
 def load_strategy(path: str) -> StrategySchema:
     """
@@ -224,7 +228,9 @@ def load_strategy(path: str) -> StrategySchema:
         with open(config_path, "r") as f:
             config_dict = json.load(f)
 
-        logger.debug(f"Loaded JSON with schema version: {config_dict.get('schema_version', 'unknown')}")
+        logger.debug(
+            f"Loaded JSON with schema version: {config_dict.get('schema_version', 'unknown')}"
+        )
 
         # Apply migrations (backward compatibility)
         migrated_config = migrate_schema(config_dict)
@@ -247,7 +253,7 @@ def load_strategy(path: str) -> StrategySchema:
         logger.error(f"Schema validation failed for {config_path}")
         # Log detailed validation errors
         for error in e.errors():
-            field = " -> ".join(str(loc) for loc in error['loc'])
+            field = " -> ".join(str(loc) for loc in error["loc"])
             logger.error(f"  ✗ {field}: {error['msg']}")
         raise
     except Exception as e:
@@ -369,6 +375,7 @@ def load_config_path(path: str) -> List[StrategySchema]:
 # Environment Variable Loading
 # =============================================================================
 
+
 def load_env() -> AppConfig:
     """
     Load application configuration from environment variables.
@@ -433,13 +440,12 @@ def load_env() -> AppConfig:
         api_key=os.getenv("ALPACA_API_KEY"),
         secret_key=os.getenv("ALPACA_SECRET_KEY"),
         paper=parse_bool(os.getenv("ALPACA_PAPER", "true")),
-        base_url=os.getenv("ALPACA_BASE_URL")  # None if not set
+        base_url=os.getenv("ALPACA_BASE_URL"),  # None if not set
     )
 
     # Build telegram config
     telegram_config = TelegramConfig(
-        bot_token=os.getenv("TELEGRAM_BOT_TOKEN"),
-        chat_id=os.getenv("TELEGRAM_CHAT_ID")
+        bot_token=os.getenv("TELEGRAM_BOT_TOKEN"), chat_id=os.getenv("TELEGRAM_CHAT_ID")
     )
 
     # Build AlphaSignal config
@@ -471,14 +477,16 @@ def load_env() -> AppConfig:
         state_file=os.getenv("STATE_FILE", "/tmp/alphalive_state.json"),
         health_port=int(os.getenv("HEALTH_PORT", "8080")),
         health_secret=os.getenv("HEALTH_SECRET", ""),
-        persistent_storage=parse_bool(os.getenv("PERSISTENT_STORAGE", "false"))
+        persistent_storage=parse_bool(os.getenv("PERSISTENT_STORAGE", "false")),
     )
 
     # Log configuration (with masked API keys)
     logger.info("Application configuration loaded")
     logger.debug(f"  Broker API Key: {broker_config.mask_api_key()}")
     logger.debug(f"  Broker Secret Key: {broker_config.mask_secret_key()}")
-    logger.debug(f"  Broker Mode: {'Paper Trading' if broker_config.paper else 'Live Trading'}")
+    logger.debug(
+        f"  Broker Mode: {'Paper Trading' if broker_config.paper else 'Live Trading'}"
+    )
     logger.debug(f"  Telegram: {'Enabled' if telegram_config.enabled else 'Disabled'}")
     logger.debug(f"  Log Level: {app_config.log_level}")
     logger.debug(f"  Dry Run: {app_config.dry_run}")
@@ -498,6 +506,7 @@ def load_env() -> AppConfig:
 # =============================================================================
 # Validation and Summary
 # =============================================================================
+
 
 def validate_all(strategies: List[StrategySchema], app_config: AppConfig) -> bool:
     """
@@ -550,7 +559,11 @@ def validate_all(strategies: List[StrategySchema], app_config: AppConfig) -> boo
     # Validate telegram
     logger.info(f"\nNOTIFICATIONS:")
     if app_config.telegram.enabled:
-        chat_id_masked = f"...{app_config.telegram.chat_id[-4:]}" if app_config.telegram.chat_id else "None"
+        chat_id_masked = (
+            f"...{app_config.telegram.chat_id[-4:]}"
+            if app_config.telegram.chat_id
+            else "None"
+        )
         logger.info(f"  ✅ Telegram: Configured (chat: {chat_id_masked})")
     else:
         logger.warning(f"  ⚠️  Telegram: Disabled (no bot_token or chat_id)")
@@ -562,16 +575,24 @@ def validate_all(strategies: List[StrategySchema], app_config: AppConfig) -> boo
         logger.info(f"  ✅ Stop Loss: {risk.stop_loss_pct}%")
         logger.info(f"  ✅ Take Profit: {risk.take_profit_pct}%")
         logger.info(f"  ✅ Max Position Size: {risk.max_position_size_pct}%")
-        logger.info(f"  ✅ Max Daily Loss: {risk.max_daily_loss_pct}% (GLOBAL across all strategies)")
-        logger.info(f"  ✅ Max Open Positions: {risk.max_open_positions} (PER STRATEGY)")
-        logger.info(f"  ✅ Portfolio Max Positions: {risk.portfolio_max_positions} (GLOBAL)")
+        logger.info(
+            f"  ✅ Max Daily Loss: {risk.max_daily_loss_pct}% (GLOBAL across all strategies)"
+        )
+        logger.info(
+            f"  ✅ Max Open Positions: {risk.max_open_positions} (PER STRATEGY)"
+        )
+        logger.info(
+            f"  ✅ Portfolio Max Positions: {risk.portfolio_max_positions} (GLOBAL)"
+        )
 
     # AlphaSignal
     logger.info(f"\nALPHASIGNAL SENTIMENT FILTER:")
     as_cfg = app_config.alphasignal
     if as_cfg.enabled:
         logger.info(f"  ✅ Enabled | URL: {as_cfg.url}")
-        logger.info(f"     Threshold: {as_cfg.sentiment_threshold} | Timeout: {as_cfg.timeout_seconds}s")
+        logger.info(
+            f"     Threshold: {as_cfg.sentiment_threshold} | Timeout: {as_cfg.timeout_seconds}s"
+        )
     else:
         logger.info(f"  ⚠️  Disabled (ALPHASIGNAL_ENABLED=false)")
 
@@ -580,28 +601,42 @@ def validate_all(strategies: List[StrategySchema], app_config: AppConfig) -> boo
     dl_cfg = app_config.deeplob
     if dl_cfg.enabled:
         logger.info(f"  ✅ Enabled | URL: {dl_cfg.url}")
-        logger.info(f"     Confidence threshold: {dl_cfg.confidence_threshold} | Timeout: {dl_cfg.timeout_seconds}s")
+        logger.info(
+            f"     Confidence threshold: {dl_cfg.confidence_threshold} | Timeout: {dl_cfg.timeout_seconds}s"
+        )
     else:
         logger.info(f"  ⚠️  Disabled (DEEPLOB_ENABLED=false)")
 
     # Application settings
     logger.info(f"\nAPPLICATION SETTINGS:")
     logger.info(f"  Log Level: {app_config.log_level}")
-    logger.info(f"  Dry Run: {'YES (trades will be logged but not executed)' if app_config.dry_run else 'NO'}")
+    logger.info(
+        f"  Dry Run: {'YES (trades will be logged but not executed)' if app_config.dry_run else 'NO'}"
+    )
     logger.info(f"  Trading Paused: {'YES' if app_config.trading_paused else 'NO'}")
     logger.info(f"  State File: {app_config.state_file}")
 
     # Multi-strategy risk scope clarification
     if len(strategies) > 1:
         logger.info(f"\nMULTI-STRATEGY RISK SCOPE:")
-        logger.info(f"  • max_open_positions: PER STRATEGY (each strategy can have up to N positions)")
-        logger.info(f"  • max_daily_loss_pct: GLOBAL (all strategies halted if total account loss exceeds limit)")
-        logger.info(f"  • max_position_size_pct: PER STRATEGY (% of total account equity)")
-        logger.info(f"  • portfolio_max_positions: GLOBAL (total positions across all strategies)")
+        logger.info(
+            f"  • max_open_positions: PER STRATEGY (each strategy can have up to N positions)"
+        )
+        logger.info(
+            f"  • max_daily_loss_pct: GLOBAL (all strategies halted if total account loss exceeds limit)"
+        )
+        logger.info(
+            f"  • max_position_size_pct: PER STRATEGY (% of total account equity)"
+        )
+        logger.info(
+            f"  • portfolio_max_positions: GLOBAL (total positions across all strategies)"
+        )
 
         total_max_positions = sum(s.risk.max_open_positions for s in strategies)
         portfolio_limit = strategies[0].risk.portfolio_max_positions
-        logger.info(f"  Total potential positions: {total_max_positions} (capped by portfolio limit: {portfolio_limit})")
+        logger.info(
+            f"  Total potential positions: {total_max_positions} (capped by portfolio limit: {portfolio_limit})"
+        )
 
     # Summary
     logger.info("\n" + "=" * 80)
@@ -621,6 +656,7 @@ def validate_all(strategies: List[StrategySchema], app_config: AppConfig) -> boo
 # Helper Functions (Backward Compatibility)
 # =============================================================================
 
+
 def load_config(config_path: str) -> StrategySchema:
     """
     Backward compatibility wrapper for load_strategy().
@@ -632,53 +668,3 @@ def load_config(config_path: str) -> StrategySchema:
         Validated StrategySchema instance
     """
     return load_strategy(config_path)
-
-
-def validate_environment_variables() -> Dict[str, str]:
-    """
-    Backward compatibility wrapper.
-
-    Returns:
-        Dictionary of environment variables
-
-    Raises:
-        ValueError: If required variables are missing
-    """
-    app_config = load_env()
-
-    return {
-        "alpaca_api_key": app_config.broker.api_key,
-        "alpaca_secret_key": app_config.broker.secret_key,
-        "alpaca_paper": str(app_config.broker.paper).lower(),
-        "alpaca_base_url": app_config.broker.base_url,
-        "telegram_bot_token": app_config.telegram.bot_token or "",
-        "telegram_chat_id": app_config.telegram.chat_id or "",
-        "log_level": app_config.log_level,
-        "dry_run": str(app_config.dry_run).lower(),
-        "trading_paused": str(app_config.trading_paused).lower(),
-        "state_file": app_config.state_file,
-        "health_port": str(app_config.health_port),
-        "health_secret": app_config.health_secret,
-        "persistent_storage": str(app_config.persistent_storage).lower()
-    }
-
-
-def get_config_from_env() -> str:
-    """
-    Get strategy config path from environment variable.
-
-    Returns:
-        Path to strategy configuration file
-
-    Raises:
-        ValueError: If STRATEGY_CONFIG is not set
-    """
-    config_path = os.getenv("STRATEGY_CONFIG")
-
-    if not config_path:
-        raise ValueError(
-            "STRATEGY_CONFIG environment variable not set. "
-            "Set this to the path of your strategy JSON file."
-        )
-
-    return config_path
