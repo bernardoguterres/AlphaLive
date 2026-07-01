@@ -65,7 +65,7 @@ class RiskManager:
         # Last trade tracking (for cooldown)
         self.last_trade_bar: Dict[str, int] = {}  # ticker -> bar_index
 
-        # Cost safety limits (NEW in B17)
+        # Cost safety limits
         self.max_trades_per_day = safety_limits.max_trades_per_day
         self.max_api_calls_per_hour = safety_limits.max_api_calls_per_hour
         self.signal_timeout_seconds = safety_limits.signal_generation_timeout_seconds
@@ -103,7 +103,7 @@ class RiskManager:
         - daily_trades to empty list
         - consecutive_losses to 0
         - trading_paused_by_circuit_breaker to False
-        - trades_today to 0 (NEW in B17)
+        - trades_today to 0
         """
         today = datetime.now().date()
 
@@ -469,9 +469,9 @@ class RiskManager:
         Check order:
         1. TRADING_PAUSED env var (kill switch — checked first, always)
         2. Manual pause via Telegram /pause command (in-memory flag)
-        3. Trade frequency limit (max trades per day) - NEW in B17
-        4. API call budget limit (max calls per hour) - NEW in B17
-        5. Degraded mode (broker connection unstable) - NEW in B17
+        3. Trade frequency limit (max trades per day)
+        4. API call budget limit (max calls per hour)
+        5. Degraded mode (broker connection unstable)
         6. Daily loss limit (global across all strategies)
         7. Consecutive loss circuit breaker (3 stop-outs in a row = pause for the day)
         8. Max positions limit (per-strategy)
@@ -628,7 +628,7 @@ class RiskManager:
         - daily_trades list
         - consecutive_losses counter
         - trading_paused_by_circuit_breaker flag
-        - trades_today counter (NEW in B17)
+        - trades_today counter
 
         If consecutive losses >= max_consecutive_losses:
         - Set trading_paused_by_circuit_breaker = True

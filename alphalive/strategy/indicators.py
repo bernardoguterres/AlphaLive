@@ -21,19 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 def add_sma(df: pd.DataFrame, period: int) -> pd.DataFrame:
-    """
-    Add Simple Moving Average.
-
-    Args:
-        df: DataFrame with 'close' column
-        period: SMA period
-
-    Returns:
-        DataFrame with f"sma_{period}" column added
-
-    Note:
-        First (period - 1) rows will be NaN.
-    """
+    """Add sma_{period} column. Returns a copy; first (period-1) rows are NaN."""
     try:
         indicator = SMAIndicator(close=df["close"], window=period)
         df = df.copy()
@@ -47,19 +35,7 @@ def add_sma(df: pd.DataFrame, period: int) -> pd.DataFrame:
 
 
 def add_ema(df: pd.DataFrame, period: int) -> pd.DataFrame:
-    """
-    Add Exponential Moving Average.
-
-    Args:
-        df: DataFrame with 'close' column
-        period: EMA period
-
-    Returns:
-        DataFrame with f"ema_{period}" column added
-
-    Note:
-        First (period - 1) rows will be NaN.
-    """
+    """Add ema_{period} column. Mutates df in place (no copy). First (period-1) rows are NaN."""
     try:
         indicator = EMAIndicator(close=df["close"], window=period)
         df[f"ema_{period}"] = indicator.ema_indicator()
@@ -72,20 +48,7 @@ def add_ema(df: pd.DataFrame, period: int) -> pd.DataFrame:
 
 
 def add_rsi(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
-    """
-    Add Relative Strength Index.
-
-    Args:
-        df: DataFrame with 'close' column
-        period: RSI period (default 14)
-
-    Returns:
-        DataFrame with f"rsi_{period}" column added
-
-    Note:
-        First (period) rows will be NaN.
-        RSI ranges from 0 to 100.
-    """
+    """Add rsi_{period} column. Returns a copy; first period rows are NaN."""
     try:
         indicator = RSIIndicator(close=df["close"], window=period)
         df = df.copy()
@@ -104,21 +67,7 @@ def add_macd(
     slow: int = 26,
     signal: int = 9,
 ) -> pd.DataFrame:
-    """
-    Add MACD (Moving Average Convergence Divergence).
-
-    Args:
-        df: DataFrame with 'close' column
-        fast: Fast EMA period (default 12)
-        slow: Slow EMA period (default 26)
-        signal: Signal line period (default 9)
-
-    Returns:
-        DataFrame with "macd", "macd_signal", "macd_hist" columns added
-
-    Note:
-        First (slow + signal - 1) rows will be NaN.
-    """
+    """Add macd, macd_signal, macd_hist columns. First (slow+signal-1) rows are NaN."""
     try:
         from ta.trend import MACD  # noqa: PLC0415
 
@@ -141,20 +90,7 @@ def add_macd(
 def add_bollinger(
     df: pd.DataFrame, period: int = 20, std_dev: float = 2.0
 ) -> pd.DataFrame:
-    """
-    Add Bollinger Bands.
-
-    Args:
-        df: DataFrame with 'close' column
-        period: MA period (default 20)
-        std_dev: Standard deviation multiplier (default 2.0)
-
-    Returns:
-        DataFrame with "bb_upper", "bb_middle", "bb_lower" columns added
-
-    Note:
-        First (period - 1) rows will be NaN.
-    """
+    """Add bb_upper, bb_middle, bb_lower columns. First (period-1) rows are NaN."""
     try:
         indicator = BollingerBands(close=df["close"], window=period, window_dev=std_dev)
         df["bb_upper"] = indicator.bollinger_hband()
@@ -171,19 +107,7 @@ def add_bollinger(
 
 
 def add_atr(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
-    """
-    Add Average True Range.
-
-    Args:
-        df: DataFrame with 'high', 'low', 'close' columns
-        period: ATR period (default 14)
-
-    Returns:
-        DataFrame with f"atr_{period}" column added
-
-    Note:
-        First (period) rows will be NaN.
-    """
+    """Add atr_{period} column. First period rows are NaN."""
     try:
         indicator = AverageTrueRange(
             high=df["high"], low=df["low"], close=df["close"], window=period
@@ -198,20 +122,7 @@ def add_atr(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
 
 
 def add_adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
-    """
-    Add Average Directional Index.
-
-    Args:
-        df: DataFrame with 'high', 'low', 'close' columns
-        period: ADX period (default 14)
-
-    Returns:
-        DataFrame with f"adx_{period}" column added
-
-    Note:
-        First (period * 2) rows will be NaN.
-        ADX ranges from 0 to 100.
-    """
+    """Add adx_{period} column. First (period*2) rows are NaN."""
     try:
         from ta.trend import ADXIndicator  # noqa: PLC0415
 
@@ -228,23 +139,7 @@ def add_adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
 
 
 def add_vwap(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Add Volume Weighted Average Price.
-
-    Args:
-        df: DataFrame with 'high', 'low', 'close', 'volume' columns
-
-    Returns:
-        DataFrame with "vwap" column added
-
-    Formula:
-        VWAP = cumsum(typical_price * volume) / cumsum(volume)
-        where typical_price = (high + low + close) / 3
-
-    Note:
-        First row will be NaN if volume is 0.
-        VWAP is cumulative, so it uses all data from start.
-    """
+    """Add cumulative vwap column. Cumulative from start of data; NaN on zero-volume rows."""
     try:
         # Typical price
         typical_price = (df["high"] + df["low"] + df["close"]) / 3
@@ -261,18 +156,7 @@ def add_vwap(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def add_obv(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Add On-Balance Volume.
-
-    Args:
-        df: DataFrame with 'close', 'volume' columns
-
-    Returns:
-        DataFrame with "obv" column added
-
-    Note:
-        OBV is cumulative from start of data.
-    """
+    """Add cumulative obv column."""
     try:
         from ta.volume import OnBalanceVolumeIndicator  # noqa: PLC0415
 

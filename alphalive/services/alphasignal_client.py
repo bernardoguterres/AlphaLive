@@ -54,7 +54,7 @@ class AlphaSignalClient:
     async def get_sentiment(
         self,
         ticker: str,
-        query: Optional[str] = None,  # noqa: ARG002 — reserved for future RAG context
+        query: Optional[str] = None,
     ) -> dict:
         """Fetch current sentiment score for a ticker.
 
