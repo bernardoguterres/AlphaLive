@@ -57,7 +57,8 @@ class ReplaySimulator:
         start_date: str,
         end_date: str,
         tickers: List[str],
-        speed_multiplier: int = 0  # 0=instant, 1=1sec per day
+        speed_multiplier: int = 0,  # 0=instant, 1=1sec per day
+        starting_equity: float = 100_000.0,
     ):
         """
         Initialize ReplaySimulator.
@@ -68,8 +69,10 @@ class ReplaySimulator:
             end_date: End date (YYYY-MM-DD)
             tickers: List of tickers to simulate
             speed_multiplier: Speed (0=instant, 1=1sec/day, etc.)
+            starting_equity: Simulated account equity for position sizing.
         """
         self.broker = broker
+        self.starting_equity = starting_equity
         self.start_date = pd.Timestamp(start_date, tz=ET)
         self.end_date = pd.Timestamp(end_date, tz=ET)
         self.tickers = tickers
@@ -88,7 +91,7 @@ class ReplaySimulator:
             "total_pnl": 0.0,
             "total_trades": 0,
             "wins": 0,
-            "losses": 0
+            "losses": 0,
         }
 
         # Position tracking
@@ -113,7 +116,7 @@ class ReplaySimulator:
                 symbol=ticker,
                 timeframe="1Day",
                 start=self.start_date,
-                end=self.end_date
+                end=self.end_date,
             )
 
             if df.empty:
@@ -157,7 +160,7 @@ class ReplaySimulator:
         signal_engines: Dict,
         risk_managers: Dict,
         order_managers: Dict,
-        notifier
+        notifier,
     ):
         """
         Simulate one trading day.
@@ -185,7 +188,9 @@ class ReplaySimulator:
             bars = self._get_bars_up_to_date(ticker, current_date, lookback_bars=250)
 
             if len(bars) < 50:
-                logger.warning(f"  ⚠️  Insufficient data for {ticker} (need warmup period)")
+                logger.warning(
+                    f"  ⚠️  Insufficient data for {ticker} (need warmup period)"
+                )
                 continue
 
             # Generate signal
@@ -196,11 +201,13 @@ class ReplaySimulator:
                 logger.warning(f"  ⚠️  Warmup not complete for {ticker}")
                 continue
 
-            logger.info(f"  {ticker} | Signal: {signal['signal']} | Confidence: {signal['confidence']:.2%}")
+            logger.info(
+                f"  {ticker} | Signal: {signal['signal']} | Confidence: {signal['confidence']:.2%}"
+            )
             logger.info(f"  Reason: {signal['reason']}")
 
             # Get "current" price (today's open)
-            current_price = self.historical_data[ticker].loc[current_date]['open']
+            current_price = self.historical_data[ticker].loc[current_date]["open"]
 
             # Check exits first (if we have a position)
             if ticker in self.positions:
@@ -209,7 +216,7 @@ class ReplaySimulator:
                     current_date=current_date,
                     current_price=current_price,
                     risk_manager=risk_managers[ticker],
-                    notifier=notifier
+                    notifier=notifier,
                 )
 
             # Execute entry signal if BUY and no position
@@ -221,7 +228,7 @@ class ReplaySimulator:
                     current_price=current_price,
                     config=config,
                     risk_manager=risk_managers[ticker],
-                    notifier=notifier
+                    notifier=notifier,
                 )
 
             # Execute exit signal if SELL and we have a position
@@ -234,7 +241,7 @@ class ReplaySimulator:
                     qty=position["qty"],
                     entry_price=position["entry_price"],
                     reason="Strategy SELL signal",
-                    notifier=notifier
+                    notifier=notifier,
                 )
 
         # Sleep if speed multiplier set
@@ -249,12 +256,12 @@ class ReplaySimulator:
         current_price: float,
         config,
         risk_manager,
-        notifier
+        notifier,
     ):
         """Execute entry trade (BUY/SELL)."""
 
         # Calculate position size
-        account_equity = 100000.0  # Simulated starting equity
+        account_equity = self.starting_equity
         shares = risk_manager.calculate_position_size(
             ticker, signal["signal"], current_price, account_equity
         )
@@ -269,7 +276,7 @@ class ReplaySimulator:
             signal=signal["signal"],
             account_equity=account_equity,
             current_positions_count=len(self.positions),
-            total_portfolio_positions=len(self.positions)
+            total_portfolio_positions=len(self.positions),
         )
 
         if not can_trade:
@@ -280,26 +287,30 @@ class ReplaySimulator:
         side = signal["signal"]
         cost = shares * current_price
 
-        logger.info(f"  ✓ [REPLAY] {side} {shares} {ticker} @ ${current_price:.2f} (${cost:,.2f})")
+        logger.info(
+            f"  ✓ [REPLAY] {side} {shares} {ticker} @ ${current_price:.2f} (${cost:,.2f})"
+        )
 
         # Track position
         self.positions[ticker] = {
             "qty": shares,
             "entry_price": current_price,
             "entry_date": current_date,
-            "side": side
+            "side": side,
         }
 
         # Record trade
-        self.results["trades"].append({
-            "date": current_date.strftime("%Y-%m-%d"),
-            "ticker": ticker,
-            "action": "ENTRY",
-            "side": side,
-            "qty": shares,
-            "price": current_price,
-            "cost": cost
-        })
+        self.results["trades"].append(
+            {
+                "date": current_date.strftime("%Y-%m-%d"),
+                "ticker": ticker,
+                "action": "ENTRY",
+                "side": side,
+                "qty": shares,
+                "price": current_price,
+                "cost": cost,
+            }
+        )
 
         self.results["total_trades"] += 1
 
@@ -320,7 +331,7 @@ class ReplaySimulator:
         current_date: pd.Timestamp,
         current_price: float,
         risk_manager,
-        notifier
+        notifier,
     ):
         """Check if we should exit the position."""
 
@@ -332,19 +343,31 @@ class ReplaySimulator:
         # Get price high since entry (for trailing stop)
         entry_date = position["entry_date"]
         bars_since_entry = self.historical_data[ticker].loc[entry_date:current_date]
-        highest_since_entry = bars_since_entry['high'].max()
+        highest_since_entry = bars_since_entry["high"].max()
 
         # Check stop loss
         if risk_manager.check_stop_loss(entry_price, current_price, side.lower()):
             self._close_position(
-                ticker, current_date, current_price, qty, entry_price, "Stop Loss", notifier
+                ticker,
+                current_date,
+                current_price,
+                qty,
+                entry_price,
+                "Stop Loss",
+                notifier,
             )
             return
 
         # Check take profit
         if risk_manager.check_take_profit(entry_price, current_price, side.lower()):
             self._close_position(
-                ticker, current_date, current_price, qty, entry_price, "Take Profit", notifier
+                ticker,
+                current_date,
+                current_price,
+                qty,
+                entry_price,
+                "Take Profit",
+                notifier,
             )
             return
 
@@ -353,7 +376,13 @@ class ReplaySimulator:
             entry_price, highest_since_entry, current_price, side.lower()
         ):
             self._close_position(
-                ticker, current_date, current_price, qty, entry_price, "Trailing Stop", notifier
+                ticker,
+                current_date,
+                current_price,
+                qty,
+                entry_price,
+                "Trailing Stop",
+                notifier,
             )
             return
 
@@ -365,7 +394,7 @@ class ReplaySimulator:
         qty: int,
         entry_price: float,
         reason: str,
-        notifier
+        notifier,
     ):
         """Close a position and record P&L."""
 
@@ -386,17 +415,19 @@ class ReplaySimulator:
             self.results["losses"] += 1
 
         # Record trade
-        self.results["trades"].append({
-            "date": current_date.strftime("%Y-%m-%d"),
-            "ticker": ticker,
-            "action": "EXIT",
-            "side": "SELL",
-            "qty": qty,
-            "price": exit_price,
-            "pnl": pnl,
-            "pnl_pct": pnl_pct,
-            "reason": reason
-        })
+        self.results["trades"].append(
+            {
+                "date": current_date.strftime("%Y-%m-%d"),
+                "ticker": ticker,
+                "action": "EXIT",
+                "side": "SELL",
+                "qty": qty,
+                "price": exit_price,
+                "pnl": pnl,
+                "pnl_pct": pnl_pct,
+                "reason": reason,
+            }
+        )
 
         # Remove position
         del self.positions[ticker]
@@ -419,7 +450,7 @@ class ReplaySimulator:
         signal_engines: Dict,
         risk_managers: Dict,
         order_managers: Dict,
-        notifier
+        notifier,
     ):
         """
         Main replay loop.
@@ -443,7 +474,9 @@ class ReplaySimulator:
         # Iterate through each trading day
         for i, trading_day in enumerate(self.trading_days, 1):
             if i % 50 == 0:  # Progress update every 50 days
-                logger.info(f"\n[{i}/{len(self.trading_days)}] Progress: {(i/len(self.trading_days)*100):.1f}%")
+                logger.info(
+                    f"\n[{i}/{len(self.trading_days)}] Progress: {(i/len(self.trading_days)*100):.1f}%"
+                )
 
             self._simulate_trading_day(
                 current_date=trading_day,
@@ -451,7 +484,7 @@ class ReplaySimulator:
                 signal_engines=signal_engines,
                 risk_managers=risk_managers,
                 order_managers=order_managers,
-                notifier=notifier
+                notifier=notifier,
             )
 
         # Final summary
@@ -474,7 +507,9 @@ class ReplaySimulator:
         logger.info("=" * 80)
         logger.info("🏁 REPLAY COMPLETE")
         logger.info("=" * 80)
-        logger.info(f"Period: {self.start_date.strftime('%Y-%m-%d')} to {self.end_date.strftime('%Y-%m-%d')}")
+        logger.info(
+            f"Period: {self.start_date.strftime('%Y-%m-%d')} to {self.end_date.strftime('%Y-%m-%d')}"
+        )
         logger.info(f"Trading Days: {len(self.trading_days)}")
         logger.info(f"Total Trades: {total_trades}")
         logger.info(f"Wins: {wins} | Losses: {losses}")
