@@ -36,8 +36,16 @@ class TelegramCommandListener:
     - /help: List all commands
     """
 
-    def __init__(self, bot_token: str, chat_id: str,
-                 order_manager, risk_manager, broker, notifier, config):
+    def __init__(
+        self,
+        bot_token: str,
+        chat_id: str,
+        order_manager,
+        risk_manager,
+        broker,
+        notifier,
+        config,
+    ):
         """
         Initialize command listener.
 
@@ -62,15 +70,18 @@ class TelegramCommandListener:
         self.thread = None
         self.start_time = datetime.now(ET)
 
-        # Confirmation state for /close_all
+        # Confirmation state for /close_all (expires after 60 seconds)
         self._pending_close_all = False
+        self._close_all_requested_at: float = 0.0
 
         # Rate limiting (prevent command spam/abuse)
         self.command_timestamps = defaultdict(list)
         self.rate_limit_window = 60  # seconds
         self.rate_limit_max = 10  # commands per window
 
-        logger.info("Telegram command listener initialized (rate limit: 10 commands/min)")
+        logger.info(
+            "Telegram command listener initialized (rate limit: 10 commands/min)"
+        )
 
     def _delete_webhook(self):
         """Delete any existing webhook to avoid 409 conflict with getUpdates."""
@@ -80,7 +91,9 @@ class TelegramCommandListener:
             if resp.status_code == 200:
                 logger.info("Telegram webhook deleted (ready for polling)")
             else:
-                logger.warning(f"Failed to delete webhook: {resp.status_code} - {resp.text}")
+                logger.warning(
+                    f"Failed to delete webhook: {resp.status_code} - {resp.text}"
+                )
         except Exception as e:
             logger.warning(f"Error deleting webhook: {e}")
 
@@ -95,9 +108,7 @@ class TelegramCommandListener:
 
         self._running = True
         self.thread = threading.Thread(
-            target=self._poll_loop,
-            daemon=True,
-            name="TelegramCommandListener"
+            target=self._poll_loop, daemon=True, name="TelegramCommandListener"
         )
         self.thread.start()
         logger.info("Telegram command listener started")
@@ -113,10 +124,11 @@ class TelegramCommandListener:
         while self._running:
             try:
                 url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
-                resp = httpx.get(url, params={
-                    "offset": self.last_update_id + 1,
-                    "timeout": 5
-                }, timeout=10.0)
+                resp = httpx.get(
+                    url,
+                    params={"offset": self.last_update_id + 1, "timeout": 5},
+                    timeout=10.0,
+                )
 
                 if resp.status_code == 200:
                     data = resp.json()
@@ -167,7 +179,8 @@ class TelegramCommandListener:
         # Rate limiting check
         now = time.time()
         self.command_timestamps[self.chat_id] = [
-            ts for ts in self.command_timestamps[self.chat_id]
+            ts
+            for ts in self.command_timestamps[self.chat_id]
             if now - ts < self.rate_limit_window
         ]
 
@@ -177,7 +190,7 @@ class TelegramCommandListener:
                 "⚠️ <b>Rate limit exceeded</b>\n\n"
                 "Maximum 10 commands per minute.\n"
                 "Please wait before sending more commands.",
-                parse_mode="HTML"
+                parse_mode="HTML",
             )
             return
 
@@ -209,8 +222,7 @@ class TelegramCommandListener:
         except Exception as e:
             logger.error(f"Command handler error: {e}", exc_info=True)
             self.notifier.send_message(
-                f"⚠️ Error executing command: {e}\n\n"
-                f"Check logs for details."
+                f"⚠️ Error executing command: {e}\n\n" f"Check logs for details."
             )
 
     def _cmd_status(self):
@@ -229,7 +241,7 @@ class TelegramCommandListener:
             uptime = f"{hours}h {minutes}m"
 
             # Get trading mode
-            paper = self.broker.paper if hasattr(self.broker, 'paper') else True
+            paper = self.broker.paper if hasattr(self.broker, "paper") else True
             mode = "Paper Trading" if paper else "LIVE TRADING"
 
             # Format positions
@@ -247,7 +259,7 @@ class TelegramCommandListener:
                 positions_str = "  None"
 
             # Get trading paused status
-            paused = getattr(self.risk_manager, 'trading_paused_manual', False)
+            paused = getattr(self.risk_manager, "trading_paused_manual", False)
             paused_str = "Yes ⏸" if paused else "No ▶️"
 
             # Format daily P&L
@@ -256,9 +268,12 @@ class TelegramCommandListener:
 
             # Get last signal time (from order history)
             last_signal = "None today"
-            if hasattr(self.order_manager, 'order_history') and self.order_manager.order_history:
+            if (
+                hasattr(self.order_manager, "order_history")
+                and self.order_manager.order_history
+            ):
                 last_order = self.order_manager.order_history[-1]
-                last_signal_time = last_order.get('timestamp', datetime.now(ET))
+                last_signal_time = last_order.get("timestamp", datetime.now(ET))
                 last_signal = f"{last_order.get('side', 'UNKNOWN').upper()} at {last_signal_time.strftime('%I:%M %p')}"
 
             # Build status message
@@ -296,7 +311,7 @@ class TelegramCommandListener:
             "No new entries will be placed.\n"
             "Open positions will still be monitored for exits.\n\n"
             "Use /resume to re-enable trading.",
-            parse_mode="HTML"
+            parse_mode="HTML",
         )
 
     def _cmd_resume(self):
@@ -310,7 +325,7 @@ class TelegramCommandListener:
             "▶️ <b>Trading Resumed</b>\n\n"
             "New signals will be executed.\n"
             "Circuit breaker and other limits still active.",
-            parse_mode="HTML"
+            parse_mode="HTML",
         )
 
     def _cmd_close_all(self):
@@ -322,19 +337,19 @@ class TelegramCommandListener:
             self.notifier.send_message("No open positions to close.")
             return
 
-        # Set pending flag and ask for confirmation
+        # Set pending flag and timestamp for expiry check
         self._pending_close_all = True
+        self._close_all_requested_at = time.time()
 
-        pos_list = "\n".join([
-            f"  • {pos.symbol}: {int(pos.qty)} shares"
-            for pos in positions
-        ])
+        pos_list = "\n".join(
+            [f"  • {pos.symbol}: {int(pos.qty)} shares" for pos in positions]
+        )
 
         self.notifier.send_message(
             f"⚠️ <b>Close ALL Positions?</b>\n\n"
             f"This will close:\n{pos_list}\n\n"
             f"Reply <code>/confirm_close</code> to proceed.",
-            parse_mode="HTML"
+            parse_mode="HTML",
         )
 
     def _cmd_confirm_close(self):
@@ -342,6 +357,13 @@ class TelegramCommandListener:
         if not self._pending_close_all:
             self.notifier.send_message(
                 "No pending close_all request. Use /close_all first."
+            )
+            return
+
+        if time.time() - self._close_all_requested_at > 60:
+            self._pending_close_all = False
+            self.notifier.send_message(
+                "Confirmation window expired (60 s). Use /close_all again."
             )
             return
 
@@ -355,20 +377,23 @@ class TelegramCommandListener:
             self.notifier.send_message("No open positions to close.")
             return
 
-        logger.warning(f"Closing ALL positions via Telegram command ({len(positions)} positions)")
+        logger.warning(
+            f"Closing ALL positions via Telegram command ({len(positions)} positions)"
+        )
 
         results = []
         for pos in positions:
             try:
                 result = self.order_manager.close_position(
-                    pos.symbol,
-                    reason="Manual close via Telegram /close_all"
+                    pos.symbol, reason="Manual close via Telegram /close_all"
                 )
 
                 if result.get("status") == "success":
                     results.append(f"✅ {pos.symbol}: Closed")
                 else:
-                    results.append(f"❌ {pos.symbol}: {result.get('reason', 'Unknown error')}")
+                    results.append(
+                        f"❌ {pos.symbol}: {result.get('reason', 'Unknown error')}"
+                    )
 
             except Exception as e:
                 logger.error(f"Error closing {pos.symbol}: {e}", exc_info=True)
@@ -377,8 +402,7 @@ class TelegramCommandListener:
         results_str = "\n".join(results)
 
         self.notifier.send_message(
-            f"🔴 <b>Positions Closed</b>\n\n{results_str}",
-            parse_mode="HTML"
+            f"🔴 <b>Positions Closed</b>\n\n{results_str}", parse_mode="HTML"
         )
 
     def _cmd_config(self):
@@ -416,50 +440,57 @@ class TelegramCommandListener:
         """Handle /performance command."""
         try:
             # Get trades from risk manager
-            trades = self.risk_manager.daily_trades if hasattr(self.risk_manager, 'daily_trades') else []
+            trades = (
+                self.risk_manager.daily_trades
+                if hasattr(self.risk_manager, "daily_trades")
+                else []
+            )
 
             if not trades:
                 self.notifier.send_message(
-                    "📈 <b>Performance</b>\n\nNo trades yet today.",
-                    parse_mode="HTML"
+                    "📈 <b>Performance</b>\n\nNo trades yet today.", parse_mode="HTML"
                 )
                 return
 
             # Calculate stats
             total_trades = len(trades)
-            winning_trades = [t for t in trades if t.get('pnl', 0) > 0]
-            losing_trades = [t for t in trades if t.get('pnl', 0) < 0]
+            winning_trades = [t for t in trades if t.get("pnl", 0) > 0]
+            losing_trades = [t for t in trades if t.get("pnl", 0) < 0]
 
             wins = len(winning_trades)
             losses = len(losing_trades)
             win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
 
-            total_pnl = sum(t.get('pnl', 0) for t in trades)
+            total_pnl = sum(t.get("pnl", 0) for t in trades)
 
             # Get account equity for percentage
             account = self.broker.get_account()
             pnl_pct = (total_pnl / account.equity * 100) if account.equity > 0 else 0
 
             # Best/worst trades
-            best_trade = max(trades, key=lambda t: t.get('pnl', 0)) if trades else None
-            worst_trade = min(trades, key=lambda t: t.get('pnl', 0)) if trades else None
+            best_trade = max(trades, key=lambda t: t.get("pnl", 0)) if trades else None
+            worst_trade = min(trades, key=lambda t: t.get("pnl", 0)) if trades else None
 
             # Consecutive losses
-            consecutive_losses = getattr(self.risk_manager, 'consecutive_losses', 0)
+            consecutive_losses = getattr(self.risk_manager, "consecutive_losses", 0)
 
             # Format message
             pnl_sign = "+" if total_pnl >= 0 else ""
 
             best_str = "N/A"
             if best_trade:
-                best_pnl = best_trade.get('pnl', 0)
-                best_pct = (best_pnl / account.equity * 100) if account.equity > 0 else 0
+                best_pnl = best_trade.get("pnl", 0)
+                best_pct = (
+                    (best_pnl / account.equity * 100) if account.equity > 0 else 0
+                )
                 best_str = f"{best_trade.get('ticker', 'UNKNOWN')} +${best_pnl:.2f} (+{best_pct:.2f}%)"
 
             worst_str = "N/A"
             if worst_trade:
-                worst_pnl = worst_trade.get('pnl', 0)
-                worst_pct = (worst_pnl / account.equity * 100) if account.equity > 0 else 0
+                worst_pnl = worst_trade.get("pnl", 0)
+                worst_pct = (
+                    (worst_pnl / account.equity * 100) if account.equity > 0 else 0
+                )
                 worst_str = f"{worst_trade.get('ticker', 'UNKNOWN')} ${worst_pnl:.2f} ({worst_pct:.2f}%)"
 
             # Format start date

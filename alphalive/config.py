@@ -55,17 +55,17 @@ class BrokerConfig(BaseModel):
             raise ValueError("API key cannot be empty")
         return v
 
+    @staticmethod
+    def _mask_key(value: str) -> str:
+        return "****" if len(value) <= 4 else f"****{value[-4:]}"
+
     def mask_api_key(self) -> str:
         """Return masked API key for logging."""
-        if len(self.api_key) <= 4:
-            return "****"
-        return f"****{self.api_key[-4:]}"
+        return self._mask_key(self.api_key)
 
     def mask_secret_key(self) -> str:
         """Return masked secret key for logging."""
-        if len(self.secret_key) <= 4:
-            return "****"
-        return f"****{self.secret_key[-4:]}"
+        return self._mask_key(self.secret_key)
 
 
 class TelegramConfig(BaseModel):
