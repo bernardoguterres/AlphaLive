@@ -98,10 +98,6 @@ def test_broker_exceptions():
     assert isinstance(order_error, BrokerError)
 
 
-@pytest.mark.skipif(
-    True,
-    reason="Requires alpaca-py library and API credentials"
-)
 def test_alpaca_broker_initialization():
     """Test AlpacaBroker initialization."""
     from alphalive.broker.alpaca_broker import AlpacaBroker
@@ -119,10 +115,6 @@ def test_alpaca_broker_initialization():
     assert broker.connected is False
 
 
-@pytest.mark.skipif(
-    True,
-    reason="Requires alpaca-py library and API credentials"
-)
 def test_alpaca_broker_live_mode():
     """Test AlpacaBroker live mode URL."""
     from alphalive.broker.alpaca_broker import AlpacaBroker
@@ -136,10 +128,6 @@ def test_alpaca_broker_live_mode():
     assert broker.base_url == "https://api.alpaca.markets"
 
 
-@pytest.mark.skipif(
-    True,
-    reason="Requires alpaca-py library and API credentials"
-)
 def test_alpaca_broker_validate_order_params():
     """Test AlpacaBroker order parameter validation."""
     from alphalive.broker.alpaca_broker import AlpacaBroker
@@ -174,10 +162,6 @@ def test_alpaca_broker_validate_order_params():
         broker._validate_order_params("AAPL", 10, "buy", limit_price=-10.0)
 
 
-@pytest.mark.skipif(
-    True,
-    reason="Requires alpaca-py library and API credentials"
-)
 def test_alpaca_broker_ensure_connected():
     """Test AlpacaBroker connection check."""
     from alphalive.broker.alpaca_broker import AlpacaBroker
@@ -194,23 +178,27 @@ def test_alpaca_broker_ensure_connected():
     broker._ensure_connected()  # Should not raise
 
 
-@pytest.mark.skipif(
-    True,
-    reason="Requires alpaca-py library and API credentials"
-)
+def _make_api_error(message, status_code):
+    """Build an alpaca APIError whose .status_code resolves to the given code."""
+    from alpaca.common.exceptions import APIError
+
+    http_error = Mock()
+    http_error.response = Mock(status_code=status_code)
+    return APIError(message, http_error=http_error)
+
+
 @patch('alphalive.broker.alpaca_broker.TradingClient')
 @patch('alphalive.broker.alpaca_broker.StockHistoricalDataClient')
 def test_alpaca_broker_retry_logic(mock_data_client, mock_trading_client):
     """Test AlpacaBroker retry logic with exponential backoff."""
     from alphalive.broker.alpaca_broker import AlpacaBroker
-    from alpaca.common.exceptions import APIError
 
     broker = AlpacaBroker(api_key="test", secret_key="test", paper=True)
 
     # Test successful retry after transient error
     mock_func = Mock(side_effect=[
-        APIError("Rate limited", status_code=429),
-        APIError("Rate limited", status_code=429),
+        _make_api_error("Rate limited", 429),
+        _make_api_error("Rate limited", 429),
         "success"
     ])
 
@@ -220,7 +208,7 @@ def test_alpaca_broker_retry_logic(mock_data_client, mock_trading_client):
         assert mock_func.call_count == 3
 
     # Test fatal error (no retry)
-    mock_func = Mock(side_effect=APIError("Invalid credentials", status_code=401))
+    mock_func = Mock(side_effect=_make_api_error("Invalid credentials", 401))
 
     with pytest.raises(AuthenticationError):
         broker._retry_with_backoff(mock_func)
@@ -229,10 +217,6 @@ def test_alpaca_broker_retry_logic(mock_data_client, mock_trading_client):
     assert mock_func.call_count == 1
 
 
-@pytest.mark.skipif(
-    True,
-    reason="Requires alpaca-py library and API credentials"
-)
 def test_alpaca_broker_convert_position():
     """Test AlpacaBroker position conversion."""
     from alphalive.broker.alpaca_broker import AlpacaBroker
@@ -256,13 +240,9 @@ def test_alpaca_broker_convert_position():
     assert position.qty == 10.0
     assert position.side == "long"
     assert position.avg_entry_price == 150.0
-    assert position.unrealized_plpc == 3.33  # Converted to percentage
+    assert position.unrealized_plpc == pytest.approx(3.33)  # Converted to percentage
 
 
-@pytest.mark.skipif(
-    True,
-    reason="Requires alpaca-py library and API credentials"
-)
 def test_alpaca_broker_convert_order():
     """Test AlpacaBroker order conversion."""
     from alphalive.broker.alpaca_broker import AlpacaBroker
@@ -301,10 +281,6 @@ def test_base_broker_is_abstract():
         BaseBroker()
 
 
-@pytest.mark.skipif(
-    True,
-    reason="Requires alpaca-py library and API credentials"
-)
 @patch('alphalive.broker.alpaca_broker.StockHistoricalDataClient')
 def test_get_historical_bars(mock_data_client):
     """Test get_historical_bars method returns proper DataFrame."""
@@ -316,6 +292,7 @@ def test_get_historical_bars(mock_data_client):
     ET = ZoneInfo("America/New_York")
     broker = AlpacaBroker(api_key="test", secret_key="test", paper=True)
     broker.connected = True
+    broker.trading_client = Mock()
     broker.data_client = mock_data_client.return_value
 
     # Mock the response
@@ -349,10 +326,6 @@ def test_get_historical_bars(mock_data_client):
     assert df['close'].iloc[0] == 150.5
 
 
-@pytest.mark.skipif(
-    True,
-    reason="Requires alpaca-py library and API credentials"
-)
 def test_get_historical_bars_invalid_timeframe():
     """Test get_historical_bars raises error for invalid timeframe."""
     from datetime import datetime
@@ -362,6 +335,7 @@ def test_get_historical_bars_invalid_timeframe():
     ET = ZoneInfo("America/New_York")
     broker = AlpacaBroker(api_key="test", secret_key="test", paper=True)
     broker.connected = True
+    broker.trading_client = Mock()
     broker.data_client = Mock()
 
     start = datetime(2024, 1, 1, tzinfo=ET)
@@ -371,10 +345,6 @@ def test_get_historical_bars_invalid_timeframe():
         broker.get_historical_bars("AAPL", "invalid", start, end)
 
 
-@pytest.mark.skipif(
-    True,
-    reason="Requires alpaca-py library and API credentials"
-)
 @patch('alphalive.broker.alpaca_broker.StockHistoricalDataClient')
 def test_get_historical_bars_empty_data(mock_data_client):
     """Test get_historical_bars raises error when no data returned."""
@@ -386,6 +356,7 @@ def test_get_historical_bars_empty_data(mock_data_client):
     ET = ZoneInfo("America/New_York")
     broker = AlpacaBroker(api_key="test", secret_key="test", paper=True)
     broker.connected = True
+    broker.trading_client = Mock()
     broker.data_client = mock_data_client.return_value
 
     # Mock empty response

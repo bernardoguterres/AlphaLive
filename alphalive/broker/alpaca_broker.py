@@ -33,6 +33,11 @@ from alphalive.broker.base_broker import (
 
 logger = logging.getLogger(__name__)
 
+# Sentinel returned by an `on_404` callback when the caller needs to
+# distinguish "not found" from a legitimate successful result of None
+# (e.g. cancel_order_by_id returns None on success).
+_NOT_FOUND = object()
+
 
 class AlpacaBroker(BaseBroker):
     """
@@ -144,6 +149,13 @@ class AlpacaBroker(BaseBroker):
                 logger.error(f"Alpaca API error during connection: {e}")
                 raise BrokerError(f"Failed to connect to Alpaca: {e}")
 
+        except AuthenticationError:
+            # _retry_with_backoff() already raises AuthenticationError directly
+            # for 401/403 responses - propagate it as-is rather than letting it
+            # fall into the generic Exception handler below and get masked as
+            # a plain BrokerError.
+            raise
+
         except Exception as e:
             logger.error(f"Unexpected error during connection: {e}", exc_info=True)
             raise BrokerError(f"Failed to connect to Alpaca: {e}")
@@ -175,25 +187,21 @@ class AlpacaBroker(BaseBroker):
         """Get position for a specific symbol."""
         self._ensure_connected()
 
-        try:
-            position = self._retry_with_backoff(
-                self.trading_client.get_open_position, symbol
-            )
+        def _on_404():
+            # No position found
+            logger.debug(f"No position found for {symbol}")
+            return None
 
-            return self._convert_position(position)
+        position = self._execute(
+            self.trading_client.get_open_position,
+            symbol,
+            on_404=_on_404,
+            error_context="Failed to get position",
+        )
 
-        except APIError as e:
-            if e.status_code == 404:
-                # No position found
-                logger.debug(f"No position found for {symbol}")
-                return None
-            else:
-                logger.error(f"Failed to get position for {symbol}: {e}")
-                raise BrokerError(f"Failed to get position: {e}")
-
-        except Exception as e:
-            logger.error(f"Failed to get position for {symbol}: {e}", exc_info=True)
-            raise BrokerError(f"Failed to get position: {e}")
+        if position is None:
+            return None
+        return self._convert_position(position)
 
     def get_all_positions(self) -> List[Position]:
         """Get all open positions."""
@@ -213,33 +221,27 @@ class AlpacaBroker(BaseBroker):
         self._ensure_connected()
         self._validate_order_params(symbol, qty, side)
 
-        try:
-            # Convert side to Alpaca enum
-            order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
+        # Convert side to Alpaca enum
+        order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
 
-            # Create market order request
-            order_request = MarketOrderRequest(
-                symbol=symbol, qty=qty, side=order_side, time_in_force=TimeInForce.DAY
-            )
+        # Create market order request
+        order_request = MarketOrderRequest(
+            symbol=symbol, qty=qty, side=order_side, time_in_force=TimeInForce.DAY
+        )
 
-            # Submit order
-            alpaca_order = self._retry_with_backoff(
-                self.trading_client.submit_order, order_request
-            )
+        # Submit order
+        alpaca_order = self._execute(
+            self.trading_client.submit_order,
+            order_request,
+            error_cls=OrderError,
+            error_context="Market order failed",
+        )
 
-            logger.info(
-                f"MARKET {side.upper()} {qty} {symbol} @ market | Order ID: {alpaca_order.id}"
-            )
+        logger.info(
+            f"MARKET {side.upper()} {qty} {symbol} @ market | Order ID: {alpaca_order.id}"
+        )
 
-            return self._convert_order(alpaca_order)
-
-        except APIError as e:
-            logger.error(f"Failed to place market order: {e}")
-            raise OrderError(f"Market order failed: {e}")
-
-        except Exception as e:
-            logger.error(f"Unexpected error placing market order: {e}", exc_info=True)
-            raise OrderError(f"Market order failed: {e}")
+        return self._convert_order(alpaca_order)
 
     def place_limit_order(
         self, symbol: str, qty: int, side: str, limit_price: float
@@ -248,89 +250,74 @@ class AlpacaBroker(BaseBroker):
         self._ensure_connected()
         self._validate_order_params(symbol, qty, side, limit_price)
 
-        try:
-            # Convert side to Alpaca enum
-            order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
+        # Convert side to Alpaca enum
+        order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
 
-            # Create limit order request
-            order_request = LimitOrderRequest(
-                symbol=symbol,
-                qty=qty,
-                side=order_side,
-                time_in_force=TimeInForce.DAY,
-                limit_price=limit_price,
-            )
+        # Create limit order request
+        order_request = LimitOrderRequest(
+            symbol=symbol,
+            qty=qty,
+            side=order_side,
+            time_in_force=TimeInForce.DAY,
+            limit_price=limit_price,
+        )
 
-            # Submit order
-            alpaca_order = self._retry_with_backoff(
-                self.trading_client.submit_order, order_request
-            )
+        # Submit order
+        alpaca_order = self._execute(
+            self.trading_client.submit_order,
+            order_request,
+            error_cls=OrderError,
+            error_context="Limit order failed",
+        )
 
-            logger.info(
-                f"LIMIT {side.upper()} {qty} {symbol} @ ${limit_price:.2f} | "
-                f"Order ID: {alpaca_order.id}"
-            )
+        logger.info(
+            f"LIMIT {side.upper()} {qty} {symbol} @ ${limit_price:.2f} | "
+            f"Order ID: {alpaca_order.id}"
+        )
 
-            return self._convert_order(alpaca_order)
-
-        except APIError as e:
-            logger.error(f"Failed to place limit order: {e}")
-            raise OrderError(f"Limit order failed: {e}")
-
-        except Exception as e:
-            logger.error(f"Unexpected error placing limit order: {e}", exc_info=True)
-            raise OrderError(f"Limit order failed: {e}")
+        return self._convert_order(alpaca_order)
 
     def cancel_order(self, order_id: str) -> bool:
         """Cancel a pending order."""
         self._ensure_connected()
 
-        try:
-            self._retry_with_backoff(self.trading_client.cancel_order_by_id, order_id)
-            logger.info(f"Order canceled: {order_id}")
-            return True
-
-        except APIError as e:
-            if e.status_code == 404:
-                logger.warning(
-                    f"Order {order_id} not found (may already be filled/canceled)"
-                )
-                return False
-            else:
-                logger.error(f"Failed to cancel order {order_id}: {e}")
-                raise BrokerError(f"Failed to cancel order: {e}")
-
-        except Exception as e:
-            logger.error(
-                f"Unexpected error canceling order {order_id}: {e}", exc_info=True
+        def _on_404():
+            logger.warning(
+                f"Order {order_id} not found (may already be filled/canceled)"
             )
-            raise BrokerError(f"Failed to cancel order: {e}")
+            return _NOT_FOUND
+
+        result = self._execute(
+            self.trading_client.cancel_order_by_id,
+            order_id,
+            on_404=_on_404,
+            error_context="Failed to cancel order",
+        )
+
+        if result is _NOT_FOUND:
+            return False
+
+        logger.info(f"Order canceled: {order_id}")
+        return True
 
     def get_order_status(self, order_id: str) -> Optional[Order]:
         """Get current status of an order."""
         self._ensure_connected()
 
-        try:
-            alpaca_order = self._retry_with_backoff(
-                self.trading_client.get_order_by_id, order_id
-            )
+        def _on_404():
+            logger.debug(f"Order {order_id} not found")
+            return None
 
-            return self._convert_order(alpaca_order)
+        alpaca_order = self._execute(
+            self.trading_client.get_order_by_id,
+            order_id,
+            on_404=_on_404,
+            error_context="Failed to get order status",
+        )
 
-        except APIError as e:
-            if e.status_code == 404:
-                logger.debug(f"Order {order_id} not found")
-                return None
-            else:
-                logger.error(f"Failed to get order status for {order_id}: {e}")
-                raise BrokerError(f"Failed to get order status: {e}")
-
-        except Exception as e:
-            logger.error(
-                f"Unexpected error getting order status for {order_id}: {e}",
-                exc_info=True,
-            )
-            raise BrokerError(f"Failed to get order status: {e}")
+        if alpaca_order is None:
+            return None
+        return self._convert_order(alpaca_order)
 
     def close_position(self, symbol: str) -> Order:
         """Close an entire position using a market order."""
@@ -344,24 +331,26 @@ class AlpacaBroker(BaseBroker):
                 raise ValueError(f"No position found for {symbol}")
 
             # Close position via Alpaca API
-            alpaca_order = self._retry_with_backoff(
-                self.trading_client.close_position, symbol
+            alpaca_order = self._execute(
+                self.trading_client.close_position,
+                symbol,
+                error_cls=OrderError,
+                error_context="Failed to close position",
             )
 
             logger.info(f"Position closed: {symbol} | Order ID: {alpaca_order.id}")
 
             return self._convert_order(alpaca_order)
 
-        except ValueError as e:
+        except ValueError:
             raise  # Re-raise ValueError for no position
-        except APIError as e:
-            logger.error(f"Failed to close position {symbol}: {e}")
-            raise OrderError(f"Failed to close position: {e}")
+        except OrderError:
+            raise  # Already wrapped by _execute above
         except Exception as e:
             logger.error(
                 f"Unexpected error closing position {symbol}: {e}", exc_info=True
             )
-            raise OrderError(f"Failed to close position: {e}")
+            raise OrderError(f"Failed to close position: {e}") from e
 
     def is_market_open(self) -> bool:
         """Check if the US stock market is currently open."""
@@ -568,6 +557,58 @@ class AlpacaBroker(BaseBroker):
         ):
             raise ValueError("Limit price must be a positive number")
 
+    def _execute(
+        self,
+        func,
+        *args,
+        on_404=None,
+        error_cls=BrokerError,
+        error_context="Broker operation failed",
+        **kwargs,
+    ):
+        """
+        Run an Alpaca SDK call through `_retry_with_backoff()` and apply the
+        standard error-wrapping policy shared by the public broker methods:
+
+        - APIError with status_code == 404: if `on_404` is provided, its
+          return value is returned as-is (used by callers that treat "not
+          found" as a normal result, e.g. returning None or False). If
+          `on_404` is None, a 404 is treated like any other APIError below.
+        - Any other APIError: wrapped and raised as `error_cls`.
+        - Any other unexpected Exception: wrapped and raised as `error_cls`.
+
+        Args:
+            func: Alpaca SDK method to call
+            *args: Positional arguments for func
+            on_404: Optional zero-arg callable invoked when func raises an
+                APIError with status_code == 404. Its return value is
+                returned directly, bypassing the error-wrapping below.
+            error_cls: Exception class to raise for non-404 APIError / any
+                other unexpected Exception (BrokerError or OrderError).
+            error_context: Message prefix used for both the log line and
+                the raised error_cls's message.
+            **kwargs: Keyword arguments for func
+
+        Returns:
+            Result of func(*args, **kwargs), or the result of on_404() if
+            a 404 occurred and on_404 was provided.
+
+        Raises:
+            error_cls: On non-404 APIError, or unexpected Exception.
+        """
+        try:
+            return self._retry_with_backoff(func, *args, **kwargs)
+
+        except APIError as e:
+            if on_404 is not None and e.status_code == 404:
+                return on_404()
+            logger.error(f"{error_context}: {e}")
+            raise error_cls(f"{error_context}: {e}") from e
+
+        except Exception as e:
+            logger.error(f"{error_context}: {e}", exc_info=True)
+            raise error_cls(f"{error_context}: {e}") from e
+
     def _retry_with_backoff(self, func, *args, **kwargs):
         """
         Retry a function with exponential backoff.
@@ -631,8 +672,10 @@ class AlpacaBroker(BaseBroker):
                     delay *= 2
 
                 else:
-                    # Other API errors - don't retry
-                    raise BrokerError(f"Alpaca API error: {e}")
+                    # Other API errors (e.g. 404) - don't retry, re-raise the
+                    # original APIError so callers can branch on status_code
+                    # (e.g. get_position()/cancel_order() handling "not found").
+                    raise
 
             except (
                 ConnectionError,
