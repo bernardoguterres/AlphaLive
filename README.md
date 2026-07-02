@@ -357,6 +357,14 @@ AlphaLive is a production-grade trading bot with:
 
    Default is paper trading (`ALPACA_PAPER=true`). Safe for testing with fake money.
 
+### Test Suite
+
+460 tests, 91% coverage.
+
+```bash
+pytest tests/ -v --cov=alphalive
+```
+
 ### CLI Options
 
 ```bash

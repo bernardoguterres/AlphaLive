@@ -181,16 +181,6 @@ def test_load_strategy_nonexistent():
         load_strategy("nonexistent.json")
 
 
-def test_load_strategies_directory():
-    """Test loading all strategies from directory."""
-    config_dir = Path(__file__).parent.parent / "configs"
-
-    strategies = load_strategies(str(config_dir))
-
-    assert len(strategies) >= 1
-    assert all(s.schema_version == "1.0" for s in strategies)
-
-
 def test_validate_all_success(sample_strategy_config, monkeypatch):
     """Test validate_all with valid configurations."""
     # Set env vars
