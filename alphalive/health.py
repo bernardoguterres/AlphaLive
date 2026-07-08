@@ -37,6 +37,16 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         """Handle GET requests to / endpoint."""
+        if self.path == "/ping":
+            # Unauthenticated bare liveness check for Railway's automatic
+            # healthcheck, which cannot send the X-Health-Secret header.
+            # Deliberately returns no account/strategy data.
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"status": "alive"}')
+            return
+
         if self.path != "/":
             self.send_response(404)
             self.end_headers()
@@ -189,7 +199,9 @@ def create_health_server(config, dry_run: bool = False, paper: bool = True) -> H
     Returns:
         HealthServer instance
     """
-    port = int(os.environ.get("HEALTH_PORT", "8080"))
+    # Railway injects PORT and routes its healthcheck to it; HEALTH_PORT is
+    # the local-dev fallback since this worker has no other HTTP listener.
+    port = int(os.environ.get("PORT", os.environ.get("HEALTH_PORT", "8080")))
 
     health_data = {
         "warmup_complete": True,  # Updated after first signal check
