@@ -5,7 +5,7 @@ main.py's main() function is a 24/7 orchestration loop that can't be run
 end-to-end in a test. Instead this covers the extracted, individually
 testable units: signal-check gating, EOD stat computation, startup
 messaging/warmup, per-strategy signal checking, exit-condition checks,
-and position reconciliation — all with the broker/notifier/order-manager
+and position reconciliation - all with the broker/notifier/order-manager
 mocked out. No real network or Alpaca calls are made.
 """
 
@@ -658,7 +658,7 @@ def test_run_position_reconciliation_no_drift():
 
 
 def test_run_position_reconciliation_alpaca_only_drift_pauses_trading():
-    """Broker has a position the bot never recorded — the first drift branch."""
+    """Broker has a position the bot never recorded - the first drift branch."""
     pos = _mock_position()
     broker = Mock()
     broker.get_all_positions.return_value = [pos]
@@ -675,7 +675,7 @@ def test_run_position_reconciliation_alpaca_only_drift_pauses_trading():
 
 
 def test_run_position_reconciliation_internal_only_drift_pauses_trading():
-    """Bot recorded a fill the broker no longer shows — the second drift branch."""
+    """Bot recorded a fill the broker no longer shows - the second drift branch."""
     broker = Mock()
     broker.get_all_positions.return_value = []
 

@@ -58,7 +58,7 @@ def migrate_schema(config: Dict[str, Any]) -> Dict[str, Any]:
     version = config.get("schema_version", "1.0")
 
     if version == "1.0":
-        # Current version — apply v13 backward compatibility enhancements
+        # Current version - apply v13 backward compatibility enhancements
         if "safety_limits" not in config:
             logger.warning(
                 "Adding default safety_limits to v1.0 schema (v13 backward compatibility). "

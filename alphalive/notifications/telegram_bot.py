@@ -2,7 +2,7 @@
 Telegram Notifications
 
 Sends trading alerts via Telegram Bot API using httpx.
-No external Telegram library needed — direct API calls only.
+No external Telegram library needed - direct API calls only.
 
 IMPORTANT: Does NOT use python-telegram-bot (any version).
 Calls Telegram Bot API directly via HTTPS POST.
@@ -77,7 +77,7 @@ class TelegramNotifier:
         GRACEFUL DEGRADATION:
         - If 3 consecutive sends fail:
           * Set self.telegram_offline = True
-          * Log CRITICAL: "Telegram offline — trading continues but alerts lost"
+          * Log CRITICAL: "Telegram offline - trading continues but alerts lost"
           * Continue returning False (don't crash trading loop)
         - Background retry: every 10 minutes, attempt one send
         - If background retry succeeds:
@@ -163,7 +163,7 @@ class TelegramNotifier:
         if self.consecutive_failures >= 3 and not self.telegram_offline:
             self.telegram_offline = True
             logger.critical(
-                "🚨 Telegram offline — trading continues but alerts lost"
+                "🚨 Telegram offline - trading continues but alerts lost"
             )
 
         return False

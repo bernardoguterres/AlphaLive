@@ -1,11 +1,11 @@
 """
-Tests for alphalive.main.main() — the orchestration entry point.
+Tests for alphalive.main.main() - the orchestration entry point.
 
 Everything I/O-bound (broker, market data, Telegram, DeepLOB/AlphaSignal
 clients, state file) is mocked out via patching the names imported into
 alphalive.main. The infinite `while True` loop is exited deterministically
 by making time.sleep() raise KeyboardInterrupt after a bounded number of
-calls — main() treats KeyboardInterrupt as a clean shutdown signal, so this
+calls - main() treats KeyboardInterrupt as a clean shutdown signal, so this
 lets each test exercise exactly one loop iteration (or a chosen error path)
 without hanging or touching any real network/broker.
 """
@@ -208,7 +208,7 @@ def test_main_generic_loop_exception_is_caught_and_continues(main_mocks):
     # itself guarded against KeyboardInterrupt, so our _StopLoop sentinel
     # propagates out of main() here rather than being caught by the loop's
     # `except KeyboardInterrupt: break`. That's a real (minor) quirk of the
-    # error-handling path, not a test bug — assert on it explicitly.
+    # error-handling path, not a test bug - assert on it explicitly.
     with pytest.raises(_StopLoop):
         main_module.main(config_path="dummy.json")
 
@@ -251,7 +251,7 @@ def test_main_after_hours_sends_eod_summary_then_sleeps(main_mocks):
 
 def test_main_holiday_closure_sleeps_5_minutes(main_mocks):
     """Weekday, within normal trading hours, but broker reports market closed
-    (e.g. a market holiday) — falls through to the generic 5-minute sleep."""
+    (e.g. a market holiday) - falls through to the generic 5-minute sleep."""
     main_mocks["broker"].is_market_open.return_value = False
     main_mocks["sleep"].side_effect = _sleep_raises_after(1)
 

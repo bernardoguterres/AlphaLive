@@ -2,7 +2,7 @@
 Extended OrderManager tests covering _place_with_retry()'s status-code
 routing, the limit-order execution path, slippage/partial-fill alerts, and
 the generic order-failure branch. tests/test_order_manager.py already
-covers the happy path, duplicate prevention, exits, and dry run — this file
+covers the happy path, duplicate prevention, exits, and dry run - this file
 fills in the retry/error branches that were still uncovered.
 """
 
@@ -205,7 +205,7 @@ def test_place_with_retry_non_api_exception_exhausts_retries(om):
 
 
 # ---------------------------------------------------------------------------
-# execute_signal() — limit orders, slippage/partial-fill alerts, error path
+# execute_signal() - limit orders, slippage/partial-fill alerts, error path
 # ---------------------------------------------------------------------------
 
 

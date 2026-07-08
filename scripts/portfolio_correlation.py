@@ -23,7 +23,7 @@ import pandas as pd
 import yfinance as yf
 
 # ---------------------------------------------------------------------------
-# Path setup — standard AlphaLive pattern
+# Path setup - standard AlphaLive pattern
 # ---------------------------------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -50,7 +50,7 @@ SIGNAL_MAP = {"BUY": 1, "SELL": -1, "HOLD": 0}
 
 
 # ---------------------------------------------------------------------------
-# Step 1 — load configs
+# Step 1 - load configs
 # ---------------------------------------------------------------------------
 
 def load_configs(configs_dir: Path) -> Tuple[List[Tuple[str, StrategySchema]], List[Tuple[str, str]]]:
@@ -83,7 +83,7 @@ def load_configs(configs_dir: Path) -> Tuple[List[Tuple[str, StrategySchema]], L
 
 
 # ---------------------------------------------------------------------------
-# Step 2 — download price data (once per unique ticker)
+# Step 2 - download price data (once per unique ticker)
 # ---------------------------------------------------------------------------
 
 def download_price_data(tickers: List[str]) -> Dict[str, pd.DataFrame]:
@@ -103,7 +103,7 @@ def download_price_data(tickers: List[str]) -> Dict[str, pd.DataFrame]:
         raw = yf.download(ticker, start=DATA_START, end=DATA_END, auto_adjust=True, progress=False)
 
         if raw.empty:
-            print(f"WARNING: no data returned for {ticker} — skipping")
+            print(f"WARNING: no data returned for {ticker} - skipping")
             continue
 
         # Flatten MultiIndex first, then lowercase
@@ -119,7 +119,7 @@ def download_price_data(tickers: List[str]) -> Dict[str, pd.DataFrame]:
         required = ["open", "high", "low", "close", "volume"]
         missing = [c for c in required if c not in df.columns]
         if missing:
-            print(f"WARNING: {ticker} data is missing columns {missing} — skipping")
+            print(f"WARNING: {ticker} data is missing columns {missing} - skipping")
             continue
 
         df = df[required].dropna()
@@ -130,7 +130,7 @@ def download_price_data(tickers: List[str]) -> Dict[str, pd.DataFrame]:
 
 
 # ---------------------------------------------------------------------------
-# Step 3 — run signal engine bar-by-bar for one config
+# Step 3 - run signal engine bar-by-bar for one config
 # ---------------------------------------------------------------------------
 
 def generate_signal_series(
@@ -147,7 +147,7 @@ def generate_signal_series(
     engine = SignalEngine(schema)
     signals: Dict[pd.Timestamp, int] = {}
 
-    # Minimum bars needed before the first signal check — use slow_period, rsi_period, etc.
+    # Minimum bars needed before the first signal check - use slow_period, rsi_period, etc.
     # We just start from bar index 60 to guarantee enough indicator history.
     warmup_bars = 60
 
@@ -176,7 +176,7 @@ def generate_signal_series(
 
 
 # ---------------------------------------------------------------------------
-# Step 4 — build aligned signal DataFrame
+# Step 4 - build aligned signal DataFrame
 # ---------------------------------------------------------------------------
 
 def build_signal_matrix(
@@ -198,7 +198,7 @@ def build_signal_matrix(
         label = fname.replace(".json", "")[:LABEL_MAX_LEN]
 
         if ticker not in price_data:
-            print(f"  SKIP  {label} — no price data for {ticker}")
+            print(f"  SKIP  {label} - no price data for {ticker}")
             failed.append(fname)
             continue
 
@@ -218,14 +218,14 @@ def build_signal_matrix(
         print("\nERROR: No signal series were produced. Exiting.")
         sys.exit(1)
 
-    # Outer join — all trading dates from any config; fill missing with 0 (HOLD)
+    # Outer join - all trading dates from any config; fill missing with 0 (HOLD)
     matrix = pd.concat(all_series, axis=1, join="outer").fillna(0).astype(int)
     matrix.sort_index(inplace=True)
     return matrix
 
 
 # ---------------------------------------------------------------------------
-# Step 5 — compute and print correlation matrix
+# Step 5 - compute and print correlation matrix
 # ---------------------------------------------------------------------------
 
 def print_correlation_matrix(corr: pd.DataFrame) -> None:
@@ -241,7 +241,7 @@ def print_correlation_matrix(corr: pd.DataFrame) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Step 6 — flag high-correlation pairs
+# Step 6 - flag high-correlation pairs
 # ---------------------------------------------------------------------------
 
 def flag_high_correlation_pairs(corr: pd.DataFrame) -> List[Tuple[str, str, float]]:
@@ -269,7 +269,7 @@ def print_high_correlation_warnings(
     print("=" * 80)
 
     if not high_pairs:
-        print("  None found — all strategy pairs are below the threshold.")
+        print("  None found - all strategy pairs are below the threshold.")
     else:
         print(f"  {len(high_pairs)} pair(s) flagged:\n")
         for label_a, label_b, val in high_pairs:
@@ -289,7 +289,7 @@ def print_high_correlation_warnings(
 
 
 # ---------------------------------------------------------------------------
-# Step 7 — summary
+# Step 7 - summary
 # ---------------------------------------------------------------------------
 
 def print_summary(
@@ -322,7 +322,7 @@ def print_summary(
 
 def main() -> None:
     print("=" * 80)
-    print("ALPHALIVE — PORTFOLIO CORRELATION ANALYSIS")
+    print("ALPHALIVE - PORTFOLIO CORRELATION ANALYSIS")
     print(f"  Configs dir : {CONFIGS_DIR}")
     print(f"  Data window : {DATA_START} to {DATA_END}")
     print(f"  Corr window : {SIGNAL_START} to {SIGNAL_END}")
@@ -336,7 +336,7 @@ def main() -> None:
     print(f"\nLoaded {total_configs} config(s): {len(daily_configs)} daily, {len(skipped_configs)} non-daily")
 
     if not daily_configs:
-        print("ERROR: No 1Day configs found — nothing to correlate.")
+        print("ERROR: No 1Day configs found - nothing to correlate.")
         sys.exit(1)
 
     # 2. Download price data (one fetch per unique ticker)

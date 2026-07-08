@@ -2,7 +2,7 @@
 Extended config.py coverage: malformed JSON, invalid log level, partial
 directory-load failures, and the multi-strategy branch of validate_all().
 tests/test_config.py and tests/test_config_v2.py already cover the happy
-paths and the missing-env-var error — this fills in the remaining error
+paths and the missing-env-var error - this fills in the remaining error
 and multi-strategy branches.
 """
 

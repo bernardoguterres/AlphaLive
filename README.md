@@ -14,8 +14,8 @@ Export a backtested strategy from AlphaLab → deploy to Railway → it trades a
 |------|---------|-------------|--------------|
 | **[AlphaLab](https://github.com/bernardoguterres/AlphaLab)** | Strategy development & backtesting | As needed (not 24/7) | Locally on your computer |
 | **[AlphaLive](https://github.com/bernardoguterres/AlphaLive)** (this repo) | Live trading execution | 24/7 during trading hours | Railway (recommended) or locally |
-| **[AlphaSignal](https://github.com/bernardoguterres/AlphaSignal)** | Financial RAG — sentiment signals from SEC filings | Optional enrichment layer | Locally or any cloud host |
-| **[DeepLOB](https://github.com/bernardoguterres/DeepLOB)** | CNN+LSTM LOB prediction — execution timing filter | Optional (queried before each order) | Locally or any cloud host |
+| **[AlphaSignal](https://github.com/bernardoguterres/AlphaSignal)** | Financial RAG - sentiment signals from SEC filings | Optional enrichment layer | Locally or any cloud host |
+| **[DeepLOB](https://github.com/bernardoguterres/DeepLOB)** | CNN+LSTM LOB prediction - execution timing filter | Optional (queried before each order) | Locally or any cloud host |
 
 ### AlphaLab (Development Platform)
 
@@ -42,7 +42,7 @@ Export a backtested strategy from AlphaLab → deploy to Railway → it trades a
 - Execute trades automatically
 - Monitor positions for stop loss / take profit
 - Send Telegram alerts
-- Real-time web dashboard — live P&L charts, position table, kill switch, CSV export
+- Real-time web dashboard - live P&L charts, position table, kill switch, CSV export
 
 **When you use it**:
 - 24/7 during trading hours (9:30 AM - 4:00 PM ET, Mon-Fri)
@@ -82,7 +82,7 @@ Export a backtested strategy from AlphaLab → deploy to Railway → it trades a
                         │ (loop back to step 1)
 ```
 
-**You need BOTH platforms** — AlphaLab develops strategies, AlphaLive executes them.
+**You need BOTH platforms** - AlphaLab develops strategies, AlphaLive executes them.
 
 ---
 
@@ -274,10 +274,10 @@ AlphaLive is a production-grade trading bot with:
 - **Risk Management**: Stop loss, take profit, trailing stop, position sizing, daily limits
 - **Order Execution**: Alpaca Markets API with retry logic, slippage checks, partial fill handling
 - **Market Data**: Real-time bars from Alpaca with caching and staleness detection
-- **Pre-Execution Gate**: DeepLOB (LOB direction prediction) and AlphaSignal (sentiment) run **concurrently** via `asyncio.gather` before each order — both must pass. Either filter fails open on timeout or unavailability.
+- **Pre-Execution Gate**: DeepLOB (LOB direction prediction) and AlphaSignal (sentiment) run **concurrently** via `asyncio.gather` before each order - both must pass. Either filter fails open on timeout or unavailability.
 - **Notifications**: Telegram alerts for trades, exits, errors, daily summaries
 - **Resilience**: Auto-restart on Railway, position reconciliation, corporate action detection
-- **Web Dashboard**: Real-time monitoring UI (FastAPI + WebSocket) — live P&L charts, open positions, trailing stop levels, kill switch, CSV export, one-click Railway redeploy
+- **Web Dashboard**: Real-time monitoring UI (FastAPI + WebSocket) - live P&L charts, open positions, trailing stop levels, kill switch, CSV export, one-click Railway redeploy
 
 **Market Closed Behavior**:
 - Checks if market is open every 30 seconds
@@ -430,7 +430,7 @@ from alphalive.strategy.signal_engine import SignalEngine
 from alphalive.strategy_schema import StrategySchema
 from datetime import datetime
 
-# Download any ticker — data stays in memory, nothing written to disk
+# Download any ticker - data stays in memory, nothing written to disk
 raw = yf.download('SPY', start='2021-01-01', end='2026-01-01', auto_adjust=True)
 df = raw.rename(columns={'Close':'close','High':'high','Low':'low','Open':'open','Volume':'volume'})
 df = df[['open','high','low','close','volume']].reset_index().rename(columns={'Date':'timestamp'})
@@ -463,27 +463,27 @@ for i in range(60, len(df)):
 print(f'BUY: {buys}  SELL: {sells}  over {len(df)-60} bars')
 ```
 
-**Tested on 20 tickers (SPY, QQQ, AAPL, MSFT, NVDA, META, TSLA, AMD, TSM, JPM, BAC, JNJ, UNH, XOM, COST, V, GOOGL, AMZN, IWM, DIA) — all strategies ran without errors across 1,276 bars each.**
+**Tested on 20 tickers (SPY, QQQ, AAPL, MSFT, NVDA, META, TSLA, AMD, TSM, JPM, BAC, JNJ, UNH, XOM, COST, V, GOOGL, AMZN, IWM, DIA) - all strategies ran without errors across 1,276 bars each.**
 
-Note: `data/` and `*.parquet` are gitignored — downloaded data is never committed to the repo.
+Note: `data/` and `*.parquet` are gitignored - downloaded data is never committed to the repo.
 
 ---
 
 ## Deploy to Railway
 
-Railway is the recommended host — it runs 24/7 for ~$5/month and auto-restarts on crash.
+Railway is the recommended host - it runs 24/7 for ~$5/month and auto-restarts on crash.
 
 ### 1. Prerequisites
 
 - [Railway account](https://railway.app) (free tier works for testing)
-- Alpaca Markets account — sign up at [alpaca.markets](https://alpaca.markets), go to **Your API Keys**, and generate **paper trading** keys first
+- Alpaca Markets account - sign up at [alpaca.markets](https://alpaca.markets), go to **Your API Keys**, and generate **paper trading** keys first
 - Strategy JSON exported from [AlphaLab](https://github.com/bernardoguterres/AlphaLab) placed in `configs/`
 - (Optional) Telegram bot token from [@BotFather](https://t.me/BotFather)
 
 ### 2. Create the Railway project
 
 1. Go to [railway.app/new](https://railway.app/new) → **Deploy from GitHub repo**
-2. Select your AlphaLive fork — Railway detects the `Dockerfile` automatically
+2. Select your AlphaLive fork - Railway detects the `Dockerfile` automatically
 3. Go to **Variables** and add:
 
 ```bash
@@ -500,12 +500,12 @@ LOG_LEVEL=INFO
 HEALTH_SECRET=$(openssl rand -hex 16) # generate a random string
 ```
 
-4. Click **Deploy** — Railway builds the image and starts the bot
+4. Click **Deploy** - Railway builds the image and starts the bot
 
 **Expected startup log**:
 ```
 ALL VALIDATIONS PASSED
-Market is closed — sleeping until 9:30 AM ET
+Market is closed - sleeping until 9:30 AM ET
 ```
 
 ### 3. Cost
@@ -517,10 +517,10 @@ Market is closed — sleeping until 9:30 AM ET
 
 ### 4. Production checklist (before switching to live money)
 
-- [ ] Ran `DRY_RUN=true` for at least one full trading day — signals look correct
-- [ ] Ran `ALPACA_PAPER=true` for 1+ weeks — execution and P&L match expectations
+- [ ] Ran `DRY_RUN=true` for at least one full trading day - signals look correct
+- [ ] Ran `ALPACA_PAPER=true` for 1+ weeks - execution and P&L match expectations
 - [ ] Stop loss and take profit triggered correctly in paper (verify in logs)
-- [ ] Telegram notifications working — received trade alerts and EOD summary
+- [ ] Telegram notifications working - received trade alerts and EOD summary
 - [ ] Signal parity test passes: `pytest tests/test_signal_parity.py`
 - [ ] Walk-forward Sharpe in AlphaLab > 0.8 in both test windows
 
@@ -548,9 +548,9 @@ Set TRADING_PAUSED=true in Variables
 | Error | Cause | Fix |
 |-------|-------|-----|
 | `Invalid API key` | Wrong key type (paper vs live) | Match `ALPACA_PAPER` to your key type |
-| `Data is stale` | Market closed or feed delay | Normal — bot resumes at 9:30 AM ET automatically |
+| `Data is stale` | Market closed or feed delay | Normal - bot resumes at 9:30 AM ET automatically |
 | `Telegram offline` | Wrong token or chat ID | Check `TELEGRAM_BOT_TOKEN` has no extra spaces |
-| `Daily loss limit exceeded` | Hit `max_daily_loss_pct` | Working as intended — resumes next trading day |
+| `Daily loss limit exceeded` | Hit `max_daily_loss_pct` | Working as intended - resumes next trading day |
 | No trades executing | Paused, dry run, or risk limits | Check logs for signal checks and risk rejections |
 
 ---
@@ -597,7 +597,7 @@ Set TRADING_PAUSED=true in Variables
 3. Copy bot token (looks like `123456:ABC-DEF...`)
 4. Start a chat with your bot
 5. Get your chat ID by visiting: `https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates`
-6. Send a message to your bot, then refresh the URL above — your chat ID is in the response
+6. Send a message to your bot, then refresh the URL above - your chat ID is in the response
 
 ---
 
@@ -635,7 +635,7 @@ When you switch to live trading (`ALPACA_PAPER=false`), you'll see:
 
 ```
 WARNING
-LIVE TRADING MODE — REAL MONEY AT RISK
+LIVE TRADING MODE - REAL MONEY AT RISK
 WARNING
 ```
 
@@ -710,7 +710,7 @@ AlphaLive supports 8 strategies exported from AlphaLab.
 ---
 
 ### 6. Bollinger RSI Combo
-**Description**: Dual confirmation—requires BOTH price ≤ BB lower AND RSI < 45 for entry.
+**Description**: Dual confirmation - requires BOTH price ≤ BB lower AND RSI < 45 for entry.
 
 **Parameters**:
 - `bb_period`: Bollinger Bands period (default: 20)
@@ -721,7 +721,7 @@ AlphaLive supports 8 strategies exported from AlphaLab.
 
 **Best For**: High-precision entries, 15Min or Daily timeframes (1-3 signals/day)
 
-> Win rate and Sharpe figures removed — not walk-forward validated.
+> Win rate and Sharpe figures removed - not walk-forward validated.
 
 ---
 
@@ -738,23 +738,23 @@ AlphaLive supports 8 strategies exported from AlphaLab.
 
 **Best For**: Adaptive to changing markets, 1Hour timeframes (1-2 signals/day)
 
-> Win rate and Sharpe figures removed — not walk-forward validated.
+> Win rate and Sharpe figures removed - not walk-forward validated.
 
 ---
 
-### 8. Greenblatt Weekly (`greenblatt_weekly`) — value factor, weekly bars
+### 8. Greenblatt Weekly (`greenblatt_weekly`) - value factor, weekly bars
 
 **Designed for ~1 year holding periods.** Run the Greenblatt screener in AlphaLab first to identify quality candidates (earnings yield + ROE ranked), then deploy weekly entry timing in AlphaLive.
 
-**Timeframe**: `1Week` — AlphaLive fetches daily Alpaca bars and resamples to weekly automatically.
+**Timeframe**: `1Week` - AlphaLive fetches daily Alpaca bars and resamples to weekly automatically.
 
 **Entry** (either condition on weekly bars):
 - Weekly RSI < 35 (oversold)
 - 10-week SMA crosses above 50-week SMA (golden cross)
 
 **Exit:**
-- **Default (always active):** Price drops 20% below position peak — trailing stop fires immediately, bypasses minimum hold
-- **Opt-in (disabled by default):** Weekly RSI > 65, or 10w/50w SMA death-cross — only fires after minimum hold elapsed
+- **Default (always active):** Price drops 20% below position peak - trailing stop fires immediately, bypasses minimum hold
+- **Opt-in (disabled by default):** Weekly RSI > 65, or 10w/50w SMA death-cross - only fires after minimum hold elapsed
 
 **Key params:** `fast_sma` (10), `slow_sma` (50), `rsi_oversold` (35), `rsi_overbought` (65), `min_hold_bars` (52), `trailing_stop_pct` (0.20)
 
@@ -804,11 +804,11 @@ When configured, you'll receive:
 
 - **Bot Started**: "🚀 AlphaLive Started" with strategy details
 - **Trade Executed**: "🟢 BUY 66 AAPL @ $150.00"
-- **Position Closed**: "💰 Position Closed — P&L: $495.00 (+5.00%)"
-- **Stop Loss Hit**: "⚠️ Position Closed — AAPL -$300.00"
-- **Daily Summary**: "📈 Daily Summary — 5 trades, $450 profit, 60% win rate"
+- **Position Closed**: "💰 Position Closed - P&L: $495.00 (+5.00%)"
+- **Stop Loss Hit**: "⚠️ Position Closed - AAPL -$300.00"
+- **Daily Summary**: "📈 Daily Summary - 5 trades, $450 profit, 60% win rate"
 - **Error Alerts**: "⚠️ Alpaca API timeout"
-- **Circuit Breaker**: "⚠️ 3 consecutive losses — trading paused"
+- **Circuit Breaker**: "⚠️ 3 consecutive losses - trading paused"
 
 **Graceful Degradation**: If Telegram fails, trading continues (alerts are lost but trades still execute).
 
@@ -822,7 +822,7 @@ AlphaLive includes a real-time web dashboard for monitoring the bot without touc
 | Panel | Data |
 |---|---|
 | Stat cards | Portfolio value, daily P&L (green/red), cash, open positions count |
-| Positions table | Every open position — entry price, current price, unrealized P&L, trailing stop level, 20-bar sparkline |
+| Positions table | Every open position - entry price, current price, unrealized P&L, trailing stop level, 20-bar sparkline |
 | Daily P&L trend | Live line chart built from WebSocket pushes (session only) |
 | Portfolio allocation | Donut chart of position market values |
 | Daily loss limit | Progress bar showing how much of your loss limit has been used |
@@ -837,7 +837,7 @@ pip install fastapi "uvicorn[standard]"
 uvicorn dashboard.server:app --host 0.0.0.0 --port 8888
 ```
 
-Open **http://localhost:8888**. Reads from the same `.env` as the bot — no extra config needed.
+Open **http://localhost:8888**. Reads from the same `.env` as the bot - no extra config needed.
 
 ### How it works
 - Connects to the same Alpaca paper/live account as the bot
@@ -970,7 +970,7 @@ python scripts/automated_weekly_report.py --save-only --output-dir reports/
 AlphaLive logs to STDOUT in structured format:
 
 ```
-2026-03-09 09:35:00 [INFO] alphalive.main: Market is open — running signal check
+2026-03-09 09:35:00 [INFO] alphalive.main: Market is open - running signal check
 2026-03-09 09:35:01 [INFO] alphalive.data.market_data: Fetched 200 bars for AAPL (latest: 2026-03-09 09:34:00 EST)
 2026-03-09 09:35:02 [INFO] alphalive.strategy.signal_engine: BUY signal: MA crossover (fast SMA crossed above slow SMA)
 2026-03-09 09:35:03 [INFO] alphalive.execution.order_manager: MARKET BUY 66 AAPL @ market | Order ID: abc123-def456
@@ -993,7 +993,7 @@ AlphaLive logs to STDOUT in structured format:
 - Market may be closed (bot sleeps automatically)
 - Check Alpaca status: [status.alpaca.markets](https://status.alpaca.markets)
 
-### "Telegram offline — trading continues but alerts lost"
+### "Telegram offline - trading continues but alerts lost"
 - Check `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are correct
 - Verify bot is not blocked
 - Bot will auto-retry every 10 minutes
@@ -1002,7 +1002,7 @@ AlphaLive logs to STDOUT in structured format:
 - Bot has hit `max_daily_loss_pct` for the day
 - Trading resumes next trading day automatically
 
-### "Position drift detected — TRADING HALTED"
+### "Position drift detected - TRADING HALTED"
 - Alpaca positions don't match bot's internal tracking
 - Manually reconcile positions in Alpaca dashboard
 - Set `TRADING_PAUSED=false` to resume
@@ -1015,8 +1015,8 @@ AlphaLive is part of the Alpha trading suite:
 
 - **AlphaLab**: Backtest strategies, export to AlphaLive
 - **AlphaLive**: Execute strategies 24/7 on Railway (this repo)
-- **AlphaSignal**: Optional sentiment filter — SEC filing RAG
-- **DeepLOB**: Optional LOB timing filter — CNN+LSTM mid-price predictor
+- **AlphaSignal**: Optional sentiment filter - SEC filing RAG
+- **DeepLOB**: Optional LOB timing filter - CNN+LSTM mid-price predictor
 
 For questions, issues, or contributions, open an issue on GitHub.
 
@@ -1051,7 +1051,7 @@ For questions, issues, or contributions, open an issue on GitHub.
 
 ## License
 
-MIT License — see LICENSE file for details.
+MIT License - see LICENSE file for details.
 
 ---
 

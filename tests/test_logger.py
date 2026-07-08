@@ -16,7 +16,7 @@ from alphalive.utils.logger import JsonFormatter, setup_logger
 
 @pytest.fixture(autouse=True)
 def _reset_root_logger():
-    """setup_logger() mutates the global root logger — snapshot and restore
+    """setup_logger() mutates the global root logger - snapshot and restore
     its handlers/level around each test so tests don't interfere with each
     other or with the pytest runner's own logging."""
     root = logging.getLogger()

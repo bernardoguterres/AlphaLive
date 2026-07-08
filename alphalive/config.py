@@ -87,11 +87,11 @@ class AlphaSignalConfig(BaseModel):
     """Configuration for the AlphaSignal sentiment service client.
 
     Env-var equivalents (loaded by load_env):
-        ALPHASIGNAL_URL                 — base URL of AlphaSignal service
-        ALPHASIGNAL_API_KEY             — auth key (empty = no auth)
-        ALPHASIGNAL_TIMEOUT_SECONDS     — per-request timeout
-        ALPHASIGNAL_SENTIMENT_THRESHOLD — blocking threshold (negative float)
-        ALPHASIGNAL_ENABLED             — set false to skip sentiment gating
+        ALPHASIGNAL_URL - base URL of AlphaSignal service
+        ALPHASIGNAL_API_KEY - auth key (empty = no auth)
+        ALPHASIGNAL_TIMEOUT_SECONDS - per-request timeout
+        ALPHASIGNAL_SENTIMENT_THRESHOLD - blocking threshold (negative float)
+        ALPHASIGNAL_ENABLED - set false to skip sentiment gating
     """
 
     url: str = Field(
@@ -126,10 +126,10 @@ class DeepLOBConfig(BaseModel):
     """Configuration for the DeepLOB LOB-prediction service client.
 
     Env-var equivalents (loaded by load_env):
-        DEEPLOB_URL                    — base URL of DeepLOB inference server
-        DEEPLOB_CONFIDENCE_THRESHOLD   — minimum softmax confidence to allow execution
-        DEEPLOB_TIMEOUT_SECONDS        — per-request timeout (keep low; must not block loop)
-        DEEPLOB_ENABLED                — set false to skip LOB filter without redeploy
+        DEEPLOB_URL - base URL of DeepLOB inference server
+        DEEPLOB_CONFIDENCE_THRESHOLD - minimum softmax confidence to allow execution
+        DEEPLOB_TIMEOUT_SECONDS - per-request timeout (keep low; must not block loop)
+        DEEPLOB_ENABLED - set false to skip LOB filter without redeploy
     """
 
     url: str = Field(

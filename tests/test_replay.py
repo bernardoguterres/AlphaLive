@@ -3,7 +3,7 @@ Tests for alphalive.replay.ReplaySimulator.
 
 Runs the day-by-day replay loop against a small synthetic OHLCV DataFrame
 with a mocked broker (get_historical_bars), signal engine, and risk
-manager — no real network or Alpaca calls.
+manager - no real network or Alpaca calls.
 """
 
 from unittest.mock import Mock

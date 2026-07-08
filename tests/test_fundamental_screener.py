@@ -1,7 +1,7 @@
 """
 Tests for alphalive.screener.fundamental_screener.FundamentalScreener.
 
-yfinance is mocked throughout — no real network calls. Uses tmp_path for
+yfinance is mocked throughout - no real network calls. Uses tmp_path for
 the output file so nothing leaks outside the pytest sandbox.
 """
 

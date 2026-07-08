@@ -54,7 +54,7 @@ class SignalEngine:
         self._cached_last_ts: Optional[Any] = None
         self._cached_df_len: int = 0
 
-        # Dispatch table — adding a new strategy requires only a new method + one entry here
+        # Dispatch table - adding a new strategy requires only a new method + one entry here
         self._dispatch = {
             "ma_crossover": self._ma_crossover_signal,
             "rsi_mean_reversion": self._rsi_mean_reversion_signal,
@@ -108,7 +108,7 @@ class SignalEngine:
             logger.error(f"Missing required columns: {missing_cols}")
             return self._no_signal(f"Missing columns: {missing_cols}", start_time)
 
-        # Add indicators — skip if the last bar and row count are unchanged
+        # Add indicators - skip if the last bar and row count are unchanged
         last_ts = df.index[-1] if len(df.index) else None
         if (
             self._cached_df is not None
@@ -136,7 +136,7 @@ class SignalEngine:
                 "confidence": 0.0,
                 "reason": (
                     f"Bear market filter: price below declining SMA_200 "
-                    f"({df['close'].iloc[-1]:.2f} < {df['sma_200'].iloc[-1]:.2f}) — BUY blocked"
+                    f"({df['close'].iloc[-1]:.2f} < {df['sma_200'].iloc[-1]:.2f}) - BUY blocked"
                 ),
                 "indicators": {
                     "price": df["close"].iloc[-1],
@@ -631,8 +631,8 @@ class SignalEngine:
         """
         Bollinger Bands + RSI Combination Strategy.
 
-        BUY: Price <= Lower BB AND RSI < oversold (default 45) — only when not in position
-        SELL: Price >= Middle BB OR RSI > overbought (default 55) — only when in position
+        BUY: Price <= Lower BB AND RSI < oversold (default 45) - only when not in position
+        SELL: Price >= Middle BB OR RSI > overbought (default 55) - only when in position
 
         Stateful: tracks in_position via self._in_position to match AlphaLab exactly.
         AlphaLab Parity: Matches bollinger_rsi_combo.py implementation.
@@ -911,7 +911,7 @@ class SignalEngine:
             sma_cross_down = (fast_now < slow_now) and (fast_prev >= slow_prev)
             rsi_ob = rsi_now > rsi_overbought
 
-            # Optional exits — min hold enforced by main.py
+            # Optional exits - min hold enforced by main.py
             if (exit_rsi and rsi_ob) or (exit_sma and sma_cross_down):
                 reason = (
                     f"RSI overbought ({rsi_now:.1f} > {rsi_overbought})"

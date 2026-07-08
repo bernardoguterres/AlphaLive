@@ -2,7 +2,7 @@
 Extended AlpacaBroker Method Tests
 
 Covers connect(), account/position fetching, order placement/cancellation,
-market hours, and bar fetching — all against a mocked alpaca-py SDK.
+market hours, and bar fetching - all against a mocked alpaca-py SDK.
 Never touches the real Alpaca API.
 """
 
@@ -682,7 +682,7 @@ def test_custom_base_url_overrides_default():
 
 def test_get_historical_bars_multiindex_and_tz_naive():
     """Alpaca sometimes returns a MultiIndex(symbol, timestamp) DataFrame with
-    a tz-naive index — both need to be normalized before returning to callers."""
+    a tz-naive index - both need to be normalized before returning to callers."""
     import pandas as pd
 
     broker = _connected_broker()

@@ -3,7 +3,7 @@ AlphaLive Dashboard Server v2
 
 New in v2:
 - WebSocket /ws endpoint (pushes combined payload every 5s)
-- GET /api/bars/{ticker}  — last N daily bars for position sparklines
+- GET /api/bars/{ticker} - last N daily bars for position sparklines
 - HTTP Basic Auth via DASHBOARD_PASSWORD env var (no-op when unset)
 
 Usage (from project root):
@@ -119,7 +119,7 @@ def _get_broker() -> AlpacaBroker:
 
 
 def _require_broker() -> AlpacaBroker:
-    """HTTP-route wrapper — raises HTTPException on broker failure."""
+    """HTTP-route wrapper - raises HTTPException on broker failure."""
     try:
         return _get_broker()
     except _BrokerUnavailable as exc:
@@ -207,13 +207,13 @@ def _enum_val(val) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Payload builder (synchronous — called via run_in_executor from WS handler)
+# Payload builder (synchronous - called via run_in_executor from WS handler)
 # ---------------------------------------------------------------------------
 
 def _build_payload() -> Dict[str, Any]:
     """
     Gather account / positions / orders / risk / health into one dict.
-    Fully synchronous; never raises — all errors go into error fields.
+    Fully synchronous; never raises - all errors go into error fields.
     """
     out: Dict[str, Any] = {}
     state = _read_state()
@@ -364,7 +364,7 @@ def _build_payload() -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# WebSocket endpoint — pushes full payload every 5 seconds
+# WebSocket endpoint - pushes full payload every 5 seconds
 # ---------------------------------------------------------------------------
 
 @app.websocket("/ws")
@@ -567,9 +567,9 @@ async def api_deploy():
     Trigger a Railway redeploy of the AlphaLive service.
 
     Required env vars:
-        RAILWAY_API_TOKEN      — Railway personal API token (Account → API Tokens)
-        RAILWAY_SERVICE_ID     — Service ID (Railway dashboard → service → Settings → General)
-        RAILWAY_ENVIRONMENT_ID — Environment ID (Railway dashboard → environment → Settings)
+        RAILWAY_API_TOKEN - Railway personal API token (Account → API Tokens)
+        RAILWAY_SERVICE_ID - Service ID (Railway dashboard → service → Settings → General)
+        RAILWAY_ENVIRONMENT_ID - Environment ID (Railway dashboard → environment → Settings)
     """
     token   = os.getenv("RAILWAY_API_TOKEN", "")
     svc_id  = os.getenv("RAILWAY_SERVICE_ID", "")
@@ -611,7 +611,7 @@ async def api_deploy():
             raise HTTPException(status_code=502, detail=f"Railway error: {msgs}")
 
         logger.info("Railway redeploy triggered successfully")
-        return {"ok": True, "message": "Redeploy triggered — Railway will restart in ~30s"}
+        return {"ok": True, "message": "Redeploy triggered - Railway will restart in ~30s"}
 
     except HTTPException:
         raise
@@ -629,7 +629,7 @@ async def api_screener():
     except FileNotFoundError:
         raise HTTPException(
             status_code=404,
-            detail="Screener output not found — runs on 1st of each month"
+            detail="Screener output not found - runs on 1st of each month"
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -637,7 +637,7 @@ async def api_screener():
 
 @app.post("/api/control/pause")
 async def api_pause():
-    """Activate dashboard kill switch — bot stops taking new signals within 30s."""
+    """Activate dashboard kill switch - bot stops taking new signals within 30s."""
     loop = asyncio.get_event_loop()
     def _do():
         from alphalive.state import BotState
@@ -649,7 +649,7 @@ async def api_pause():
 
 @app.post("/api/control/resume")
 async def api_resume():
-    """Deactivate dashboard kill switch — bot resumes normal operation."""
+    """Deactivate dashboard kill switch - bot resumes normal operation."""
     loop = asyncio.get_event_loop()
     def _do():
         from alphalive.state import BotState

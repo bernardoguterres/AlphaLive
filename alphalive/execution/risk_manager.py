@@ -1,7 +1,7 @@
 """
 Risk Manager
 
-The RiskManager is the gatekeeper — nothing trades without its approval.
+The RiskManager is the gatekeeper - nothing trades without its approval.
 Checks position sizing, stop loss, take profit, daily limits, and circuit breakers.
 
 Critical: This is the last line of defense against runaway losses.
@@ -467,7 +467,7 @@ class RiskManager:
         Main gatekeeper - checks ALL limits before allowing a trade.
 
         Check order:
-        1. TRADING_PAUSED env var (kill switch — checked first, always)
+        1. TRADING_PAUSED env var (kill switch - checked first, always)
         2. Manual pause via Telegram /pause command (in-memory flag)
         3. Trade frequency limit (max trades per day)
         4. API call budget limit (max calls per hour)
@@ -553,7 +553,7 @@ class RiskManager:
 
         # 5. NEW: Degraded mode (broker connection unstable)
         if self.degraded_mode:
-            return (False, "Degraded mode — broker connection unstable")
+            return (False, "Degraded mode - broker connection unstable")
 
         # 6. Check daily loss limit
         if self.check_daily_loss_limit(account_equity):
@@ -684,7 +684,7 @@ class RiskManager:
             self.trading_paused_by_circuit_breaker = True
             logger.critical(
                 f"[{self.strategy_name}] CIRCUIT BREAKER TRIGGERED | "
-                f"{self.consecutive_losses} consecutive losses — "
+                f"{self.consecutive_losses} consecutive losses - "
                 f"trading paused for the rest of the day"
             )
 
@@ -793,7 +793,7 @@ class RiskManager:
             return
 
         logger.info(
-            f"[{self.strategy_name}] Exiting degraded mode — broker connection stable"
+            f"[{self.strategy_name}] Exiting degraded mode - broker connection stable"
         )
         self.degraded_mode = False
         self.broker_consecutive_failures = 0
@@ -907,7 +907,7 @@ class GlobalRiskManager:
         # Check against limit
         if total_pnl_pct <= -max_daily_loss_pct:
             reason = (
-                f"🛑 GLOBAL daily loss limit exceeded: ${total_pnl:.2f} ({total_pnl_pct:.2f}%) — "
+                f"🛑 GLOBAL daily loss limit exceeded: ${total_pnl:.2f} ({total_pnl_pct:.2f}%) - "
                 f"ALL strategies halted for today"
             )
             self.global_daily_stats["strategies_halted"] = True

@@ -24,7 +24,7 @@ jobs:
       - name: Run tests
         run: pytest tests/ -v --tb=short
         env:
-          # Broker + Telegram are fully mocked in tests — dummy values prevent
+          # Broker + Telegram are fully mocked in tests - dummy values prevent
           # any accidental real API calls while satisfying import-time env checks.
           ALPACA_API_KEY: ci-dummy
           ALPACA_SECRET_KEY: ci-dummy

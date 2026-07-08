@@ -2,7 +2,7 @@
 Extended BotState coverage: minimum-hold entry-timestamp tracking,
 dashboard pause flag, startup marking, and load/save error handling.
 tests/test_state.py already covers morning-check/EOD/position-high
-tracking and trailing-stop startup enforcement — this fills in the
+tracking and trailing-stop startup enforcement - this fills in the
 entry-timestamp and dashboard-pause methods it doesn't reach.
 """
 

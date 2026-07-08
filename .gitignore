@@ -73,3 +73,15 @@ CLAUDE.md
 # Downloaded market data — never commit, regenerate with yfinance (see README)
 data/
 *.parquet
+
+# Internal planning/audit notes (not for public repo)
+/ROADMAP.md
+/docs/BROKER_IMPLEMENTATION_PLAN.md
+/docs/C1_IMPLEMENTATION_SUMMARY.md
+/docs/FINAL_RECOMMENDATIONS.md
+/docs/PAPER_TRADING_DEPLOYMENT.md
+/docs/POSITION_SIZE_COMPARISON.md
+/docs/POST_COVID_RESULTS.md
+/docs/STRATEGY_AUDIT_REPORT.md
+/docs/STRATEGY_IMPROVEMENT_OPTIONS.md
+/docs/SYSTEM_OVERVIEW.md

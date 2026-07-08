@@ -51,7 +51,7 @@ def _compute_daily_stats(
     Compute P&L and win rate from today's order history.
 
     P&L is derived from equity change (start → end), which is the authoritative
-    source — it captures unrealised moves on positions held overnight and is
+    source - it captures unrealised moves on positions held overnight and is
     unaffected by FIFO matching edge-cases.
 
     Win rate counts only completed round-trips (BUY followed by a SELL for the
@@ -161,7 +161,7 @@ def _run_startup_warmup(
 
             if not warmup_complete:
                 logger.warning(
-                    f"  Indicator warmup incomplete for {ticker} — signals may be unreliable"
+                    f"  Indicator warmup incomplete for {ticker} - signals may be unreliable"
                 )
                 notifier.send_alert(
                     f"⚠️ Indicator warmup incomplete for {ticker} on startup. "
@@ -341,7 +341,7 @@ def _check_signal_for_strategy(
 
             if not _lob_allowed or not _sentiment_allowed:
                 logger.info(
-                    "Execution blocked — "
+                    "Execution blocked - "
                     f"lob_allowed={_lob_allowed}, "
                     f"sentiment_allowed={_sentiment_allowed}, "
                     f"sentiment_score={_sentiment_pred.get('sentiment_score', 'N/A')}, "
@@ -634,7 +634,7 @@ def main(
                 f"  [{i}] {cfg.strategy.name} on {cfg.ticker} @ {cfg.timeframe}"
             )
 
-    # State file — used for dashboard kill switch and trailing stop persistence
+    # State file - used for dashboard kill switch and trailing stop persistence
     bot_state = BotState(app_config.state_file)
 
     # Override with command-line args
@@ -790,7 +790,7 @@ def main(
 
     # 5. SIGTERM handler for graceful Railway shutdown
     def handle_sigterm(signum, frame):
-        logger.info("SIGTERM received — Railway is restarting/stopping")
+        logger.info("SIGTERM received - Railway is restarting/stopping")
 
         # Stop command listener
         if cmd_listener is not None:
@@ -856,11 +856,11 @@ def main(
         )
 
         # Exit after replay completes
-        logger.info("Replay mode complete — exiting")
+        logger.info("Replay mode complete - exiting")
         sys.exit(0)
 
     # === LIVE MODE ===
-    # Main loop — runs FOREVER
+    # Main loop - runs FOREVER
     logger.info(f"AlphaLive running 24/7. Mode: {mode}.")
     logger.info("Press Ctrl+C to stop (or wait for Railway SIGTERM)")
 
@@ -873,7 +873,7 @@ def main(
             if cmd_listener is not None and not cmd_listener.thread.is_alive():
                 logger.error("Telegram command listener thread died")
                 notifier.send_error_alert(
-                    "⚠️ Command listener offline — /pause and /resume unavailable. "
+                    "⚠️ Command listener offline - /pause and /resume unavailable. "
                     "Restart service to restore."
                 )
                 # Set to None to avoid spamming alerts every loop iteration
@@ -901,7 +901,7 @@ def main(
 
             # --- Dashboard kill switch (checked every loop iteration) ---
             if bot_state.check_dashboard_paused():
-                logger.info("Trading paused via dashboard kill switch — sleeping 30s")
+                logger.info("Trading paused via dashboard kill switch - sleeping 30s")
                 time.sleep(30)
                 continue
 
@@ -924,7 +924,7 @@ def main(
                 # After 4 PM ET: send EOD summary, then sleep until midnight
                 if now_et.hour >= 16:
                     if not eod_summary_sent:
-                        # Set flag first — prevents infinite retry loop if send fails
+                        # Set flag first - prevents infinite retry loop if send fails
                         eod_summary_sent = True
                         try:
                             _send_eod_summary(
@@ -1037,11 +1037,11 @@ def main(
                 except Exception as e:
                     logger.error(f"EOD summary error: {e}", exc_info=True)
                     if not eod_summary_retry:
-                        # First failure — queue one retry on next loop
+                        # First failure - queue one retry on next loop
                         eod_summary_retry = True
                         eod_summary_sent = False
                         logger.warning(
-                            "EOD summary failed — will retry once on next loop"
+                            "EOD summary failed - will retry once on next loop"
                         )
 
             # Retry EOD summary once if it failed earlier
@@ -1054,11 +1054,11 @@ def main(
                     logger.info("EOD summary sent (retry succeeded)")
                 except Exception as e:
                     logger.error(f"EOD summary retry failed: {e}", exc_info=True)
-                    # Give up after one retry — don't spam
+                    # Give up after one retry - don't spam
 
             # Sleep 30 seconds between checks during market hours.
             # Why 30s and not 5 minutes (the exit check interval)?
-            # 1. Responsive to SIGTERM — Railway sends SIGTERM on deploy,
+            # 1. Responsive to SIGTERM - Railway sends SIGTERM on deploy,
             #    and we want to catch it within 30s, not wait 5 minutes.
             # 2. The morning check and EOD summary are time-sensitive
             #    (9:35 AM, 3:55 PM) and need ~30s precision.
@@ -1068,11 +1068,11 @@ def main(
 
         except KeyboardInterrupt:
             # Local testing: Ctrl+C
-            logger.info("KeyboardInterrupt received — shutting down")
+            logger.info("KeyboardInterrupt received - shutting down")
             break
         except Exception as e:
             # Catch-all: log error, notify, sleep, and continue.
-            # NEVER let the loop die — Railway will restart but we lose state.
+            # NEVER let the loop die - Railway will restart but we lose state.
             logger.error(f"Main loop error: {e}", exc_info=True)
             try:
                 notifier.send_error_alert(f"Main loop error: {str(e)}")

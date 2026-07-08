@@ -1,7 +1,7 @@
 """
 Test Signal Generation Engine
 
-Tests for alphalive/strategy/signal_engine.py — signal generation for all 5 strategies.
+Tests for alphalive/strategy/signal_engine.py - signal generation for all 5 strategies.
 """
 
 import pandas as pd
@@ -364,7 +364,7 @@ def _make_engine(sample_strategy_dict, strategy_name, params):
 
 
 def _bb_rsi_buy_bars(n=50):
-    """50 bars: 35 flat at 100, then 15 declining to 55 — forces price below BB lower and RSI well below 45."""
+    """50 bars: 35 flat at 100, then 15 declining to 55 - forces price below BB lower and RSI well below 45."""
     data = []
     for i in range(35):
         data.append({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1_000_000})
@@ -377,7 +377,7 @@ def _bb_rsi_buy_bars(n=50):
 
 
 def _bb_rsi_neutral_bars(n=50):
-    """50 bars: flat at 100 — price equals BB_middle, RSI ~50 (neutral zone for rsi_oversold=45/rsi_overbought=55)."""
+    """50 bars: flat at 100 - price equals BB_middle, RSI ~50 (neutral zone for rsi_oversold=45/rsi_overbought=55)."""
     data = [{"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1_000_000} for _ in range(n)]
     df = pd.DataFrame(data)
     df.index = pd.date_range(start="2024-01-01", periods=n, freq="D", tz="America/New_York")
@@ -385,7 +385,7 @@ def _bb_rsi_neutral_bars(n=50):
 
 
 def _rsi_uptrend_bars(n=60):
-    """60 bars: rising prices from 100 to 160 — RSI climbs well above 55."""
+    """60 bars: rising prices from 100 to 160 - RSI climbs well above 55."""
     data = []
     for i in range(n):
         price = 100.0 + i * 1.0
@@ -409,7 +409,7 @@ def test_bollinger_rsi_combo_buy_when_price_at_lower_band_and_rsi_oversold(sampl
 
 
 def test_bollinger_rsi_combo_stateful_hold_when_already_in_position(sample_strategy_dict):
-    """After entering a position, BUY conditions on the next bar must yield HOLD — not another BUY."""
+    """After entering a position, BUY conditions on the next bar must yield HOLD - not another BUY."""
     params = {"bb_period": 20, "bb_std": 2.0, "rsi_period": 14, "rsi_oversold": 45, "rsi_overbought": 55, "exit_at_middle": True}
     engine = _make_engine(sample_strategy_dict, "bollinger_rsi_combo", params)
 
@@ -433,7 +433,7 @@ def test_bollinger_rsi_combo_sell_when_price_reaches_middle_band(sample_strategy
     engine._in_position = True
     engine._entry_price = 90.0
 
-    # Flat bars: price == BB_middle (both ~100), RSI ~50 (neutral — exit via BB middle)
+    # Flat bars: price == BB_middle (both ~100), RSI ~50 (neutral - exit via BB middle)
     df = _bb_rsi_neutral_bars()
     result = engine.generate_signal(df)
 
@@ -457,7 +457,7 @@ def test_bollinger_rsi_combo_sell_when_rsi_overbought(sample_strategy_dict):
 
 
 def test_bollinger_rsi_combo_no_sell_when_not_in_position(sample_strategy_dict):
-    """SELL conditions met but not in position — must return HOLD."""
+    """SELL conditions met but not in position - must return HOLD."""
     params = {"bb_period": 20, "bb_std": 2.0, "rsi_period": 14, "rsi_oversold": 45, "rsi_overbought": 55, "exit_at_middle": True}
     engine = _make_engine(sample_strategy_dict, "bollinger_rsi_combo", params)
 
@@ -481,7 +481,7 @@ def test_bollinger_rsi_combo_full_state_cycle(sample_strategy_dict):
     r = engine.generate_signal(df)
     assert r["signal"] != "BUY"
 
-    # Trigger SELL conditions while in position — simulates exit
+    # Trigger SELL conditions while in position - simulates exit
     engine._in_position = True
     engine._entry_price = 80.0
     r = engine.generate_signal(df)  # flat bars → price at BB middle → SELL
@@ -498,7 +498,7 @@ def test_bollinger_rsi_combo_full_state_cycle(sample_strategy_dict):
 # =============================================================================
 
 def _range_rsi_oversold_bars(n=60):
-    """60 bars: declining from 100 to 40 — RSI drops well below 35 in range regime (SMA_50 far above price)."""
+    """60 bars: declining from 100 to 40 - RSI drops well below 35 in range regime (SMA_50 far above price)."""
     data = []
     for i in range(n):
         price = 100.0 - i * 1.0
@@ -509,7 +509,7 @@ def _range_rsi_oversold_bars(n=60):
 
 
 def _range_rsi_overbought_bars(n=60):
-    """60 bars: rising from 100 to 160 — RSI climbs well above 65 in range regime."""
+    """60 bars: rising from 100 to 160 - RSI climbs well above 65 in range regime."""
     data = []
     for i in range(n):
         price = 100.0 + i * 1.0
@@ -567,7 +567,7 @@ def test_trend_adaptive_rsi_sell_when_rsi_above_threshold(sample_strategy_dict):
 
 
 def test_trend_adaptive_rsi_no_sell_when_not_in_position(sample_strategy_dict):
-    """RSI overbought but not in position — must return HOLD, not SELL."""
+    """RSI overbought but not in position - must return HOLD, not SELL."""
     params = {"rsi_period": 14, "trend_sma": 50, "trend_lookback": 5,
               "uptrend_buy": 45, "uptrend_sell": 65, "downtrend_buy": 35,
               "downtrend_sell": 55, "range_buy": 35, "range_sell": 65}
