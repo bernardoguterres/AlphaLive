@@ -3,7 +3,7 @@ Additional AlphaSignalClient coverage: the real get_sentiment() HTTP call
 (httpx mocked, no network), and run_pre_execution_checks()'s None-client
 passthrough and exception-handling branches. tests/test_alphasignal_client.py
 already covers the threshold/direction logic and the concurrent-gather
-wiring — this file fills in what wasn't reachable from those tests.
+wiring - this file fills in what wasn't reachable from those tests.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -92,7 +92,7 @@ async def test_get_sentiment_no_api_key_omits_header():
 
 
 # ---------------------------------------------------------------------------
-# run_pre_execution_checks() — None-client passthrough and error handling
+# run_pre_execution_checks() - None-client passthrough and error handling
 # ---------------------------------------------------------------------------
 
 

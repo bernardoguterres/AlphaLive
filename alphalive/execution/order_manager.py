@@ -138,7 +138,7 @@ class OrderManager:
         recent_order = self._check_recent_order(ticker, signal_action)
         if recent_order:
             logger.warning(
-                f"Duplicate order prevented: {ticker} {signal_action} — "
+                f"Duplicate order prevented: {ticker} {signal_action} - "
                 f"already placed order {recent_order['order_id']} "
                 f"at {recent_order['timestamp']}"
             )
@@ -236,7 +236,7 @@ class OrderManager:
             # 7. PARTIAL FILL HANDLING
             if filled_qty < qty:
                 logger.warning(
-                    f"PARTIAL FILL: {ticker} {signal_action} — "
+                    f"PARTIAL FILL: {ticker} {signal_action} - "
                     f"requested {qty}, filled {filled_qty}"
                 )
                 if self.notifier:
@@ -272,10 +272,10 @@ class OrderManager:
             }
 
         except Exception as e:
-            logger.error(f"ORDER FAILED: {ticker} {signal_action} — {e}", exc_info=True)
+            logger.error(f"ORDER FAILED: {ticker} {signal_action} - {e}", exc_info=True)
             if self.notifier:
                 self.notifier.send_error_alert(
-                    f"❌ Order failed: {ticker} {signal_action} — {str(e)}"
+                    f"❌ Order failed: {ticker} {signal_action} - {str(e)}"
                 )
             return {"status": "error", "reason": str(e)}
 
@@ -363,8 +363,8 @@ class OrderManager:
                             )
                         os.environ["TRADING_PAUSED"] = "true"
                         raise ValueError(f"Invalid symbol: {ticker}")
-                    # Other 422 (invalid quantity, bad params) — no retry
-                    logger.error(f"ORDER REJECTED (422): {ticker} — {e}")
+                    # Other 422 (invalid quantity, bad params) - no retry
+                    logger.error(f"ORDER REJECTED (422): {ticker} - {e}")
                     raise
 
                 if status == 429:
@@ -379,7 +379,7 @@ class OrderManager:
                     logger.error(f"Rate limit retries exhausted for {ticker}")
                     raise
 
-                # Any other API error (5xx, unknown 4xx) — retry with backoff
+                # Any other API error (5xx, unknown 4xx) - retry with backoff
                 if attempt < max_retries:
                     wait_time = 2**attempt  # 2s, 4s, 8s
                     logger.warning(
@@ -608,7 +608,7 @@ class OrderManager:
             logger.error(f"Failed to close position {ticker}: {e}", exc_info=True)
             if self.notifier:
                 self.notifier.send_error_alert(
-                    f"❌ Failed to close position: {ticker} — {str(e)}"
+                    f"❌ Failed to close position: {ticker} - {str(e)}"
                 )
             return {"status": "error", "reason": str(e)}
 

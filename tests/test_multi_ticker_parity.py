@@ -126,6 +126,6 @@ def test_momentum_breakout_generates_signals_on_real_data(ticker):
     expected = load_expected_signals(ticker, "momentum_breakout")
     non_hold = (expected["signal"] != "HOLD").sum()
     assert non_hold >= 1, (
-        f"momentum_breakout generated 0 signals on real {ticker} data — "
+        f"momentum_breakout generated 0 signals on real {ticker} data - "
         "check strategy parameters or fixture quality"
     )

@@ -1,7 +1,7 @@
 """
 Test State Persistence
 
-Tests for alphalive/state.py — state persistence across Railway restarts.
+Tests for alphalive/state.py - state persistence across Railway restarts.
 """
 
 import os

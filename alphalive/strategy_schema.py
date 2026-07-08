@@ -102,7 +102,7 @@ class Risk(BaseModel):
     def validate_stop_loss(cls, v: float) -> float:
         """Validate stop loss and warn if unusually wide"""
         if v > 15.0:
-            logger.warning(f"Very wide stop loss ({v}%) — verify this is intentional")
+            logger.warning(f"Very wide stop loss ({v}%) - verify this is intentional")
         return v
 
     @field_validator("take_profit_pct")
@@ -111,7 +111,7 @@ class Risk(BaseModel):
         """Validate take profit and warn if aggressive"""
         if v > 50.0:
             logger.warning(
-                f"Aggressive take profit target ({v}%) — may be difficult to achieve"
+                f"Aggressive take profit target ({v}%) - may be difficult to achieve"
             )
         return v
 
@@ -121,7 +121,7 @@ class Risk(BaseModel):
         """Validate trailing stop and warn if wide"""
         if v is not None and v > 10.0:
             logger.warning(
-                f"Wide trailing stop ({v}%) — may give back significant gains"
+                f"Wide trailing stop ({v}%) - may give back significant gains"
             )
         return v
 
@@ -185,7 +185,7 @@ class SafetyLimits(BaseModel):
         """Validate max trades per day and warn if high"""
         if v > 50:
             logger.warning(
-                f"High trade frequency ({v} trades/day) — verify strategy logic"
+                f"High trade frequency ({v} trades/day) - verify strategy logic"
             )
         return v
 
@@ -273,7 +273,7 @@ def load_strategy_with_defaults(data: Dict[str, Any]) -> StrategySchema:
     """
     if "safety_limits" not in data:
         logger.info(
-            "safety_limits block missing — applying defaults for backward compatibility"
+            "safety_limits block missing - applying defaults for backward compatibility"
         )
         data["safety_limits"] = {
             "max_trades_per_day": 20,

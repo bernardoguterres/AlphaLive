@@ -229,7 +229,7 @@ class BotState:
         entry_timestamps = self.state.get("entry_timestamps", {})
         ts_str = entry_timestamps.get(ticker)
         if ts_str is None:
-            return True  # No record — allow exit
+            return True  # No record - allow exit
 
         try:
             entry_dt = datetime.fromisoformat(ts_str)

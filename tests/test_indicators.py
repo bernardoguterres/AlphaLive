@@ -1,7 +1,7 @@
 """
 Test Technical Indicators
 
-Tests for alphalive/strategy/indicators.py — technical indicator calculations
+Tests for alphalive/strategy/indicators.py - technical indicator calculations
 using the ta library.
 """
 

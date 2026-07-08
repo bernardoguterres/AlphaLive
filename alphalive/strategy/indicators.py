@@ -284,7 +284,7 @@ def _indicators_greenblatt_weekly(
     return df
 
 
-# Dispatch table — adding a new strategy requires only a new _indicators_* function + one entry here
+# Dispatch table - adding a new strategy requires only a new _indicators_* function + one entry here
 _STRATEGY_INDICATOR_DISPATCH: Dict[str, Any] = {
     "ma_crossover": _indicators_ma_crossover,
     "rsi_mean_reversion": _indicators_rsi_mean_reversion,
@@ -329,7 +329,7 @@ def add_all_for_strategy(
         )
 
     df = df.copy()
-    # SMA_200 is always added — used by the bear market filter to block BUY signals
+    # SMA_200 is always added - used by the bear market filter to block BUY signals
     # when price is below a declining 200-day SMA.
     df = add_sma(df, 200)
     return handler(df, params)

@@ -1,7 +1,7 @@
 """
 Test Telegram Command Listener
 
-Tests for alphalive/notifications/telegram_commands.py — inbound Telegram commands.
+Tests for alphalive/notifications/telegram_commands.py - inbound Telegram commands.
 """
 
 import pytest

@@ -83,7 +83,7 @@ class FundamentalScreener:
             logger.debug(f"Screener not due (today is {today}, runs on 1st of month)")
             return None
 
-        logger.info(f"Monthly screener due — screening {len(self.universe)} tickers")
+        logger.info(f"Monthly screener due - screening {len(self.universe)} tickers")
         return self.run()
 
     def run(self) -> list[ScreenerResult]:
@@ -106,7 +106,7 @@ class FundamentalScreener:
         Returns an empty list if no output file exists yet.
         """
         if not self.output_path.exists():
-            logger.warning(f"No screener output at {self.output_path} — returning empty list")
+            logger.warning(f"No screener output at {self.output_path} - returning empty list")
             return []
         try:
             data = json.loads(self.output_path.read_text())
@@ -157,7 +157,7 @@ class FundamentalScreener:
                 combined_rank=0,
             )
         except Exception as exc:
-            logger.warning(f"{ticker}: fetch failed — {exc}")
+            logger.warning(f"{ticker}: fetch failed - {exc}")
             return None
 
     def _filter(self, results: list[ScreenerResult]) -> list[ScreenerResult]:

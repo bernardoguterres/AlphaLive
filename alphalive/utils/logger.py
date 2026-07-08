@@ -16,7 +16,7 @@ from typing import Optional
 
 
 class JsonFormatter(logging.Formatter):
-    """Emit one JSON object per log line — machine-readable on Railway / log aggregators.
+    """Emit one JSON object per log line - machine-readable on Railway / log aggregators.
 
     Set LOG_FORMAT=json to enable. Each line is valid JSON with at minimum:
       ts, level, logger, msg

@@ -518,13 +518,13 @@ class TelegramCommandListener:
         """Handle /help command."""
         message = (
             "🤖 <b>AlphaLive Commands</b>\n\n"
-            "/status — Current bot state and positions\n"
-            "/pause — Pause trading (no new entries)\n"
-            "/resume — Resume trading\n"
-            "/close_all — Close all positions (asks for confirmation)\n"
-            "/config — View strategy configuration\n"
-            "/performance — Performance stats since bot started\n"
-            "/help — Show this help message"
+            "/status - Current bot state and positions\n"
+            "/pause - Pause trading (no new entries)\n"
+            "/resume - Resume trading\n"
+            "/close_all - Close all positions (asks for confirmation)\n"
+            "/config - View strategy configuration\n"
+            "/performance - Performance stats since bot started\n"
+            "/help - Show this help message"
         )
 
         self.notifier.send_message(message, parse_mode="HTML")

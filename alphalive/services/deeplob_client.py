@@ -23,7 +23,7 @@ class DeepLOBClient:
             Default: from config (DEEPLOB_URL env var).
         confidence_threshold: Minimum prediction confidence to allow
             execution. Default 0.6.
-        timeout_seconds: Request timeout. Default 2.0 — must not
+        timeout_seconds: Request timeout. Default 2.0 - must not
             block AlphaLive's execution loop.
     """
 
@@ -49,10 +49,10 @@ class DeepLOBClient:
 
         Returns:
             Dict with keys:
-                direction: int — 0=down, 1=stationary, 2=up
-                confidence: float — max softmax probability
-                probabilities: list[float] — [p_down, p_stat, p_up]
-                latency_ms: float — round-trip time in milliseconds
+                direction: int - 0=down, 1=stationary, 2=up
+                confidence: float - max softmax probability
+                probabilities: list[float] - [p_down, p_stat, p_up]
+                latency_ms: float - round-trip time in milliseconds
 
         Raises:
             asyncio.TimeoutError: If the request exceeds timeout_seconds.
@@ -88,9 +88,9 @@ class DeepLOBClient:
         - request completes within timeout
 
         If lob_snapshot is None or empty (no L2 feed available):
-            fail open — return (True, {}).
+            fail open - return (True, {}).
         On timeout or connection error:
-            fail open — return (True, {}).
+            fail open - return (True, {}).
 
         Never block execution due to inference unavailability.
 

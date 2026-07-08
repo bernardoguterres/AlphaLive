@@ -43,7 +43,7 @@ def _sentiment_dict(score: float, confidence: float = 0.8) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Test 1 — positive sentiment allows long
+# Test 1 - positive sentiment allows long
 # ---------------------------------------------------------------------------
 
 
@@ -59,7 +59,7 @@ async def test_positive_sentiment_allows_long():
 
 
 # ---------------------------------------------------------------------------
-# Test 2 — negative sentiment blocks long
+# Test 2 - negative sentiment blocks long
 # ---------------------------------------------------------------------------
 
 
@@ -75,14 +75,14 @@ async def test_negative_sentiment_blocks_long():
 
 
 # ---------------------------------------------------------------------------
-# Test 3 — negative sentiment allows short
+# Test 3 - negative sentiment allows short
 # ---------------------------------------------------------------------------
 
 
 async def test_negative_sentiment_allows_short():
     """Score=-0.5 (below +0.3 inverse threshold) should allow a short (SELL=0).
 
-    Strong negative sentiment CONFIRMS a short — do not block.
+    Strong negative sentiment CONFIRMS a short - do not block.
     """
     client = _make_client()
 
@@ -94,14 +94,14 @@ async def test_negative_sentiment_allows_short():
 
 
 # ---------------------------------------------------------------------------
-# Test 4 — positive sentiment blocks short
+# Test 4 - positive sentiment blocks short
 # ---------------------------------------------------------------------------
 
 
 async def test_positive_sentiment_blocks_short():
     """Score=0.5 (above +0.3 inverse threshold) should block a short (SELL=0).
 
-    Strong positive sentiment contradicts a short — execution suppressed.
+    Strong positive sentiment contradicts a short - execution suppressed.
     """
     client = _make_client()
 
@@ -113,7 +113,7 @@ async def test_positive_sentiment_blocks_short():
 
 
 # ---------------------------------------------------------------------------
-# Test 5 — neutral direction always allowed
+# Test 5 - neutral direction always allowed
 # ---------------------------------------------------------------------------
 
 
@@ -131,12 +131,12 @@ async def test_neutral_direction_always_allowed():
 
 
 # ---------------------------------------------------------------------------
-# Test 6 — timeout fails open
+# Test 6 - timeout fails open
 # ---------------------------------------------------------------------------
 
 
 async def test_timeout_fails_open():
-    """asyncio.TimeoutError from get_sentiment must return (True, {}) — fail open."""
+    """asyncio.TimeoutError from get_sentiment must return (True, {}) - fail open."""
     client = _make_client()
 
     with patch.object(
@@ -149,12 +149,12 @@ async def test_timeout_fails_open():
 
 
 # ---------------------------------------------------------------------------
-# Test 7 — both filters run concurrently via asyncio.gather
+# Test 7 - both filters run concurrently via asyncio.gather
 # ---------------------------------------------------------------------------
 
 
 async def test_both_filters_run_concurrently():
-    """asyncio.gather must be called with two coroutines — one per filter.
+    """asyncio.gather must be called with two coroutines - one per filter.
 
     This verifies the concurrent execution gate: both DeepLOB and
     AlphaSignal checks are submitted to the event loop together, not
@@ -162,7 +162,7 @@ async def test_both_filters_run_concurrently():
     """
     # Mock deeplob client with an is_execution_allowed that returns a coroutine.
     mock_deeplob = MagicMock()
-    deeplob_coro_sentinel = object()  # Arbitrary sentinel — not a real coroutine
+    deeplob_coro_sentinel = object()  # Arbitrary sentinel - not a real coroutine
     mock_deeplob.is_execution_allowed = MagicMock(return_value=deeplob_coro_sentinel)
 
     # Mock alphasignal client similarly.

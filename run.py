@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AlphaLive — Live Trading Execution Engine
+AlphaLive - Live Trading Execution Engine
 
 Simple entry point for both local development and Railway deployment.
 """
@@ -115,7 +115,7 @@ Environment Variables:
     args = parser.parse_args()
 
     # Paper/live is controlled by ALPACA_PAPER env var, not CLI flag
-    # (safer for Railway — can't accidentally pass --live flag)
+    # (safer for Railway - can't accidentally pass --live flag)
     paper = os.environ.get("ALPACA_PAPER", "true").lower() == "true"
 
     # --- validate-only branch ---
@@ -214,7 +214,7 @@ Environment Variables:
     if not paper:
         print()
         print("WARNING ")
-        print("LIVE TRADING MODE — REAL MONEY AT RISK ")
+        print("LIVE TRADING MODE - REAL MONEY AT RISK ")
         print("WARNING ")
         print()
 

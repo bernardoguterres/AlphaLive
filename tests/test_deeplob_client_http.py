@@ -3,7 +3,7 @@ Additional DeepLOBClient coverage for the real predict() HTTP call
 (httpx mocked, no network) and the wrong-length snapshot edge case.
 tests/test_deeplob_client.py already covers is_execution_allowed()'s
 threshold/direction logic via a mocked predict(), and its falsy-snapshot
-(None/empty-list) fail-open branch — this fills in the HTTP request/response
+(None/empty-list) fail-open branch - this fills in the HTTP request/response
 handling that those tests bypass, plus the distinct "truthy but wrong
 length" fail-open branch.
 """

@@ -4,12 +4,12 @@ Tests for DeepLOBClient.
 All async tests run automatically under pytest-asyncio (asyncio_mode = auto).
 
 Coverage:
-  1. test_matching_direction_above_threshold   — direction match + confidence OK → allow
-  2. test_mismatched_direction                  — direction mismatch → block
-  3. test_low_confidence_blocks                 — direction match but low confidence → block
-  4. test_timeout_fails_open                    — asyncio.TimeoutError from predict → allow
-  5. test_falsy_snapshot_fails_open[None/empty]  — lob_snapshot falsy (None or []) → allow (no L2 data)
-  6. test_health_endpoint_reachable             — start serve.py subprocess, GET /health
+  1. test_matching_direction_above_threshold - direction match + confidence OK → allow
+  2. test_mismatched_direction - direction mismatch → block
+  3. test_low_confidence_blocks - direction match but low confidence → block
+  4. test_timeout_fails_open - asyncio.TimeoutError from predict → allow
+  5. test_falsy_snapshot_fails_open[None/empty] - lob_snapshot falsy (None or []) → allow (no L2 data)
+  6. test_health_endpoint_reachable - start serve.py subprocess, GET /health
 """
 
 import asyncio
@@ -65,7 +65,7 @@ def _pred_dict(direction: int, confidence: float) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Test 1 — matching direction above threshold allows execution
+# Test 1 - matching direction above threshold allows execution
 # ---------------------------------------------------------------------------
 
 
@@ -84,7 +84,7 @@ async def test_matching_direction_above_threshold():
 
 
 # ---------------------------------------------------------------------------
-# Test 2 — mismatched direction blocks execution
+# Test 2 - mismatched direction blocks execution
 # ---------------------------------------------------------------------------
 
 
@@ -102,7 +102,7 @@ async def test_mismatched_direction():
 
 
 # ---------------------------------------------------------------------------
-# Test 3 — matching direction but low confidence blocks execution
+# Test 3 - matching direction but low confidence blocks execution
 # ---------------------------------------------------------------------------
 
 
@@ -120,12 +120,12 @@ async def test_low_confidence_blocks():
 
 
 # ---------------------------------------------------------------------------
-# Test 4 — timeout from predict fails open
+# Test 4 - timeout from predict fails open
 # ---------------------------------------------------------------------------
 
 
 async def test_timeout_fails_open():
-    """asyncio.TimeoutError from predict must return (True, {}) — fail open."""
+    """asyncio.TimeoutError from predict must return (True, {}) - fail open."""
     client = _make_client()
 
     with patch.object(
@@ -140,14 +140,14 @@ async def test_timeout_fails_open():
 
 
 # ---------------------------------------------------------------------------
-# Test 5 — falsy snapshot (None or empty list) fails open (no L2 data available)
+# Test 5 - falsy snapshot (None or empty list) fails open (no L2 data available)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("lob_snapshot", [None, []], ids=["none", "empty_list"])
 async def test_falsy_snapshot_fails_open(lob_snapshot):
     """A falsy lob_snapshot (None, or [] when no L2 feed is available) must
-    never block execution — both hit the same `not lob_snapshot` short
+    never block execution - both hit the same `not lob_snapshot` short
     circuit in is_execution_allowed()."""
     client = _make_client()
 
@@ -160,7 +160,7 @@ async def test_falsy_snapshot_fails_open(lob_snapshot):
 
 
 # ---------------------------------------------------------------------------
-# Test 6 — health endpoint reachable (requires outputs/best_model_k10.pt)
+# Test 6 - health endpoint reachable (requires outputs/best_model_k10.pt)
 # ---------------------------------------------------------------------------
 
 

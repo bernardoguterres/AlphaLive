@@ -8,13 +8,13 @@
   <!-- Apply saved theme before any rendering to prevent flash -->
   <script>if (localStorage.getItem('alphalive-theme') === 'light') document.documentElement.classList.add('light');</script>
 
-  <!-- Tailwind CSS CDN (JIT — supports arbitrary values) -->
+  <!-- Tailwind CSS CDN (JIT - supports arbitrary values) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- Chart.js — must load before Alpine initializes -->
+  <!-- Chart.js - must load before Alpine initializes -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 
-  <!-- Alpine.js (deferred — initializes after DOM + Chart.js are ready) -->
+  <!-- Alpine.js (deferred - initializes after DOM + Chart.js are ready) -->
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
 
   <style>
@@ -76,7 +76,7 @@
     html.light .text-white   { color: var(--text-strong) !important; }
     html.light .text-slate-200 { color: #1e293b !important; }
     html.light .text-slate-300 { color: #334155 !important; }
-    /* slate-400 and below stay as-is — they read fine on both backgrounds */
+    /* slate-400 and below stay as-is - they read fine on both backgrounds */
 
     /* ── Scrollbar ─────────────────────────────────────────────────── */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -140,7 +140,7 @@
   <header class="card bg-[#161b2d] rounded-xl border border-white/[0.06] px-4 sm:px-5 py-3
                  flex flex-wrap items-center gap-x-3 gap-y-2">
 
-    <!-- [1] Brand — always row 1, left -->
+    <!-- [1] Brand - always row 1, left -->
     <div class="flex items-center gap-2.5 shrink-0">
       <svg class="w-5 h-5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24"
            stroke="currentColor" stroke-width="2">
@@ -150,7 +150,7 @@
       <span class="text-slate-500 text-sm hidden sm:inline">Dashboard</span>
     </div>
 
-    <!-- [3] Status badges — row 2 on mobile (full width), inline on sm+ -->
+    <!-- [3] Status badges - row 2 on mobile (full width), inline on sm+ -->
     <div class="flex items-center gap-2 flex-wrap justify-center
                 order-3 sm:order-2 w-full sm:w-auto sm:flex-1">
       <span
@@ -167,7 +167,7 @@
       >◼ MARKET CLOSED</span>
     </div>
 
-    <!-- [2] Controls group — row 1, pushed to right via ml-auto; order-3 on sm+ -->
+    <!-- [2] Controls group - row 1, pushed to right via ml-auto; order-3 on sm+ -->
     <div class="flex items-center gap-2 ml-auto order-2 sm:order-3 shrink-0">
 
       <!-- Railway deploy button -->
@@ -250,7 +250,7 @@
 
 
   <!-- ==================================================================
-       STAT CARDS — 2 cols on mobile, 4 on md+
+       STAT CARDS - 2 cols on mobile, 4 on md+
        ================================================================== -->
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
 
@@ -258,7 +258,7 @@
     <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] px-4 sm:px-5 py-4">
       <p class="text-slate-500 text-[10px] uppercase tracking-widest mb-1">Portfolio Value</p>
       <p class="text-xl sm:text-2xl font-bold text-white tabular-nums"
-         x-text="account ? '$' + fmt2(account.portfolio_value) : '—'">—</p>
+         x-text="account ? '$' + fmt2(account.portfolio_value) : '-'">-</p>
       <p class="text-slate-500 text-[11px] mt-1"
          x-text="account ? 'Equity ' + fmtDollar(account.equity) : ''"></p>
     </div>
@@ -268,7 +268,7 @@
       <p class="text-slate-500 text-[10px] uppercase tracking-widest mb-1">Daily P&amp;L</p>
       <p class="text-xl sm:text-2xl font-bold tabular-nums"
          :class="[pnlClass(risk?.daily_pnl), pnlFlashing ? 'pnl-flash' : '']"
-         x-text="risk != null ? fmtDollar(risk.daily_pnl) : '—'">—</p>
+         x-text="risk != null ? fmtDollar(risk.daily_pnl) : '-'">-</p>
       <p class="text-[11px] mt-1"
          :class="pnlClass(risk?.daily_pnl)"
          x-text="(risk?.equity && risk.daily_pnl != null)
@@ -279,7 +279,7 @@
     <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] px-4 sm:px-5 py-4">
       <p class="text-slate-500 text-[10px] uppercase tracking-widest mb-1">Cash Available</p>
       <p class="text-xl sm:text-2xl font-bold text-white tabular-nums"
-         x-text="account ? '$' + fmt2(account.cash) : '—'">—</p>
+         x-text="account ? '$' + fmt2(account.cash) : '-'">-</p>
       <p class="text-slate-500 text-[11px] mt-1"
          x-text="account ? 'Buying power ' + fmtDollar(account.buying_power) : ''"></p>
     </div>
@@ -287,7 +287,7 @@
     <!-- Open Positions -->
     <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] px-4 sm:px-5 py-4">
       <p class="text-slate-500 text-[10px] uppercase tracking-widest mb-1">Open Positions</p>
-      <p class="text-xl sm:text-2xl font-bold text-white tabular-nums" x-text="positions.length">—</p>
+      <p class="text-xl sm:text-2xl font-bold text-white tabular-nums" x-text="positions.length">-</p>
       <p class="text-slate-500 text-[11px] mt-1"
          x-text="orders.length + ' order' + (orders.length === 1 ? '' : 's') + ' today'"></p>
     </div>
@@ -295,7 +295,7 @@
 
 
   <!-- ==================================================================
-       MAIN ROW — positions table (left) + charts (right)
+       MAIN ROW - positions table (left) + charts (right)
        Stacks on tablet, side-by-side on xl
        ================================================================== -->
   <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
@@ -373,7 +373,7 @@
                 <td class="px-3 py-2 text-right text-slate-500 tabular-nums text-xs"
                     x-text="p.trailing_stop_level
                       ? '$' + p.trailing_stop_level.toFixed(2) + (p.trailing_stop_pct ? ' (' + p.trailing_stop_pct + '%)' : '')
-                      : '—'"></td>
+                      : '-'"></td>
                 <td class="px-3 py-2 text-right tabular-nums text-xs"
                     :class="heldClass(p.entry_timestamp)"
                     :title="p.entry_timestamp ? 'Since ' + fmtDate(p.entry_timestamp) : ''"
@@ -413,7 +413,7 @@
 
 
   <!-- ==================================================================
-       RISK ROW — 3 columns on md+
+       RISK ROW - 3 columns on md+
        ================================================================== -->
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
 
@@ -425,7 +425,7 @@
         <span class="text-slate-500">
           Loss:
           <span :class="pnlClass(risk?.daily_pnl)"
-                x-text="risk != null ? fmtDollar(risk.daily_pnl) : '—'"></span>
+                x-text="risk != null ? fmtDollar(risk.daily_pnl) : '-'"></span>
         </span>
         <span class="text-slate-500"
               x-text="risk?.daily_loss_limit_dollars
@@ -470,7 +470,7 @@
                   :class="risk?.trading_paused
                     ? 'bg-red-900/50 text-red-400 border border-red-700/30'
                     : 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/20'"
-                  x-text="risk?.trading_paused ? '⏸ PAUSED' : '▶ ACTIVE'">—</span>
+                  x-text="risk?.trading_paused ? '⏸ PAUSED' : '▶ ACTIVE'">-</span>
             <!-- Kill switch button -->
             <button
               @click="togglePause()"
@@ -493,7 +493,7 @@
                   'bg-blue-900/40 text-blue-400 border border-blue-700/20': !risk?.dry_run && account?.paper,
                   'bg-emerald-900/40 text-emerald-400 border border-emerald-700/20': !risk?.dry_run && !account?.paper,
                 }"
-                x-text="risk?.dry_run ? 'DRY RUN' : account?.paper ? 'PAPER' : 'LIVE'">—</span>
+                x-text="risk?.dry_run ? 'DRY RUN' : account?.paper ? 'PAPER' : 'LIVE'">-</span>
         </div>
 
         <div class="flex items-center justify-between">
@@ -502,7 +502,7 @@
                 :class="health?.broker_connected
                   ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/20'
                   : 'bg-red-900/50 text-red-400 border border-red-700/30'"
-                x-text="health?.broker_connected ? 'CONNECTED' : 'OFFLINE'">—</span>
+                x-text="health?.broker_connected ? 'CONNECTED' : 'OFFLINE'">-</span>
         </div>
 
         <div class="flex items-center justify-between">
@@ -511,7 +511,7 @@
                 :class="health?.market?.is_open
                   ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/20'
                   : 'bg-slate-700/40 text-slate-400 border border-slate-600/20'"
-                x-text="health?.market?.is_open ? 'OPEN' : 'CLOSED'">—</span>
+                x-text="health?.market?.is_open ? 'OPEN' : 'CLOSED'">-</span>
         </div>
 
         <div class="flex items-center justify-between pt-0.5">
@@ -520,7 +520,7 @@
           <span class="text-slate-300 text-xs tabular-nums"
                 x-text="health?.market?.is_open
                   ? fmtTime(health.market.next_close)
-                  : fmtTime(health.market.next_open)">—</span>
+                  : fmtTime(health.market.next_open)">-</span>
         </div>
       </div>
     </div>
@@ -532,17 +532,17 @@
 
         <div class="flex items-center justify-between">
           <span class="text-slate-500 text-xs">Orders Today</span>
-          <span class="text-white font-semibold" x-text="orders.length">—</span>
+          <span class="text-white font-semibold" x-text="orders.length">-</span>
         </div>
 
         <div class="flex items-center justify-between">
           <span class="text-slate-500 text-xs">Filled</span>
-          <span class="text-slate-300" x-text="orders.filter(o => o.status === 'filled').length">—</span>
+          <span class="text-slate-300" x-text="orders.filter(o => o.status === 'filled').length">-</span>
         </div>
 
         <div class="flex items-center justify-between">
           <span class="text-slate-500 text-xs">PDT Count</span>
-          <span class="text-slate-300" x-text="account?.daytrade_count ?? '—'">—</span>
+          <span class="text-slate-300" x-text="account?.daytrade_count ?? '-'">-</span>
         </div>
 
         <div class="flex items-center justify-between">
@@ -551,19 +551,19 @@
                 :class="health?.last_morning_check_date
                   ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/20'
                   : 'bg-slate-700/40 text-slate-500 border border-slate-600/20'"
-                x-text="health?.last_morning_check_date ? ' ' + health.last_morning_check_date : 'PENDING'">—</span>
+                x-text="health?.last_morning_check_date ? ' ' + health.last_morning_check_date : 'PENDING'">-</span>
         </div>
 
         <div class="flex items-center justify-between">
           <span class="text-slate-500 text-xs">Bot Since</span>
           <span class="text-slate-400 text-xs"
-                x-text="health?.last_startup ? fmtDate(health.last_startup) : '—'">—</span>
+                x-text="health?.last_startup ? fmtDate(health.last_startup) : '-'">-</span>
         </div>
 
         <div class="flex items-center justify-between">
           <span class="text-slate-500 text-xs">State Saved</span>
           <span class="text-slate-400 text-xs"
-                x-text="health?.last_saved ? fmtTime(health.last_saved) : '—'">—</span>
+                x-text="health?.last_saved ? fmtTime(health.last_saved) : '-'">-</span>
         </div>
       </div>
     </div>
@@ -571,7 +571,7 @@
 
 
   <!-- ==================================================================
-       SCREENER PANEL — Magic Formula candidates (monthly, fetch-on-load)
+       SCREENER PANEL - Magic Formula candidates (monthly, fetch-on-load)
        ================================================================== -->
   <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] overflow-hidden">
     <div class="px-5 py-3.5 border-b border-white/[0.06] flex items-center justify-between flex-wrap gap-2">
@@ -598,7 +598,7 @@
     <!-- Not yet generated -->
     <template x-if="screener === false">
       <div class="px-5 py-8 text-center text-slate-600 text-sm">
-        No screener data — runs automatically on the 1st of each month.<br>
+        No screener data - runs automatically on the 1st of each month.<br>
         <span class="text-slate-700 text-xs">Set <code class="text-slate-500">SCREENER_OUTPUT_PATH</code> if the file is not in the project root.</span>
       </div>
     </template>
@@ -650,13 +650,13 @@
                     x-text="fmtPct1(c.return_on_equity)"></td>
                 <!-- P/E -->
                 <td class="px-4 py-2.5 text-right tabular-nums text-slate-300"
-                    x-text="c.pe_ratio ? c.pe_ratio.toFixed(1) : '—'"></td>
+                    x-text="c.pe_ratio ? c.pe_ratio.toFixed(1) : '-'"></td>
                 <!-- Market cap -->
                 <td class="px-4 py-2.5 text-right tabular-nums text-slate-400 text-xs"
                     x-text="fmtB(c.market_cap_b)"></td>
                 <!-- D/E -->
                 <td class="px-4 py-2.5 text-right tabular-nums text-slate-500 text-xs"
-                    x-text="c.debt_to_equity ? c.debt_to_equity.toFixed(2) + 'x' : '—'"></td>
+                    x-text="c.debt_to_equity ? c.debt_to_equity.toFixed(2) + 'x' : '-'"></td>
                 <!-- Status -->
                 <td class="px-4 py-2.5">
                   <template x-if="isHeld(c.ticker)">
@@ -682,7 +682,7 @@
 
 
   <!-- ==================================================================
-       ORDERS LOG — full width
+       ORDERS LOG - full width
        ================================================================== -->
   <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] overflow-hidden">
     <div class="px-5 py-3.5 border-b border-white/[0.06] flex items-center justify-between gap-3">
@@ -744,16 +744,16 @@
               <td class="px-4 py-2.5 text-right text-slate-400 tabular-nums" x-text="o.qty"></td>
               <td class="px-4 py-2.5 text-right text-slate-300 tabular-nums" x-text="o.filled_qty"></td>
               <td class="px-4 py-2.5 text-right text-slate-200 tabular-nums"
-                  x-text="o.filled_avg_price ? '$' + o.filled_avg_price.toFixed(2) : '—'"></td>
+                  x-text="o.filled_avg_price ? '$' + o.filled_avg_price.toFixed(2) : '-'"></td>
               <td class="px-4 py-2.5 text-right text-slate-300 tabular-nums"
                   x-text="o.filled_avg_price && o.filled_qty
                     ? '$' + (o.filled_qty * o.filled_avg_price).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})
-                    : '—'"></td>
+                    : '-'"></td>
               <!-- Realized P&L: only shown on filled SELL orders where today's BUY is known -->
               <td class="px-4 py-2.5 text-right tabular-nums font-semibold"
                   :class="orderPnlMap[o.id] != null ? pnlClass(orderPnlMap[o.id]) : 'text-slate-600'"
-                  :title="orderPnlMap[o.id] == null && o.side === 'sell' ? 'Position opened before today — buy price unavailable' : ''"
-                  x-text="orderPnlMap[o.id] != null ? fmtDollar(orderPnlMap[o.id]) : '—'"></td>
+                  :title="orderPnlMap[o.id] == null && o.side === 'sell' ? 'Position opened before today - buy price unavailable' : ''"
+                  x-text="orderPnlMap[o.id] != null ? fmtDollar(orderPnlMap[o.id]) : '-'"></td>
               <td class="px-4 py-2.5">
                 <span class="px-2 py-0.5 rounded text-[10px] uppercase font-medium"
                       :class="{
@@ -800,7 +800,7 @@
 
 
 <script>
-// Chart.js instances — stored outside Alpine to prevent reactivity conflicts
+// Chart.js instances - stored outside Alpine to prevent reactivity conflicts
 const _charts = { sparklines: {} };
 
 document.addEventListener('alpine:init', () => {
@@ -848,13 +848,13 @@ document.addEventListener('alpine:init', () => {
         Object.keys(localStorage)
           .filter(k => k.startsWith('alphalive_pnl_') && k !== key)
           .forEach(k => localStorage.removeItem(k));
-      } catch(_) { /* localStorage unavailable — degrade silently */ }
+      } catch(_) { /* localStorage unavailable - degrade silently */ }
     },
 
     savePnlToStorage() {
       try {
         localStorage.setItem(this._pnlStorageKey(), JSON.stringify(this.pnlSeries));
-      } catch(_) { /* storage full — silently ignore */ }
+      } catch(_) { /* storage full - silently ignore */ }
     },
 
     // ── WebSocket ─────────────────────────────────────────────────────
@@ -920,7 +920,7 @@ document.addEventListener('alpine:init', () => {
 
       this.ws.onerror = () => {
         this.wsStatus = 'disconnected';
-        // onclose fires next — reconnect loop handles it
+        // onclose fires next - reconnect loop handles it
       };
     },
 
@@ -971,7 +971,7 @@ document.addEventListener('alpine:init', () => {
           newOrders.forEach(o => {
             if (!prevIdSet.has(o.id)) {
               const side = o.side === 'buy' ? '▲ BUY' : '▼ SELL';
-              this.showToast(`${side} ${o.symbol} — ${o.status}`, o.side);
+              this.showToast(`${side} ${o.symbol} - ${o.status}`, o.side);
             }
           });
         }
@@ -995,7 +995,7 @@ document.addEventListener('alpine:init', () => {
 
       if (d.health !== undefined) this.health = d.health;
 
-      // P&L time series — cap at 5040 points (full 7h trading day at 5s resolution)
+      // P&L time series - cap at 5040 points (full 7h trading day at 5s resolution)
       if (this.risk != null) {
         const lbl = new Date().toLocaleTimeString('en-US',
           { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -1018,7 +1018,7 @@ document.addEventListener('alpine:init', () => {
       }
     },
 
-    // ── Chart.js — main charts ────────────────────────────────────────
+    // ── Chart.js - main charts ────────────────────────────────────────
     initCharts() {
       const pnlCanvas = document.getElementById('pnlChart');
       if (pnlCanvas) {
@@ -1198,7 +1198,7 @@ document.addEventListener('alpine:init', () => {
         } else if (o.side === 'sell') {
           const buys = buysBySymbol[o.symbol];
           if (!buys || buys.length === 0) {
-            result[o.id] = null;  // position opened before today — can't compute
+            result[o.id] = null;  // position opened before today - can't compute
           } else {
             const totalQty  = buys.reduce((s, b) => s + b.qty, 0);
             const totalCost = buys.reduce((s, b) => s + b.price * b.qty, 0);
@@ -1229,12 +1229,12 @@ document.addEventListener('alpine:init', () => {
     },
 
     fmtPct1(v) {
-      if (v == null) return '—';
+      if (v == null) return '-';
       return (v * 100).toFixed(1) + '%';
     },
 
     fmtB(v) {
-      if (v == null) return '—';
+      if (v == null) return '-';
       if (v >= 1000) return `$${(v / 1000).toFixed(1)}T`;
       if (v >= 1)    return `$${v.toFixed(1)}B`;
       return `$${(v * 1000).toFixed(0)}M`;
@@ -1272,7 +1272,7 @@ document.addEventListener('alpine:init', () => {
         if (!r.ok) {
           this.showToast(data.detail ?? `Deploy failed (HTTP ${r.status})`, 'info');
         } else {
-          this.showToast('Redeploy triggered — Railway restarting in ~30s', 'buy');
+          this.showToast('Redeploy triggered - Railway restarting in ~30s', 'buy');
         }
       } catch(e) {
         this.showToast(`Deploy error: ${e.message}`, 'info');
@@ -1331,7 +1331,7 @@ document.addEventListener('alpine:init', () => {
     },
 
     fmtDollar(v) {
-      if (v == null) return '—';
+      if (v == null) return '-';
       const a = Math.abs(v);
       const s = v > 0 ? '+' : v < 0 ? '-' : '';
       if (a >= 1_000_000) return `${s}$${(a/1_000_000).toFixed(2)}M`;
@@ -1340,25 +1340,25 @@ document.addEventListener('alpine:init', () => {
     },
 
     fmt2(v) {
-      if (v == null) return '—';
+      if (v == null) return '-';
       return Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     },
 
     fmt0(v) {
-      if (v == null) return '—';
+      if (v == null) return '-';
       return Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 0 });
     },
 
     fmtPct(v) {
-      if (v == null) return '—';
+      if (v == null) return '-';
       return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
     },
 
     fmtHeld(iso) {
-      if (!iso) return '—';
+      if (!iso) return '-';
       try {
         const ms    = Date.now() - new Date(iso).getTime();
-        if (ms < 0) return '—';
+        if (ms < 0) return '-';
         const mins  = Math.floor(ms / 60_000);
         const hrs   = Math.floor(ms / 3_600_000);
         const days  = Math.floor(ms / 86_400_000);
@@ -1369,7 +1369,7 @@ document.addEventListener('alpine:init', () => {
         if (days >= 1)    return `${days}d ${hrs % 24}h`;
         if (hrs >= 1)     return `${hrs}h ${mins % 60}m`;
         return `${mins}m`;
-      } catch { return '—'; }
+      } catch { return '-'; }
     },
 
     // Colour hint: grey by default; amber when approaching common min-hold thresholds;
@@ -1378,20 +1378,20 @@ document.addEventListener('alpine:init', () => {
       if (!iso) return 'text-slate-600';
       try {
         const weeks = (Date.now() - new Date(iso).getTime()) / 604_800_000;
-        if (weeks >= 52)  return 'text-emerald-400';   // ≥ 1 year — greenblatt min hold met
+        if (weeks >= 52)  return 'text-emerald-400';   // ≥ 1 year - greenblatt min hold met
         if (weeks >= 48)  return 'text-yellow-400';    // within 4 weeks of 1-year threshold
         return 'text-slate-500';
       } catch { return 'text-slate-600'; }
     },
 
     fmtTime(iso) {
-      if (!iso) return '—';
+      if (!iso) return '-';
       try { return new Date(iso).toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit' }); }
       catch { return iso; }
     },
 
     fmtDate(iso) {
-      if (!iso) return '—';
+      if (!iso) return '-';
       try {
         const d = new Date(iso);
         return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })

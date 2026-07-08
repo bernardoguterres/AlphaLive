@@ -134,16 +134,16 @@ def test_full_trading_day(mock_clock, mock_trading_components):
     Simulate a full trading day from 6 AM to 4:05 PM.
 
     Timeline:
-      6:00 AM — Market closed, bot sleeping
-      9:30 AM — Market opens
-      9:35 AM — Morning signal check fires, BUY signal
-      9:40 AM — Exit check, no exits needed
-      10:00 AM — Exit check, stop loss hit
-      10:05 AM — Exit check, no positions
-      2:00 PM — Exit check, all quiet
-      3:55 PM — EOD summary fires
-      4:00 PM — Market closes
-      4:05 PM — Bot sleeping
+      6:00 AM - Market closed, bot sleeping
+      9:30 AM - Market opens
+      9:35 AM - Morning signal check fires, BUY signal
+      9:40 AM - Exit check, no exits needed
+      10:00 AM - Exit check, stop loss hit
+      10:05 AM - Exit check, no positions
+      2:00 PM - Exit check, all quiet
+      3:55 PM - EOD summary fires
+      4:00 PM - Market closes
+      4:05 PM - Bot sleeping
     """
     from alphalive.strategy.signal_engine import SignalEngine
     from alphalive.execution.risk_manager import RiskManager
@@ -376,7 +376,7 @@ def test_full_trading_day(mock_clock, mock_trading_components):
 
 
 def test_weekend_behavior(mock_clock, mock_trading_components):
-    """Test Saturday 10 AM — bot sleeps, makes zero API calls."""
+    """Test Saturday 10 AM - bot sleeps, makes zero API calls."""
     broker = mock_trading_components['broker']
     market_data = mock_trading_components['market_data']
 
@@ -621,7 +621,7 @@ def test_max_positions_limit(mock_clock, mock_trading_components):
 
 
 def test_dry_run_no_orders(mock_clock, mock_trading_components):
-    """Test dry run mode — broker.place_market_order() is NEVER called."""
+    """Test dry run mode - broker.place_market_order() is NEVER called."""
     from alphalive.strategy.signal_engine import SignalEngine
     from alphalive.execution.risk_manager import RiskManager
     from alphalive.execution.order_manager import OrderManager
@@ -671,7 +671,7 @@ def test_dry_run_no_orders(mock_clock, mock_trading_components):
 
 
 def test_sigterm_handling(mock_clock, mock_trading_components, monkeypatch):
-    """Test SIGTERM signal handling — shutdown message sent, process exits cleanly."""
+    """Test SIGTERM signal handling - shutdown message sent, process exits cleanly."""
     telegram = mock_trading_components['telegram']
 
     # Track if shutdown was called
@@ -713,7 +713,7 @@ def test_sigterm_handling(mock_clock, mock_trading_components, monkeypatch):
 
 
 def test_consecutive_loss_circuit_breaker(mock_clock, mock_trading_components):
-    """Test consecutive loss circuit breaker — 3 losses in a row halts trading."""
+    """Test consecutive loss circuit breaker - 3 losses in a row halts trading."""
     from alphalive.execution.risk_manager import RiskManager
 
     broker = mock_trading_components['broker']

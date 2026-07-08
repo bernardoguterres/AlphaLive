@@ -1,7 +1,7 @@
 """
 Test Security Features
 
-Tests for security hardening — credential leak prevention, authentication, rate limiting.
+Tests for security hardening - credential leak prevention, authentication, rate limiting.
 """
 
 import os

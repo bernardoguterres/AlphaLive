@@ -65,7 +65,7 @@ class AlphaSignalClient:
         Args:
             ticker: Stock ticker symbol (e.g. "AAPL").
             query: Optional context query for RAG retrieval.
-                Currently unused — AlphaSignal's GET endpoint handles
+                Currently unused - AlphaSignal's GET endpoint handles
                 retrieval internally. Defaults to
                 "{ticker} recent news sentiment" for documentation
                 purposes. Reserved for a future POST /query integration.
@@ -137,7 +137,7 @@ class AlphaSignalClient:
         - intended_direction == 0 (short): block if sentiment_score
           > -self.sentiment_threshold (strongly positive → do not short).
         - intended_direction == 1 (neutral/flat): always allow.
-        - On timeout or any error: fail open — return (True, {}).
+        - On timeout or any error: fail open - return (True, {}).
 
         Args:
             ticker: Stock ticker symbol (e.g. "AAPL").
@@ -149,7 +149,7 @@ class AlphaSignalClient:
             sentiment_dict is empty ({}) on errors or when direction is
             neutral; otherwise it is the full dict from get_sentiment().
         """
-        # Neutral direction — no sentiment gating needed.
+        # Neutral direction - no sentiment gating needed.
         if intended_direction == 1:
             return True, {}
 
@@ -165,9 +165,9 @@ class AlphaSignalClient:
 
         score: float = sentiment["sentiment_score"]
 
-        if intended_direction == 2:  # Long — block on strongly negative sentiment.
+        if intended_direction == 2:  # Long - block on strongly negative sentiment.
             allowed = score >= self.sentiment_threshold
-        elif intended_direction == 0:  # Short — block on strongly positive sentiment.
+        elif intended_direction == 0:  # Short - block on strongly positive sentiment.
             allowed = score <= -self.sentiment_threshold
         else:
             allowed = True
@@ -207,7 +207,7 @@ async def run_pre_execution_checks(
     is not skipped.
 
     On any exception from either coroutine (timeout, network error, etc.),
-    that filter fails open — execution is allowed.
+    that filter fails open - execution is allowed.
 
     Args:
         deeplob_client: DeepLOB client (Integration A). ``None`` = pass-
@@ -225,7 +225,7 @@ async def run_pre_execution_checks(
         where each ``*_pred`` dict is the raw filter output (empty on
         error or passthrough).
     """
-    # Build DeepLOB coroutine — passthrough when client is absent.
+    # Build DeepLOB coroutine - passthrough when client is absent.
     if deeplob_client is not None:
         lob_coro = deeplob_client.is_execution_allowed(lob_snapshot, signal_direction)
     else:
@@ -253,7 +253,7 @@ async def run_pre_execution_checks(
         return_exceptions=True,
     )
 
-    # Handle exceptions from either filter — fail open.
+    # Handle exceptions from either filter - fail open.
     if isinstance(lob_result, BaseException):
         logger.warning("DeepLOB filter raised (failing open): %s", lob_result)
         lob_allowed, lob_pred = True, {}
