@@ -645,6 +645,14 @@ def main(
         logger.critical("Configuration validation failed. Exiting.")
         sys.exit(1)
 
+    # Start the Railway healthcheck server (daemon thread; safe no-op locally
+    # if HEALTH_SECRET isn't set).
+    from alphalive.health import create_health_server
+
+    create_health_server(
+        all_strategy_configs[0], dry_run=app_config.dry_run, paper=app_config.broker.paper
+    )
+
     # 2. Initialize components
     logger.info("Initializing subsystems...")
 
