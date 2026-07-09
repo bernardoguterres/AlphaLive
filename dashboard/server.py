@@ -12,7 +12,10 @@ Usage (from project root):
 Required env vars:  ALPACA_API_KEY, ALPACA_SECRET_KEY
 Optional env vars:  ALPACA_PAPER (default true), STATE_FILE,
                     STRATEGY_CONFIG or STRATEGY_CONFIG_DIR,
-                    DASHBOARD_PASSWORD (enables HTTP Basic Auth)
+                    DASHBOARD_PASSWORD (enables HTTP Basic Auth),
+                    DASHBOARD_DEV_RELOAD (default false - dev-only browser
+                    auto-refresh when dashboard/*.html changes on disk; see
+                    "Dev live-reload" section below)
 """
 
 import asyncio
@@ -29,7 +32,7 @@ from typing import Any, Dict, List, Optional
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, Response
 
 try:
     from dotenv import load_dotenv
@@ -660,6 +663,80 @@ async def api_resume():
 
 
 # ---------------------------------------------------------------------------
+# Dev live-reload (opt-in, off by default)
+#
+# Vite-style "save the file, browser refreshes itself" for this plain
+# static-HTML dashboard. Off unless DASHBOARD_DEV_RELOAD is set truthy, so it
+# never runs in production (Railway) and adds zero overhead there. When on:
+# a background task watches dashboard/*.html for changes via `watchfiles`
+# (already an existing transitive dep of uvicorn[standard], no new package),
+# and a tiny inline script - injected into served HTML only in this mode -
+# opens a websocket to /dev/reload-ws and calls location.reload() on message.
+# ---------------------------------------------------------------------------
+
+DEV_RELOAD = os.getenv("DASHBOARD_DEV_RELOAD", "false").lower() in ("true", "1", "yes")
+_reload_clients: set = set()
+
+_RELOAD_SNIPPET = """
+<script>
+// Injected only when DASHBOARD_DEV_RELOAD=true - dev-only auto-refresh.
+(function () {
+  function connect() {
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(proto + "//" + location.host + "/dev/reload-ws");
+    ws.onmessage = () => location.reload();
+    ws.onclose = () => setTimeout(connect, 1000);
+  }
+  connect();
+})();
+</script>
+"""
+
+
+def _serve_html_with_optional_reload(html_path: Path) -> Response:
+    if not DEV_RELOAD:
+        return FileResponse(html_path)
+    html = html_path.read_text()
+    html = html.replace("</body>", _RELOAD_SNIPPET + "</body>")
+    return HTMLResponse(html)
+
+
+@app.on_event("startup")
+async def _maybe_start_dev_reload_watcher():
+    if not DEV_RELOAD:
+        return
+    logger.info("DASHBOARD_DEV_RELOAD enabled - watching dashboard/*.html for browser auto-refresh")
+
+    async def _watch():
+        from watchfiles import awatch
+        async for _changes in awatch(DASHBOARD_DIR, watch_filter=lambda change, path: path.endswith(".html")):
+            logger.info("Dashboard HTML changed - notifying %d connected browser(s)", len(_reload_clients))
+            for ws in list(_reload_clients):
+                try:
+                    await ws.send_text("reload")
+                except Exception:
+                    _reload_clients.discard(ws)
+
+    asyncio.create_task(_watch())
+
+
+@app.websocket("/dev/reload-ws")
+async def dev_reload_ws(websocket: WebSocket):
+    if not DEV_RELOAD:
+        await websocket.close(code=1000)
+        return
+    await websocket.accept()
+    _reload_clients.add(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        _reload_clients.discard(websocket)
+
+
+# ---------------------------------------------------------------------------
 # Static file
 # ---------------------------------------------------------------------------
 
@@ -668,4 +745,22 @@ async def serve_index():
     html_path = DASHBOARD_DIR / "index.html"
     if not html_path.exists():
         raise HTTPException(status_code=404, detail="dashboard/index.html not found")
-    return FileResponse(html_path)
+    return _serve_html_with_optional_reload(html_path)
+
+
+@app.get("/logo.png")
+async def serve_logo():
+    logo_path = DASHBOARD_DIR / "logo.png"
+    if not logo_path.exists():
+        raise HTTPException(status_code=404, detail="logo.png not found")
+    return FileResponse(logo_path)
+
+
+@app.get("/design-preview")
+async def serve_design_preview():
+    """Experimental mock-data-only visual-direction preview. Not wired to any
+    broker/API/state logic - see dashboard/design-preview.html."""
+    html_path = DASHBOARD_DIR / "design-preview.html"
+    if not html_path.exists():
+        raise HTTPException(status_code=404, detail="dashboard/design-preview.html not found")
+    return _serve_html_with_optional_reload(html_path)
