@@ -174,7 +174,7 @@ class AlpacaBroker(BaseBroker):
                 portfolio_value=float(account.portfolio_value),
                 long_market_value=float(account.long_market_value or 0),
                 short_market_value=float(account.short_market_value or 0),
-                daytrade_count=int(account.daytrade_count),
+                daytrade_count=int(account.daytrade_count or 0),
                 pattern_day_trader=account.pattern_day_trader,
                 account_status=account.status,
             )

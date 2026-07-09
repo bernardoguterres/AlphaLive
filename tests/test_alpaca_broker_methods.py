@@ -233,6 +233,17 @@ def test_get_account_failure_wraps_error():
         broker.get_account()
 
 
+def test_get_account_handles_null_daytrade_count():
+    broker = _connected_broker()
+    account = _mock_account()
+    account.daytrade_count = None
+    broker.trading_client.get_account.return_value = account
+
+    result = broker.get_account()
+
+    assert result.daytrade_count == 0
+
+
 # ---------------------------------------------------------------------------
 # get_position() / get_all_positions()
 # ---------------------------------------------------------------------------
