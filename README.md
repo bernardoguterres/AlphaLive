@@ -508,6 +508,12 @@ ALL VALIDATIONS PASSED
 Market is closed - sleeping until 9:30 AM ET
 ```
 
+Railway's healthcheck (`railway.toml`, `/ping`) is served by `alphalive/health.py`, started automatically at boot - no extra setup needed, just make sure `HEALTH_SECRET` is set (used by the detailed `/` status route, not by `/ping` itself).
+
+### 2b. Deploy the dashboard (optional, separate service)
+
+The monitoring dashboard (`dashboard/server.py`) is not part of the bot's deploy - add a second Railway service from this same repo, pointing at `Dockerfile.dashboard` (Settings -> Build -> Dockerfile Path). It must share one Railway Volume and the same `STATE_FILE` path as the bot service (`PERSISTENT_STORAGE=true` on both) to see live state.
+
 ### 3. Cost
 
 | Plan | Price | Best for |
