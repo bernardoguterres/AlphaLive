@@ -355,7 +355,7 @@
             Live Trading<br /> <span class="gradient-text">Command Center</span>
           </h1>
           <p class="text-[15px] mt-3.5 leading-relaxed max-w-lg" style="color: var(--text-base);">
-            Monitor positions, execution, risk, and alerts for this strategy deployment — one operational surface, updated every 5 seconds.
+            Monitor positions, execution, risk, and alerts for this strategy deployment - one operational surface, updated every 5 seconds.
           </p>
           <div class="flex items-center gap-2 mt-5 flex-wrap">
             <span :class="[statusClass(), botStatus() === 'LIVE' ? 'badge-live' : '']"
@@ -483,7 +483,7 @@
         </span>
       </div>
       <p class="text-xl sm:text-2xl font-bold font-mono-nums" style="color: var(--text-strong);"
-         x-text="account ? '$' + fmt2(account.portfolio_value) : '—'">—</p>
+         x-text="account ? '$' + fmt2(account.portfolio_value) : '-'">-</p>
       <p class="text-[11px] mt-1.5" style="color: var(--text-muted);"
          x-text="account ? 'Equity ' + fmtDollar(account.equity) : 'Waiting for broker…'"></p>
     </div>
@@ -500,7 +500,7 @@
       </div>
       <p class="text-xl sm:text-2xl font-bold font-mono-nums"
          :class="[pnlClass(risk?.daily_pnl), pnlFlashing ? 'pnl-flash' : '']"
-         x-text="risk != null ? fmtDollar(risk.daily_pnl) : '—'">—</p>
+         x-text="risk != null ? fmtDollar(risk.daily_pnl) : '-'">-</p>
       <p class="text-[11px] mt-1.5"
          :class="risk != null ? pnlClass(risk?.daily_pnl) : ''" :style="risk == null ? 'color: var(--text-muted)' : ''"
          x-text="(risk?.equity && risk.daily_pnl != null)
@@ -518,7 +518,7 @@
         </span>
       </div>
       <p class="text-xl sm:text-2xl font-bold font-mono-nums" style="color: var(--text-strong);"
-         x-text="account ? '$' + fmt2(account.cash) : '—'">—</p>
+         x-text="account ? '$' + fmt2(account.cash) : '-'">-</p>
       <p class="text-[11px] mt-1.5" style="color: var(--text-muted);"
          x-text="account ? 'Buying power ' + fmtDollar(account.buying_power) : 'Waiting for broker…'"></p>
     </div>
@@ -533,7 +533,7 @@
           </svg>
         </span>
       </div>
-      <p class="text-xl sm:text-2xl font-bold font-mono-nums" style="color: var(--text-strong);" x-text="positions.length">—</p>
+      <p class="text-xl sm:text-2xl font-bold font-mono-nums" style="color: var(--text-strong);" x-text="positions.length">-</p>
       <p class="text-[11px] mt-1.5" style="color: var(--text-muted);"
          x-text="orders.length + ' order' + (orders.length === 1 ? '' : 's') + ' today'"></p>
     </div>
@@ -712,7 +712,7 @@
         <span style="color: var(--text-muted);">
           Loss:
           <span class="font-mono-nums" :class="pnlClass(risk?.daily_pnl)"
-                x-text="risk != null ? fmtDollar(risk.daily_pnl) : '—'"></span>
+                x-text="risk != null ? fmtDollar(risk.daily_pnl) : '-'"></span>
         </span>
         <span style="color: var(--text-muted);"
               x-text="risk?.daily_loss_limit_dollars
