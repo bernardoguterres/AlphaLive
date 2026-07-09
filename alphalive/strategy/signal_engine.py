@@ -2,7 +2,7 @@
 Signal Generation Engine
 
 Generates buy/sell signals based on strategy logic and market data.
-Supports 5 strategies with exact AlphaLab parity.
+Supports 8 strategies with exact AlphaLab parity.
 
 CRITICAL: Signal logic must match AlphaLab backtest exactly.
 Any divergence means live results won't match backtest expectations.
