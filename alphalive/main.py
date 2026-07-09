@@ -91,6 +91,25 @@ def _compute_daily_stats(
     return {"pnl": pnl, "win_rate": win_rate}
 
 
+def _record_broker_call(
+    order_manager_map: dict, success: bool, error: Exception = None
+) -> None:
+    """Propagate a broker API call's outcome to every strategy's RiskManager.
+
+    Needed so the degraded-mode circuit breaker (auto-pause after
+    broker_degraded_mode_threshold_failures consecutive failures) can
+    actually trip, and so it can self-heal once the connection recovers -
+    record_broker_success() alone only resets the failure counter, it
+    doesn't clear an already-tripped degraded_mode flag.
+    """
+    for om in order_manager_map.values():
+        if success:
+            om.risk.record_broker_success()
+            om.risk.exit_degraded_mode()
+        else:
+            om.risk.record_broker_failure(error)
+
+
 def _send_eod_summary(
     order_manager_map: dict, broker, morning_equity: float, notifier
 ) -> None:
@@ -98,7 +117,12 @@ def _send_eod_summary(
     all_orders = []
     for ticker in order_manager_map:
         all_orders.extend(order_manager_map[ticker].get_order_history())
-    account = broker.get_account()
+    try:
+        account = broker.get_account()
+    except Exception as e:
+        _record_broker_call(order_manager_map, success=False, error=e)
+        raise
+    _record_broker_call(order_manager_map, success=True)
     daily_stats = _compute_daily_stats(all_orders, morning_equity, account.equity)
     summary = {
         "trades": len(all_orders),
@@ -369,7 +393,12 @@ def _check_signal_for_strategy(
                 )
             else:
                 price = market_data.get_current_price(strat_cfg.ticker)
-                account = broker.get_account()
+                try:
+                    account = broker.get_account()
+                except Exception as e:
+                    _record_broker_call(order_manager_map, success=False, error=e)
+                    raise
+                _record_broker_call(order_manager_map, success=True)
 
                 global_can_trade, global_reason = global_risk.check_global_daily_loss(
                     account_equity=account.equity,
@@ -380,7 +409,12 @@ def _check_signal_for_strategy(
                     logger.warning(f"Trade blocked (global): {global_reason}")
                     result = {"status": "blocked", "reason": global_reason}
                 else:
-                    all_positions = broker.get_all_positions()
+                    try:
+                        all_positions = broker.get_all_positions()
+                    except Exception as e:
+                        _record_broker_call(order_manager_map, success=False, error=e)
+                        raise
+                    _record_broker_call(order_manager_map, success=True)
                     strategy_positions = [
                         p for p in all_positions if p.symbol == strat_cfg.ticker
                     ]
@@ -450,7 +484,12 @@ def _run_exit_checks(
 ) -> None:
     """Check stop loss, take profit, and trailing stop for all open positions."""
     try:
-        positions = broker.get_all_positions()
+        try:
+            positions = broker.get_all_positions()
+        except Exception as e:
+            _record_broker_call(order_manager_map, success=False, error=e)
+            raise
+        _record_broker_call(order_manager_map, success=True)
 
         if positions:
             current_prices = {}
@@ -555,7 +594,12 @@ def _run_position_reconciliation(
 ) -> None:
     """Compare Alpaca positions against internal order history; auto-halt on drift."""
     try:
-        alpaca_positions = broker.get_all_positions()
+        try:
+            alpaca_positions = broker.get_all_positions()
+        except Exception as e:
+            _record_broker_call(order_manager_map, success=False, error=e)
+            raise
+        _record_broker_call(order_manager_map, success=True)
 
         alpaca_tickers = {
             pos.symbol: {
@@ -1005,7 +1049,12 @@ def main(
 
             # --- Intraday drawdown monitoring ---
             try:
-                account = broker.get_account()
+                try:
+                    account = broker.get_account()
+                except Exception as e:
+                    _record_broker_call(order_manager_map, success=False, error=e)
+                    raise
+                _record_broker_call(order_manager_map, success=True)
                 current_equity = account.equity
 
                 # Capture morning equity once per day (first time market is open)

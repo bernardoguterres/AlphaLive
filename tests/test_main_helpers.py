@@ -643,6 +643,70 @@ def test_run_exit_checks_broker_error_caught_and_alerted():
 
 
 # ---------------------------------------------------------------------------
+# _record_broker_call()
+# ---------------------------------------------------------------------------
+
+
+def test_record_broker_call_success_resets_and_exits_degraded_mode():
+    order_manager_map = {"AAPL": Mock(), "MSFT": Mock()}
+
+    main_module._record_broker_call(order_manager_map, success=True)
+
+    for om in order_manager_map.values():
+        om.risk.record_broker_success.assert_called_once()
+        om.risk.exit_degraded_mode.assert_called_once()
+        om.risk.record_broker_failure.assert_not_called()
+
+
+def test_record_broker_call_failure_records_on_every_risk_manager():
+    order_manager_map = {"AAPL": Mock(), "MSFT": Mock()}
+    error = RuntimeError("broker down")
+
+    main_module._record_broker_call(order_manager_map, success=False, error=error)
+
+    for om in order_manager_map.values():
+        om.risk.record_broker_failure.assert_called_once_with(error)
+        om.risk.record_broker_success.assert_not_called()
+
+
+def test_run_exit_checks_broker_failure_recorded_on_risk_manager():
+    broker = Mock()
+    broker.get_all_positions.side_effect = RuntimeError("broker down")
+    order_manager = Mock()
+    order_manager_map = {"AAPL": order_manager}
+    market_data = Mock()
+    bot_state = Mock()
+    app_config = Mock(dry_run=False)
+    notifier = Mock()
+
+    main_module._run_exit_checks(
+        broker, market_data, order_manager_map, bot_state, app_config, notifier,
+        main_module.GlobalRiskManager(),
+    )
+
+    order_manager.risk.record_broker_failure.assert_called_once()
+
+
+def test_run_exit_checks_broker_success_recorded_on_risk_manager():
+    broker = Mock()
+    broker.get_all_positions.return_value = []
+    order_manager = Mock()
+    order_manager_map = {"AAPL": order_manager}
+    market_data = Mock()
+    bot_state = Mock()
+    app_config = Mock(dry_run=False)
+    notifier = Mock()
+
+    main_module._run_exit_checks(
+        broker, market_data, order_manager_map, bot_state, app_config, notifier,
+        main_module.GlobalRiskManager(),
+    )
+
+    order_manager.risk.record_broker_success.assert_called_once()
+    order_manager.risk.exit_degraded_mode.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
 # _run_position_reconciliation()
 # ---------------------------------------------------------------------------
 
