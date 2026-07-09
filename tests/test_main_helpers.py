@@ -267,7 +267,7 @@ def test_check_signal_for_strategy_1day_skips_outside_window(sample_strategy_con
 
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, morning_checks_done, last_signal_check_map,
-        market_data, {}, {}, None, None, Mock(), Mock(),
+        market_data, {}, {}, None, None, Mock(), Mock(), main_module.GlobalRiskManager(),
     )
 
     market_data.get_latest_bars.assert_not_called()
@@ -281,7 +281,7 @@ def test_check_signal_for_strategy_1day_skips_if_already_done(sample_strategy_co
 
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, morning_checks_done, {},
-        market_data, {}, {}, None, None, Mock(), Mock(),
+        market_data, {}, {}, None, None, Mock(), Mock(), main_module.GlobalRiskManager(),
     )
 
     market_data.get_latest_bars.assert_not_called()
@@ -304,6 +304,7 @@ def test_check_signal_for_strategy_hold_signal_no_order(sample_strategy_config):
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, morning_checks_done, {},
         market_data, signal_engine_map, order_manager_map, None, None, Mock(), Mock(),
+        main_module.GlobalRiskManager(),
     )
 
     order_manager.execute_signal.assert_not_called()
@@ -338,6 +339,7 @@ def test_check_signal_for_strategy_buy_signal_executes_order(sample_strategy_con
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, morning_checks_done, {},
         market_data, signal_engine_map, order_manager_map, None, None, broker, notifier,
+        main_module.GlobalRiskManager(),
     )
 
     order_manager.execute_signal.assert_called_once()
@@ -368,6 +370,7 @@ def test_check_signal_for_strategy_buy_signal_blocked(sample_strategy_config):
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, set(), {},
         market_data, signal_engine_map, order_manager_map, None, None, broker, notifier,
+        main_module.GlobalRiskManager(),
     )
 
     notifier.send_trade_notification.assert_not_called()
@@ -398,6 +401,7 @@ def test_check_signal_for_strategy_buy_signal_error_status(sample_strategy_confi
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, set(), {},
         market_data, signal_engine_map, order_manager_map, None, None, broker, notifier,
+        main_module.GlobalRiskManager(),
     )
 
 
@@ -419,6 +423,7 @@ def test_check_signal_for_strategy_corporate_action_detected(sample_strategy_con
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, morning_checks_done, {},
         market_data, signal_engine_map, {}, None, None, Mock(), notifier,
+        main_module.GlobalRiskManager(),
     )
 
     notifier.send_alert.assert_called_once()
@@ -437,6 +442,7 @@ def test_check_signal_for_strategy_data_stale_error(sample_strategy_config):
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, morning_checks_done, {},
         market_data, {}, {}, None, None, Mock(), notifier,
+        main_module.GlobalRiskManager(),
     )
 
     notifier.send_error_alert.assert_called_once()
@@ -453,6 +459,7 @@ def test_check_signal_for_strategy_generic_exception(sample_strategy_config):
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, morning_checks_done, {},
         market_data, {}, {}, None, None, Mock(), notifier,
+        main_module.GlobalRiskManager(),
     )
 
     notifier.send_error_alert.assert_called_once()
@@ -469,6 +476,7 @@ def test_check_signal_for_strategy_intraday_uses_should_run_check(sample_strateg
         main_module._check_signal_for_strategy(
             intraday_cfg, now_et, set(), {},
             market_data, {}, {}, None, None, Mock(), Mock(),
+            main_module.GlobalRiskManager(),
         )
         mock_should_run.assert_called_once()
     market_data.get_latest_bars.assert_not_called()
@@ -499,6 +507,7 @@ def test_check_signal_for_strategy_with_pre_execution_checks_blocked(sample_stra
             sample_strategy_config, now_et, set(), {},
             market_data, signal_engine_map, order_manager_map,
             deeplob_client, alphasignal_client, Mock(), Mock(),
+            main_module.GlobalRiskManager(),
         )
 
     order_manager.execute_signal.assert_not_called()
@@ -527,7 +536,7 @@ def test_run_exit_checks_no_positions_noop():
     app_config = Mock(dry_run=False)
     notifier = Mock()
 
-    main_module._run_exit_checks(broker, market_data, {}, bot_state, app_config, notifier)
+    main_module._run_exit_checks(broker, market_data, {}, bot_state, app_config, notifier, main_module.GlobalRiskManager())
 
     bot_state.set_position_high.assert_not_called()
 
@@ -541,7 +550,7 @@ def test_run_exit_checks_no_order_manager_for_ticker_skips():
     app_config = Mock(dry_run=False)
     notifier = Mock()
 
-    main_module._run_exit_checks(broker, market_data, {}, bot_state, app_config, notifier)
+    main_module._run_exit_checks(broker, market_data, {}, bot_state, app_config, notifier, main_module.GlobalRiskManager())
     # No order manager for AAPL registered -> loop should skip without error
 
 
@@ -564,7 +573,7 @@ def test_run_exit_checks_exit_fires_and_closes_position():
     app_config = Mock(dry_run=False)
     notifier = Mock()
 
-    main_module._run_exit_checks(broker, market_data, order_manager_map, bot_state, app_config, notifier)
+    main_module._run_exit_checks(broker, market_data, order_manager_map, bot_state, app_config, notifier, main_module.GlobalRiskManager())
 
     order_manager.close_position.assert_called_once_with(ticker="AAPL", reason="stop_loss")
     bot_state.clear_position_high.assert_called_once_with("AAPL")
@@ -589,7 +598,7 @@ def test_run_exit_checks_dry_run_skips_close():
     app_config = Mock(dry_run=True)
     notifier = Mock()
 
-    main_module._run_exit_checks(broker, market_data, order_manager_map, bot_state, app_config, notifier)
+    main_module._run_exit_checks(broker, market_data, order_manager_map, bot_state, app_config, notifier, main_module.GlobalRiskManager())
 
     order_manager.close_position.assert_not_called()
 
@@ -610,7 +619,7 @@ def test_run_exit_checks_price_fetch_failure_falls_back_to_position_price():
     app_config = Mock(dry_run=False)
     notifier = Mock()
 
-    main_module._run_exit_checks(broker, market_data, order_manager_map, bot_state, app_config, notifier)
+    main_module._run_exit_checks(broker, market_data, order_manager_map, bot_state, app_config, notifier, main_module.GlobalRiskManager())
 
     # check_exits still called with the fallback price map
     order_manager.check_exits.assert_called_once()
@@ -627,7 +636,7 @@ def test_run_exit_checks_broker_error_caught_and_alerted():
     notifier = Mock()
 
     # Should not raise
-    main_module._run_exit_checks(broker, market_data, {}, bot_state, app_config, notifier)
+    main_module._run_exit_checks(broker, market_data, {}, bot_state, app_config, notifier, main_module.GlobalRiskManager())
 
     notifier.send_error_alert.assert_called_once()
 

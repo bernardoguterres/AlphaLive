@@ -208,6 +208,8 @@ class OrderManager:
                     max_retries=3,
                 )
 
+            self.risk.record_api_call(f"place_{order_type}_order")
+
             # Extract order details
             order_id = result.id
             filled_qty = float(result.filled_qty) if result.filled_qty else qty
@@ -595,6 +597,7 @@ class OrderManager:
 
             # Use broker's close_position method
             order = self.broker.close_position(ticker)
+            self.risk.record_api_call("close_position")
 
             logger.info(
                 f"Position closed: {ticker} | "

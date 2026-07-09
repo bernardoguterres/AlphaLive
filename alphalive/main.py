@@ -27,7 +27,7 @@ from alphalive.state import BotState
 from alphalive.broker.alpaca_broker import AlpacaBroker
 from alphalive.data.market_data import MarketDataFetcher, DataStaleError
 from alphalive.strategy.signal_engine import SignalEngine
-from alphalive.execution.risk_manager import RiskManager
+from alphalive.execution.risk_manager import RiskManager, GlobalRiskManager
 from alphalive.execution.order_manager import OrderManager
 from alphalive.notifications.telegram_bot import TelegramNotifier
 from alphalive.notifications.telegram_commands import TelegramCommandListener
@@ -243,6 +243,7 @@ def _check_signal_for_strategy(
     alphasignal_client,
     broker,
     notifier,
+    global_risk,
 ) -> None:
     """Run the signal check for one strategy. Mutates morning_checks_done and last_signal_check_map."""
     if strat_cfg.timeframe in ("1Day", "1Week"):
@@ -350,19 +351,29 @@ def _check_signal_for_strategy(
             else:
                 price = market_data.get_current_price(strat_cfg.ticker)
                 account = broker.get_account()
-                all_positions = broker.get_all_positions()
-                strategy_positions = [
-                    p for p in all_positions if p.symbol == strat_cfg.ticker
-                ]
-                result = order_manager_map[strat_cfg.ticker].execute_signal(
-                    ticker=strat_cfg.ticker,
-                    signal=signal_result,
-                    current_price=price,
+
+                global_can_trade, global_reason = global_risk.check_global_daily_loss(
                     account_equity=account.equity,
-                    current_positions_count=len(strategy_positions),
-                    total_portfolio_positions=len(all_positions),
-                    current_bar=len(df),
+                    max_daily_loss_pct=strat_cfg.risk.max_daily_loss_pct,
                 )
+
+                if not global_can_trade:
+                    logger.warning(f"Trade blocked (global): {global_reason}")
+                    result = {"status": "blocked", "reason": global_reason}
+                else:
+                    all_positions = broker.get_all_positions()
+                    strategy_positions = [
+                        p for p in all_positions if p.symbol == strat_cfg.ticker
+                    ]
+                    result = order_manager_map[strat_cfg.ticker].execute_signal(
+                        ticker=strat_cfg.ticker,
+                        signal=signal_result,
+                        current_price=price,
+                        account_equity=account.equity,
+                        current_positions_count=len(strategy_positions),
+                        total_portfolio_positions=len(all_positions),
+                        current_bar=len(df),
+                    )
 
                 if result["status"] == "success":
                     logger.info(f"Order placed: {result['order_id']}")
@@ -416,6 +427,7 @@ def _run_exit_checks(
     bot_state,
     app_config,
     notifier,
+    global_risk,
 ) -> None:
     """Check stop loss, take profit, and trailing stop for all open positions."""
     try:
@@ -489,6 +501,15 @@ def _run_exit_checks(
                                 )
                                 / closed_pos.avg_entry_price
                             ) * 100
+
+                            order_manager_map[ticker].risk.record_trade(
+                                ticker=exit_signal["ticker"], pnl=pnl
+                            )
+                            global_risk.record_trade(
+                                strategy_name=ticker, pnl=pnl
+                            )
+                            bot_state.add_daily_pnl(pnl)
+
                             notifier.send_position_closed_notification(
                                 ticker=exit_signal["ticker"],
                                 qty=closed_pos.qty,
@@ -710,6 +731,7 @@ def main(
     signal_engine_map = {}
     risk_manager_map = {}
     order_manager_map = {}
+    global_risk = GlobalRiskManager()
 
     notifier = TelegramNotifier(
         bot_token=app_config.telegram.bot_token,
@@ -740,6 +762,10 @@ def main(
             notifier=notifier,
             dry_run=app_config.dry_run,
         )
+
+        # Register with the global risk manager so max_daily_loss_pct is
+        # enforced across all strategies combined, not just per-strategy.
+        global_risk.register_strategy(ticker, risk_manager_map[ticker])
 
         logger.info(f"  Initialized components for {strategy_name} ({ticker})")
 
@@ -1009,6 +1035,7 @@ def main(
                     alphasignal_client,
                     broker,
                     notifier,
+                    global_risk,
                 )
 
             # --- Exit condition checks (every 5 minutes during market hours) ---
@@ -1020,6 +1047,7 @@ def main(
                     bot_state,
                     app_config,
                     notifier,
+                    global_risk,
                 )
                 last_exit_check = time.time()
 
