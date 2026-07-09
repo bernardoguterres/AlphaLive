@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AlphaLive Dashboard</title>
+  <link rel="icon" type="image/png" href="/logo.png" />
 
   <!-- Apply saved theme before any rendering to prevent flash -->
   <script>if (localStorage.getItem('alphalive-theme') === 'light') document.documentElement.classList.add('light');</script>
@@ -21,28 +22,39 @@
     /* ── Colour tokens ─────────────────────────────────────────────── */
     :root {
       color-scheme: dark;
-      --bg-page:      #0f1117;
-      --bg-card:      #161b2d;
-      --bdr-card:     rgba(255,255,255,0.06);
-      --bdr-row:      rgba(255,255,255,0.04);
-      --hover-row:    rgba(255,255,255,0.025);
-      --text-base:    #e2e8f0;
-      --text-strong:  #ffffff;
-      --text-muted:   #64748b;
-      --scrollbar-bg: #0f1117;
+      /* Shared Alpha design system base tones (same as AlphaLab) */
+      --bg-page:      #070b16;
+      --bg-card:      #111827;
+      --bg-card-soft: #172033;
+      --bdr-card:     rgba(120,145,180,0.18);
+      --bdr-row:      rgba(120,145,180,0.10);
+      --hover-row:    rgba(120,145,180,0.06);
+      --text-base:    #cbd5e1;
+      --text-strong:  #f8fafc;
+      --text-muted:   #8b98ac;
+      --text-dim:     #5f6d82;
+      --scrollbar-bg: #070b16;
       --scrollbar-th: #334155;
       --bar-track:    #1e293b;
+      /* AlphaLive accent: green/teal (live execution) */
+      --live-primary:   #10b981;
+      --live-secondary: #14f195;
+      --live-cyan:      #22d3ee;
+      --glow:           rgba(16,185,129,0.28);
+      --violet:         #a78bfa;
     }
     html.light {
       color-scheme: light;
       --bg-page:      #f1f5f9;
       --bg-card:      #ffffff;
+      --bg-card-soft: #f8fafc;
       --bdr-card:     rgba(0,0,0,0.09);
       --bdr-row:      rgba(0,0,0,0.06);
       --hover-row:    rgba(0,0,0,0.03);
       --text-base:    #1e293b;
       --text-strong:  #0f172a;
       --text-muted:   #64748b;
+      --text-dim:     #94a3b8;
       --scrollbar-bg: #f1f5f9;
       --scrollbar-th: #cbd5e1;
       --bar-track:    #e2e8f0;
@@ -51,13 +63,80 @@
     /* ── Base ──────────────────────────────────────────────────────── */
     body { background-color: var(--bg-page); transition: background-color 0.2s; }
 
+    .font-mono-nums { font-variant-numeric: tabular-nums; }
+    .label-caps { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+    .label-caps-dim { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); }
+    .section-label { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; color: var(--text-base); }
+    .section-caption { font-size: 11.5px; color: var(--text-muted); }
+    .gradient-text {
+      background: linear-gradient(135deg, var(--text-strong), var(--live-primary) 120%, var(--live-cyan) 190%);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+
     /* Cards: override Tailwind's bg-[#161b2d] via !important so CSS vars win */
     .card {
       background-color: var(--bg-card) !important;
-      transition: box-shadow 0.2s ease, background-color 0.2s;
+      background-image: linear-gradient(160deg, rgba(248,250,252,0.03), transparent 40%);
+      transition: box-shadow 0.2s ease, background-color 0.2s, transform 0.2s ease;
+      box-shadow: 0 1px 0 rgba(248,250,252,0.04) inset, 0 1px 2px rgba(0,0,0,0.35), 0 14px 36px -16px rgba(0,0,0,0.65);
     }
-    .card:hover { box-shadow: 0 0 0 1px rgba(99,102,241,0.15), 0 4px 24px rgba(0,0,0,0.4); }
+    .card:hover { box-shadow: 0 0 0 1px rgba(16,185,129,0.18), 0 4px 24px rgba(0,0,0,0.4); }
     html.light .card:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.1); }
+
+    /* Secondary tier: operational/status cards - flatter, quieter, recede behind primary panels */
+    .card-soft {
+      background-color: var(--bg-card-soft) !important;
+      border: 1px solid var(--bdr-row);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.2), 0 8px 20px -12px rgba(0,0,0,0.45);
+    }
+    /* Tertiary tier: lower-priority insights modules (screener) - muted, minimal depth */
+    .card-muted {
+      background-color: rgba(23,32,51,0.5) !important;
+      border: 1px dashed var(--bdr-row);
+    }
+    html.light .card-muted { background-color: rgba(248,250,252,0.6) !important; }
+
+    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--bdr-card); flex-wrap: wrap; }
+    .icon-chip { display: flex; align-items: center; justify-content: center; border-radius: 10px; color: #04140e; box-shadow: 0 4px 14px -4px rgba(0,0,0,0.5); flex-shrink: 0; }
+
+    /* Stat cards: subtle top accent + lift on hover */
+    .stat-card { position: relative; overflow: hidden; }
+    .stat-card::before {
+      content: ''; position: absolute; inset: 0 0 auto 0; height: 3px;
+      background: linear-gradient(90deg, transparent, var(--accent, var(--live-primary)) 20%, var(--accent, var(--live-primary)) 80%, transparent);
+      opacity: 0.85;
+    }
+    .stat-card:hover { transform: translateY(-1px); }
+
+    .hero-panel {
+      position: relative; overflow: hidden; border-radius: 22px;
+      border: 1px solid var(--bdr-card);
+      background:
+        radial-gradient(ellipse 720px 360px at -4% -10%, rgba(16,185,129,0.16), transparent 60%),
+        radial-gradient(ellipse 560px 320px at 104% 108%, rgba(34,211,238,0.1), transparent 55%),
+        var(--bg-card);
+      box-shadow: 0 1px 0 rgba(248,250,252,0.05) inset, 0 30px 70px -26px rgba(0,0,0,0.85);
+    }
+    html.light .hero-panel { background: linear-gradient(160deg, #ffffff, #f8fafc); }
+    .glow-blob { position: absolute; border-radius: 9999px; filter: blur(90px); pointer-events: none; }
+    .chart-grid-bg {
+      background-image:
+        linear-gradient(rgba(248,250,252,0.06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(248,250,252,0.04) 1px, transparent 1px);
+      background-size: 100% 20%, 10% 100%;
+    }
+    html.light .chart-grid-bg { background-image: none; }
+
+    /* Body background: subtle radial glow for depth */
+    body {
+      background-image:
+        radial-gradient(ellipse 1300px 650px at 8% -12%, rgba(16,185,129,0.09), transparent 60%),
+        radial-gradient(ellipse 1000px 550px at 100% -4%, rgba(34,211,238,0.06), transparent 55%);
+      background-attachment: fixed;
+    }
+    html.light body { background-image: none; }
+
+    .divider-fade { height: 1px; background: linear-gradient(90deg, transparent, var(--bdr-card), transparent); }
 
     /* ── Light-mode targeted overrides ────────────────────────────── */
     /* Card borders */
@@ -137,17 +216,19 @@
     Mobile layout  (< sm):  Row 1 = [Brand ··· Controls]   Row 2 = [Status badges, full-width]
     Desktop layout (sm+):   Single row = [Brand] [Badges] [Controls]
   -->
-  <header class="card bg-[#161b2d] rounded-xl border border-white/[0.06] px-4 sm:px-5 py-3
-                 flex flex-wrap items-center gap-x-3 gap-y-2">
+  <header class="sticky top-2 z-30 card rounded-2xl border border-white/[0.07] px-4 sm:px-5 py-3
+                 flex flex-wrap items-center gap-x-3 gap-y-2 backdrop-blur-xl">
 
     <!-- [1] Brand - always row 1, left -->
     <div class="flex items-center gap-2.5 shrink-0">
-      <svg class="w-5 h-5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24"
-           stroke="currentColor" stroke-width="2">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
-      </svg>
-      <span class="text-white font-bold text-base tracking-tight">AlphaLive</span>
-      <span class="text-slate-500 text-sm hidden sm:inline">Dashboard</span>
+      <div class="relative shrink-0">
+        <img src="/logo.png" alt="AlphaLive" class="h-9 w-9 rounded-xl object-cover relative z-10 ring-1 ring-white/[0.12]" />
+        <div class="absolute inset-0 blur-lg rounded-xl" style="background: var(--glow);"></div>
+      </div>
+      <div class="flex flex-col leading-none">
+        <span class="font-bold text-[16px] tracking-tight gradient-text">AlphaLive</span>
+        <span class="hidden sm:block text-[9.5px] font-semibold uppercase tracking-widest mt-1" style="color: var(--text-muted);">Execution Engine</span>
+      </div>
     </div>
 
     <!-- [3] Status badges - row 2 on mobile (full width), inline on sm+ -->
@@ -155,7 +236,7 @@
                 order-3 sm:order-2 w-full sm:w-auto sm:flex-1">
       <span
         :class="[statusClass(), botStatus() === 'LIVE' ? 'badge-live' : '']"
-        class="px-3 py-1 rounded-full text-xs font-bold tracking-wide uppercase"
+        class="px-3 py-1 rounded-full text-xs font-bold tracking-wide uppercase shadow-sm"
         x-text="botStatus()"
       >CONNECTING</span>
       <span
@@ -177,7 +258,7 @@
         :title="health?.railway_configured
           ? 'Trigger a Railway redeploy'
           : 'Set RAILWAY_API_TOKEN, RAILWAY_SERVICE_ID, RAILWAY_ENVIRONMENT_ID to enable'"
-        class="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
+        class="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold
                border transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
         :class="health?.railway_configured
           ? 'bg-indigo-900/40 text-indigo-300 border-indigo-700/40 hover:bg-indigo-800/50'
@@ -229,7 +310,7 @@
       </button>
 
       <!-- WS dot + last updated -->
-      <div class="flex items-center gap-1.5">
+      <div class="flex items-center gap-1.5 pl-2 sm:border-l" style="border-color: var(--bdr-card);">
         <span
           class="inline-block w-2 h-2 rounded-full shrink-0"
           :class="{
@@ -240,7 +321,7 @@
           :title="wsStatus === 'connected' ? 'Live' : wsStatus === 'connecting' ? 'Reconnecting…' : 'Disconnected'"
         ></span>
         <span class="hidden sm:inline" x-show="lastUpdated">
-          <span class="text-slate-300 text-xs" x-text="lastUpdated"></span>
+          <span class="text-slate-300 text-xs font-mono-nums" x-text="lastUpdated"></span>
         </span>
         <span class="hidden sm:inline text-xs animate-pulse" x-show="!lastUpdated">Connecting…</span>
       </div>
@@ -250,45 +331,210 @@
 
 
   <!-- ==================================================================
+       HERO / COMMAND CENTER - real data only; honest empty state when
+       account/risk haven't arrived from the WebSocket yet
+       ================================================================== -->
+  <div class="hero-panel px-5 py-6 sm:px-8 sm:py-8">
+    <div class="glow-blob h-64 w-64 -bottom-28 left-1/4 opacity-20" style="background: var(--live-primary);"></div>
+    <div class="glow-blob h-44 w-44 -top-20 right-16 opacity-15" style="background: var(--live-cyan);"></div>
+
+    <div class="relative grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-8">
+      <!-- left: identity + real status + real controls -->
+      <div class="flex flex-col justify-between">
+        <div>
+          <div class="inline-flex items-center gap-2 mb-4 rounded-full pl-2 pr-3.5 py-1"
+               style="background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.22);">
+            <span class="relative flex h-2 w-2">
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60" style="background: var(--live-primary);"></span>
+              <span class="relative inline-flex rounded-full h-2 w-2" style="background: var(--live-primary);"></span>
+            </span>
+            <span class="text-[11px] font-bold uppercase tracking-widest" style="color: #5eead4;"
+                  x-text="(account?.paper ?? true) ? 'Live Execution · Alpaca Paper' : 'Live Execution · Alpaca Live'"></span>
+          </div>
+          <h1 class="text-3xl sm:text-[2.5rem] font-extrabold tracking-tight leading-[1.05]" style="color: var(--text-strong);">
+            Live Trading<br /> <span class="gradient-text">Command Center</span>
+          </h1>
+          <p class="text-[15px] mt-3.5 leading-relaxed max-w-lg" style="color: var(--text-base);">
+            Monitor positions, execution, risk, and alerts for this strategy deployment — one operational surface, updated every 5 seconds.
+          </p>
+          <div class="flex items-center gap-2 mt-5 flex-wrap">
+            <span :class="[statusClass(), botStatus() === 'LIVE' ? 'badge-live' : '']"
+                  class="px-3 py-1 rounded-full text-xs font-bold tracking-wide uppercase shadow-sm"
+                  x-text="botStatus()"></span>
+            <span :class="health?.broker_connected
+                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                    : 'bg-red-500/15 text-red-400 border border-red-500/30'"
+                  class="px-3 py-1 rounded-full text-xs font-medium"
+                  x-text="health?.broker_connected ? 'Broker Connected' : 'Broker Offline'"></span>
+            <span :class="health?.market?.is_open
+                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                    : 'bg-slate-700/40 text-slate-400 border border-slate-600/30'"
+                  class="px-3 py-1 rounded-full text-xs font-medium"
+                  x-text="health?.market?.is_open ? 'Market Open' : 'Market Closed'"></span>
+          </div>
+        </div>
+        <div class="flex items-center gap-2.5 flex-wrap w-full sm:w-auto mt-7">
+          <button
+            @click="triggerDeploy()"
+            :disabled="deployPending || !health?.railway_configured"
+            :title="health?.railway_configured ? 'Trigger a Railway redeploy' : 'Railway not configured'"
+            class="hidden sm:flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold border transition-all disabled:opacity-40"
+            :class="health?.railway_configured
+              ? 'bg-indigo-900/40 text-indigo-300 border-indigo-700/40 hover:bg-indigo-800/50'
+              : 'bg-slate-800/40 text-slate-600 border-slate-700/30'"
+          >
+            <svg class="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.63 2v5.52m5.96 6.85H3.42a14.98 14.98 0 0012.13 6.38"/>
+            </svg>
+            <span x-text="deployPending ? 'Deploying…' : 'Redeploy'"></span>
+          </button>
+          <button
+            @click="togglePause()"
+            :disabled="killSwitchPending"
+            class="flex items-center gap-2 px-5 py-2.5 rounded-lg text-[13.5px] font-bold transition-all disabled:opacity-50 shadow-lg"
+            :class="risk?.trading_paused_dashboard
+              ? 'text-black'
+              : 'text-white'"
+            :style="risk?.trading_paused_dashboard
+              ? 'background: linear-gradient(135deg, var(--live-primary), var(--live-secondary)); box-shadow: 0 10px 28px -10px rgba(16,185,129,0.55);'
+              : 'background: linear-gradient(135deg, #ef4444, #f87171); box-shadow: 0 10px 28px -10px rgba(239,68,68,0.5);'"
+            x-text="killSwitchPending ? 'Working…' : (risk?.trading_paused_dashboard ? '▶ Resume Trading' : '⏸ Pause Trading')"
+          ></button>
+        </div>
+      </div>
+
+      <!-- right: real equity/P&L snapshot - honest placeholder until account/risk arrive -->
+      <div class="rounded-[20px] p-[1px] relative" style="background: linear-gradient(160deg, rgba(16,185,129,0.4), rgba(34,211,238,0.1) 45%, rgba(120,145,180,0.15) 100%); box-shadow: 0 26px 60px -22px rgba(0,0,0,0.9);">
+        <div class="rounded-[19px] h-full relative overflow-hidden" style="background: linear-gradient(175deg, var(--bg-card-soft), var(--bg-card));">
+          <div class="glow-blob h-40 w-40 -top-16 -right-10 opacity-20" style="background: var(--live-secondary); filter: blur(60px);"></div>
+
+          <template x-if="account && risk">
+            <div>
+              <div class="flex items-start justify-between p-5 pb-0 relative">
+                <div class="min-w-0">
+                  <p class="label-caps-dim truncate" x-text="(account?.paper ?? true) ? \"Today's Equity · Paper Account\" : \"Today's Equity · Live Account\""></p>
+                  <p class="text-[30px] leading-tight font-extrabold font-mono-nums mt-2"
+                     :class="[pnlClass(risk.daily_pnl), pnlFlashing ? 'pnl-flash' : '']"
+                     x-text="fmtDollar(risk.daily_pnl)"></p>
+                </div>
+                <div class="flex items-center gap-1 text-xs font-bold rounded-full px-2.5 py-1.5 shrink-0"
+                     :class="pnlClass(risk.daily_pnl)"
+                     style="background: rgba(148,163,184,0.1); border: 1px solid var(--bdr-row);"
+                     x-text="(risk.equity && risk.daily_pnl != null) ? fmtPct(risk.daily_pnl / risk.equity * 100) : ''"></div>
+              </div>
+              <div class="chart-grid-bg mt-4 mx-2 rounded-lg relative">
+                <div class="relative h-24">
+                  <svg viewBox="0 0 100 32" preserveAspectRatio="none" class="w-full h-full">
+                    <polyline fill="none" :stroke="pnlSeries.data.length >= 2 && risk.daily_pnl >= 0 ? '#14f195' : '#f87171'"
+                              stroke-width="1.6" vector-effect="non-scaling-stroke"
+                              :points="sparklinePoints()"></polyline>
+                  </svg>
+                  <p class="absolute inset-0 flex items-center justify-center text-[11px]" style="color: var(--text-dim);" x-show="pnlSeries.data.length < 2">Collecting today's P&amp;L…</p>
+                </div>
+              </div>
+              <div class="grid grid-cols-3 gap-2 px-5 py-4 border-t relative" style="border-color: var(--bdr-row); background: rgba(0,0,0,0.1);">
+                <div>
+                  <p class="label-caps-dim">Equity</p>
+                  <p class="text-sm font-mono-nums font-bold mt-1" style="color: var(--text-strong);" x-text="'$' + fmt2(account.portfolio_value)"></p>
+                </div>
+                <div class="border-x px-2" style="border-color: var(--bdr-row);">
+                  <p class="label-caps-dim">Open P&amp;L</p>
+                  <p class="text-sm font-mono-nums font-bold mt-1" :class="pnlClass(openPnl())" x-text="fmtDollar(openPnl())"></p>
+                </div>
+                <div>
+                  <p class="label-caps-dim">Positions</p>
+                  <p class="text-sm font-mono-nums font-bold mt-1" style="color: var(--text-strong);" x-text="positions.length"></p>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- Honest empty state: no fake numbers while waiting on the broker -->
+          <template x-if="!account || !risk">
+            <div class="flex flex-col items-center justify-center text-center py-10 px-5 relative">
+              <div class="rounded-xl p-3 mb-3 ring-1" style="background: rgba(16,185,129,0.08); ring-color: rgba(16,185,129,0.2);">
+                <svg class="w-5 h-5 animate-pulse" style="color: var(--live-primary);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                </svg>
+              </div>
+              <p class="text-sm font-semibold" style="color: var(--text-strong);">Waiting for broker data</p>
+              <p class="text-xs mt-1.5 max-w-[220px]" style="color: var(--text-muted);" x-text="wsStatus === 'connected' ? 'Connected - equity will appear on the next push.' : 'Reconnecting to the dashboard server…'"></p>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ==================================================================
        STAT CARDS - 2 cols on mobile, 4 on md+
        ================================================================== -->
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
 
     <!-- Portfolio Value -->
-    <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] px-4 sm:px-5 py-4">
-      <p class="text-slate-500 text-[10px] uppercase tracking-widest mb-1">Portfolio Value</p>
-      <p class="text-xl sm:text-2xl font-bold text-white tabular-nums"
-         x-text="account ? '$' + fmt2(account.portfolio_value) : '-'">-</p>
-      <p class="text-slate-500 text-[11px] mt-1"
-         x-text="account ? 'Equity ' + fmtDollar(account.equity) : ''"></p>
+    <div class="card stat-card rounded-xl border border-white/[0.06] px-4 sm:px-5 py-4" style="--accent: var(--live-primary);">
+      <div class="flex items-center justify-between mb-2">
+        <p class="label-caps">Portfolio Value</p>
+        <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--live-primary), var(--live-secondary));">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 3v18h18M18.7 8l-5.1 5.1-4-4L3 15.3"/>
+          </svg>
+        </span>
+      </div>
+      <p class="text-xl sm:text-2xl font-bold font-mono-nums" style="color: var(--text-strong);"
+         x-text="account ? '$' + fmt2(account.portfolio_value) : '—'">—</p>
+      <p class="text-[11px] mt-1.5" style="color: var(--text-muted);"
+         x-text="account ? 'Equity ' + fmtDollar(account.equity) : 'Waiting for broker…'"></p>
     </div>
 
     <!-- Daily P&L (flashes on change) -->
-    <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] px-4 sm:px-5 py-4">
-      <p class="text-slate-500 text-[10px] uppercase tracking-widest mb-1">Daily P&amp;L</p>
-      <p class="text-xl sm:text-2xl font-bold tabular-nums"
+    <div class="card stat-card rounded-xl border border-white/[0.06] px-4 sm:px-5 py-4" style="--accent: var(--live-secondary);">
+      <div class="flex items-center justify-between mb-2">
+        <p class="label-caps">Daily P&amp;L</p>
+        <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--live-secondary), var(--live-cyan));">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+          </svg>
+        </span>
+      </div>
+      <p class="text-xl sm:text-2xl font-bold font-mono-nums"
          :class="[pnlClass(risk?.daily_pnl), pnlFlashing ? 'pnl-flash' : '']"
-         x-text="risk != null ? fmtDollar(risk.daily_pnl) : '-'">-</p>
-      <p class="text-[11px] mt-1"
-         :class="pnlClass(risk?.daily_pnl)"
+         x-text="risk != null ? fmtDollar(risk.daily_pnl) : '—'">—</p>
+      <p class="text-[11px] mt-1.5"
+         :class="risk != null ? pnlClass(risk?.daily_pnl) : ''" :style="risk == null ? 'color: var(--text-muted)' : ''"
          x-text="(risk?.equity && risk.daily_pnl != null)
-           ? fmtPct(risk.daily_pnl / risk.equity * 100) + ' of equity' : ''"></p>
+           ? fmtPct(risk.daily_pnl / risk.equity * 100) + ' of equity' : (risk != null ? '' : 'Waiting for broker…')"></p>
     </div>
 
     <!-- Cash Available -->
-    <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] px-4 sm:px-5 py-4">
-      <p class="text-slate-500 text-[10px] uppercase tracking-widest mb-1">Cash Available</p>
-      <p class="text-xl sm:text-2xl font-bold text-white tabular-nums"
-         x-text="account ? '$' + fmt2(account.cash) : '-'">-</p>
-      <p class="text-slate-500 text-[11px] mt-1"
-         x-text="account ? 'Buying power ' + fmtDollar(account.buying_power) : ''"></p>
+    <div class="card stat-card rounded-xl border border-white/[0.06] px-4 sm:px-5 py-4" style="--accent: var(--live-cyan);">
+      <div class="flex items-center justify-between mb-2">
+        <p class="label-caps">Cash Available</p>
+        <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--live-cyan), #38bdf8);">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V6m0 10v2m9-8a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </span>
+      </div>
+      <p class="text-xl sm:text-2xl font-bold font-mono-nums" style="color: var(--text-strong);"
+         x-text="account ? '$' + fmt2(account.cash) : '—'">—</p>
+      <p class="text-[11px] mt-1.5" style="color: var(--text-muted);"
+         x-text="account ? 'Buying power ' + fmtDollar(account.buying_power) : 'Waiting for broker…'"></p>
     </div>
 
     <!-- Open Positions -->
-    <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] px-4 sm:px-5 py-4">
-      <p class="text-slate-500 text-[10px] uppercase tracking-widest mb-1">Open Positions</p>
-      <p class="text-xl sm:text-2xl font-bold text-white tabular-nums" x-text="positions.length">-</p>
-      <p class="text-slate-500 text-[11px] mt-1"
+    <div class="card stat-card rounded-xl border border-white/[0.06] px-4 sm:px-5 py-4" style="--accent: var(--violet);">
+      <div class="flex items-center justify-between mb-2">
+        <p class="label-caps">Open Positions</p>
+        <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--violet), #818cf8);">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/>
+          </svg>
+        </span>
+      </div>
+      <p class="text-xl sm:text-2xl font-bold font-mono-nums" style="color: var(--text-strong);" x-text="positions.length">—</p>
+      <p class="text-[11px] mt-1.5" style="color: var(--text-muted);"
          x-text="orders.length + ' order' + (orders.length === 1 ? '' : 's') + ' today'"></p>
     </div>
   </div>
@@ -301,49 +547,68 @@
   <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
 
     <!-- Positions table (xl: 2/3) -->
-    <div class="card xl:col-span-2 bg-[#161b2d] rounded-xl border border-white/[0.06] overflow-hidden">
-      <div class="px-5 py-3.5 border-b border-white/[0.06] flex items-center justify-between">
-        <h2 class="text-xs font-semibold text-slate-300 uppercase tracking-widest">Open Positions</h2>
-        <span class="text-xs text-slate-500" x-text="positions.length + ' active'"></span>
+    <div class="card xl:col-span-2 rounded-xl border border-white/[0.06] overflow-hidden">
+      <div class="panel-head">
+        <div class="flex items-center gap-2.5">
+          <span class="icon-chip h-8 w-8" style="background: linear-gradient(135deg, var(--live-primary), var(--live-cyan));">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/>
+            </svg>
+          </span>
+          <h2 class="section-label">Open Positions</h2>
+        </div>
+        <span class="text-xs font-mono-nums" style="color: var(--text-muted);" x-text="positions.length + ' active'"></span>
       </div>
 
       <div class="overflow-x-auto">
         <table class="w-full text-sm" style="min-width: 640px;">
           <thead>
-            <tr class="text-[10px] text-slate-500 uppercase tracking-wider">
-              <th class="px-4 py-2.5 text-left">Ticker</th>
-              <th class="px-3 py-2.5 text-right">Shares</th>
-              <th class="px-3 py-2.5 text-right">Entry</th>
-              <th class="px-3 py-2.5 text-right">Price</th>
-              <th class="px-3 py-2.5 text-right">P&amp;L $</th>
-              <th class="px-3 py-2.5 text-right">P&amp;L %</th>
-              <th class="px-3 py-2.5 text-right">Trail Stop</th>
-              <th class="px-3 py-2.5 text-right">Held</th>
+            <tr style="border-bottom: 1px solid var(--bdr-card); background: rgba(248,250,252,0.02);">
+              <th class="px-4 py-2.5 text-left label-caps">Ticker</th>
+              <th class="px-3 py-2.5 text-right label-caps">Shares</th>
+              <th class="px-3 py-2.5 text-right label-caps">Entry</th>
+              <th class="px-3 py-2.5 text-right label-caps">Price</th>
+              <th class="px-3 py-2.5 text-right label-caps">P&amp;L $</th>
+              <th class="px-3 py-2.5 text-right label-caps">P&amp;L %</th>
+              <th class="px-3 py-2.5 text-right label-caps">Trail Stop</th>
+              <th class="px-3 py-2.5 text-right label-caps">Held</th>
             </tr>
           </thead>
           <tbody>
             <template x-if="positions.length === 0">
               <tr>
-                <td colspan="8" class="px-5 py-10 text-center text-slate-600 text-sm">
-                  No open positions
+                <td colspan="8" class="px-5 py-16 text-center">
+                  <div class="flex flex-col items-center gap-2.5">
+                    <div class="rounded-xl p-3 ring-1" style="background: rgba(16,185,129,0.08); ring-color: rgba(16,185,129,0.2);">
+                      <svg class="w-5 h-5" style="color: var(--live-primary);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/>
+                      </svg>
+                    </div>
+                    <p class="text-sm font-semibold" style="color: var(--text-strong);">No open positions</p>
+                    <p class="text-xs" style="color: var(--text-dim);">New positions from the strategy engine will appear here</p>
+                  </div>
                 </td>
               </tr>
             </template>
 
             <template x-for="p in positions" :key="p.symbol">
               <tr
-                class="border-t border-white/[0.04] transition-colors"
+                class="transition-colors"
+                style="border-top: 1px solid var(--bdr-row);"
                 :class="{
                   'row-flash-green':   positionFlash[p.symbol] === 'green',
                   'row-flash-red':     positionFlash[p.symbol] === 'red',
                   'hover:bg-white/[0.025]': !positionFlash[p.symbol],
                 }"
               >
-                <!-- Ticker + sparkline -->
-                <td class="px-4 py-2">
+                <!-- Ticker chip + sparkline -->
+                <td class="px-4 py-2.5">
                   <div class="flex items-center gap-2.5">
+                    <span class="icon-chip h-7 w-7 text-[10px] font-bold shrink-0"
+                          style="background: linear-gradient(135deg, var(--live-primary), var(--live-cyan));"
+                          x-text="p.symbol.slice(0, 2)"></span>
                     <div class="shrink-0">
-                      <div class="font-semibold text-white text-sm" x-text="p.symbol"></div>
+                      <div class="font-semibold text-sm" style="color: var(--text-strong);" x-text="p.symbol"></div>
                       <div class="text-[9px] font-medium mt-0.5"
                            :class="p.side === 'long' ? 'text-emerald-500' : 'text-red-400'"
                            x-text="p.side.toUpperCase()"></div>
@@ -358,23 +623,23 @@
                   </div>
                 </td>
 
-                <td class="px-3 py-2 text-right text-slate-300 tabular-nums"
+                <td class="px-3 py-2.5 text-right font-mono-nums" style="color: var(--text-base);"
                     x-text="p.qty"></td>
-                <td class="px-3 py-2 text-right text-slate-400 tabular-nums"
+                <td class="px-3 py-2.5 text-right font-mono-nums" style="color: var(--text-muted);"
                     x-text="'$' + p.avg_entry_price.toFixed(2)"></td>
-                <td class="px-3 py-2 text-right text-slate-200 tabular-nums font-medium"
+                <td class="px-3 py-2.5 text-right font-mono-nums font-medium" style="color: var(--text-base);"
                     x-text="'$' + p.current_price.toFixed(2)"></td>
-                <td class="px-3 py-2 text-right tabular-nums font-semibold"
+                <td class="px-3 py-2.5 text-right font-mono-nums font-semibold"
                     :class="pnlClass(p.unrealized_pl)"
                     x-text="fmtDollar(p.unrealized_pl)"></td>
-                <td class="px-3 py-2 text-right tabular-nums font-semibold"
+                <td class="px-3 py-2.5 text-right font-mono-nums font-semibold"
                     :class="pnlClass(p.unrealized_plpc)"
                     x-text="fmtPct(p.unrealized_plpc)"></td>
-                <td class="px-3 py-2 text-right text-slate-500 tabular-nums text-xs"
+                <td class="px-3 py-2.5 text-right font-mono-nums text-xs" style="color: var(--text-dim);"
                     x-text="p.trailing_stop_level
                       ? '$' + p.trailing_stop_level.toFixed(2) + (p.trailing_stop_pct ? ' (' + p.trailing_stop_pct + '%)' : '')
                       : '-'"></td>
-                <td class="px-3 py-2 text-right tabular-nums text-xs"
+                <td class="px-3 py-2.5 text-right font-mono-nums text-xs"
                     :class="heldClass(p.entry_timestamp)"
                     :title="p.entry_timestamp ? 'Since ' + fmtDate(p.entry_timestamp) : ''"
                     x-text="fmtHeld(p.entry_timestamp)"></td>
@@ -385,28 +650,43 @@
       </div>
     </div>
 
-    <!-- Charts column (xl: 1/3) -->
+    <!-- Charts column (xl: 1/3) - Portfolio Risk & Exposure, real gross exposure computed from live position data -->
     <div class="flex flex-col gap-4">
 
-      <!-- Daily P&L sparkline -->
-      <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] p-4 sm:p-5 flex-1 min-h-[160px]">
-        <h2 class="text-xs font-semibold text-slate-300 uppercase tracking-widest mb-3">
-          Daily P&amp;L Trend
-        </h2>
-        <div class="relative h-[110px]">
-          <canvas id="pnlChart"></canvas>
+      <div class="card-soft rounded-xl p-4 sm:p-5">
+        <div class="flex items-center gap-2.5 mb-3">
+          <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--live-primary), var(--live-cyan));">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M20.488 9H15V3.512A9.024 9.024 0 0120.488 9z"/>
+            </svg>
+          </span>
+          <div>
+            <h2 class="section-label">Portfolio Allocation</h2>
+            <p class="section-caption" x-text="positions.length ? ('Gross $' + fmt2(positions.reduce((s,p) => s + Math.abs(p.market_value), 0)) + ' · ' + positions.length + ' position' + (positions.length === 1 ? '' : 's')) : 'No open exposure'"></p>
+          </div>
         </div>
-        <p class="text-center text-[10px] text-slate-700 mt-1">Persisted today · 5s resolution</p>
-      </div>
-
-      <!-- Portfolio allocation donut -->
-      <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] p-4 sm:p-5 flex-1 min-h-[160px]">
-        <h2 class="text-xs font-semibold text-slate-300 uppercase tracking-widest mb-3">
-          Portfolio Allocation
-        </h2>
-        <div class="relative h-[120px]">
+        <div class="relative h-[130px]">
           <canvas id="allocChart"></canvas>
         </div>
+      </div>
+
+      <!-- Daily P&L sparkline -->
+      <div class="card-soft rounded-xl p-4 sm:p-5 flex-1 min-h-[160px]">
+        <div class="flex items-center gap-2.5 mb-3">
+          <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--live-secondary), var(--live-cyan));">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+            </svg>
+          </span>
+          <h2 class="section-label">Daily P&amp;L Trend</h2>
+        </div>
+        <div class="chart-grid-bg rounded-lg">
+          <div class="relative h-[110px]">
+            <canvas id="pnlChart"></canvas>
+          </div>
+        </div>
+        <p class="text-center text-[10px] mt-2" style="color: var(--text-dim);">Persisted today · 5s resolution</p>
       </div>
     </div>
   </div>
@@ -418,22 +698,29 @@
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
 
     <!-- Daily Loss Gauge -->
-    <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] p-4 sm:p-5">
-      <h2 class="text-xs font-semibold text-slate-300 uppercase tracking-widest mb-4">Daily Loss Limit</h2>
+    <div class="card rounded-xl p-4 sm:p-5" style="--accent: var(--warning, #f59e0b);">
+      <div class="flex items-center gap-2.5 mb-4">
+        <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--live-primary), var(--live-secondary));">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+          </svg>
+        </span>
+        <h2 class="section-label">Daily Loss Limit</h2>
+      </div>
 
       <div class="flex justify-between text-[11px] mb-2">
-        <span class="text-slate-500">
+        <span style="color: var(--text-muted);">
           Loss:
-          <span :class="pnlClass(risk?.daily_pnl)"
-                x-text="risk != null ? fmtDollar(risk.daily_pnl) : '-'"></span>
+          <span class="font-mono-nums" :class="pnlClass(risk?.daily_pnl)"
+                x-text="risk != null ? fmtDollar(risk.daily_pnl) : '—'"></span>
         </span>
-        <span class="text-slate-500"
+        <span style="color: var(--text-muted);"
               x-text="risk?.daily_loss_limit_dollars
                 ? 'Limit: $' + fmt0(risk.daily_loss_limit_dollars)
                 : 'Limit: N/A'"></span>
       </div>
 
-      <div class="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden">
+      <div class="w-full rounded-full h-2.5 overflow-hidden" style="background: rgba(148,163,184,0.15);">
         <div
           class="h-full rounded-full transition-all duration-700"
           :class="{
@@ -445,28 +732,35 @@
         ></div>
       </div>
 
-      <div class="flex justify-between mt-2 text-[11px]">
-        <span :class="{
+      <div class="flex justify-between mt-2.5 text-[11px]">
+        <span class="font-semibold" :class="{
             'text-red-400':     (risk?.daily_loss_used_pct ?? 0) >= 80,
             'text-yellow-400':  (risk?.daily_loss_used_pct ?? 0) >= 50 && (risk?.daily_loss_used_pct ?? 0) < 80,
             'text-emerald-500': (risk?.daily_loss_used_pct ?? 0) < 50,
           }"
           x-text="(risk?.daily_loss_used_pct ?? 0).toFixed(1) + '% used'"></span>
-        <span class="text-slate-600"
+        <span style="color: var(--text-dim);"
               x-text="risk?.daily_loss_limit_pct ? risk.daily_loss_limit_pct + '% limit' : ''"></span>
       </div>
     </div>
 
     <!-- System Status -->
-    <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] p-4 sm:p-5">
-      <h2 class="text-xs font-semibold text-slate-300 uppercase tracking-widest mb-4">System Status</h2>
+    <div class="card-soft rounded-xl p-4 sm:p-5">
+      <div class="flex items-center gap-2.5 mb-4">
+        <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--live-primary), var(--live-cyan));">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="7" rx="1.5"/><rect x="2" y="14" width="20" height="7" rx="1.5"/>
+          </svg>
+        </span>
+        <h2 class="section-label">System Status</h2>
+      </div>
       <div class="space-y-2.5">
 
         <!-- Trading status + kill switch button -->
         <div class="flex items-center justify-between">
-          <span class="text-slate-500 text-xs">Trading</span>
+          <span class="text-xs" style="color: var(--text-muted);">Trading</span>
           <div class="flex items-center gap-2">
-            <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase"
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase"
                   :class="risk?.trading_paused
                     ? 'bg-red-900/50 text-red-400 border border-red-700/30'
                     : 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/20'"
@@ -475,7 +769,7 @@
             <button
               @click="togglePause()"
               :disabled="killSwitchPending"
-              class="px-2 py-1 rounded text-[10px] font-semibold border transition-all duration-150 disabled:opacity-40"
+              class="px-2 py-1 rounded-lg text-[10px] font-semibold border transition-all duration-150 disabled:opacity-40"
               :class="risk?.trading_paused_dashboard
                 ? 'bg-emerald-900/50 text-emerald-400 border-emerald-700/40 hover:bg-emerald-800/60'
                 : 'bg-red-900/40 text-red-400 border-red-700/30 hover:bg-red-800/50'"
@@ -486,8 +780,8 @@
         </div>
 
         <div class="flex items-center justify-between">
-          <span class="text-slate-500 text-xs">Mode</span>
-          <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase"
+          <span class="text-xs" style="color: var(--text-muted);">Mode</span>
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase"
                 :class="{
                   'bg-purple-900/50 text-purple-300 border border-purple-700/30': risk?.dry_run,
                   'bg-blue-900/40 text-blue-400 border border-blue-700/20': !risk?.dry_run && account?.paper,
@@ -497,8 +791,8 @@
         </div>
 
         <div class="flex items-center justify-between">
-          <span class="text-slate-500 text-xs">Broker</span>
-          <span class="px-2 py-0.5 rounded text-[10px] font-bold"
+          <span class="text-xs" style="color: var(--text-muted);">Broker</span>
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-bold"
                 :class="health?.broker_connected
                   ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/20'
                   : 'bg-red-900/50 text-red-400 border border-red-700/30'"
@@ -506,8 +800,8 @@
         </div>
 
         <div class="flex items-center justify-between">
-          <span class="text-slate-500 text-xs">Market</span>
-          <span class="px-2 py-0.5 rounded text-[10px] font-medium"
+          <span class="text-xs" style="color: var(--text-muted);">Market</span>
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-medium"
                 :class="health?.market?.is_open
                   ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/20'
                   : 'bg-slate-700/40 text-slate-400 border border-slate-600/20'"
@@ -515,39 +809,46 @@
         </div>
 
         <div class="flex items-center justify-between pt-0.5">
-          <span class="text-slate-500 text-xs"
+          <span class="text-xs" style="color: var(--text-muted);"
                 x-text="health?.market?.is_open ? 'Closes at' : 'Opens at'"></span>
-          <span class="text-slate-300 text-xs tabular-nums"
+          <span class="text-xs font-mono-nums" style="color: var(--text-base);"
                 x-text="health?.market?.is_open
-                  ? fmtTime(health.market.next_close)
-                  : fmtTime(health.market.next_open)">-</span>
+                  ? fmtTime(health?.market?.next_close)
+                  : fmtTime(health?.market?.next_open)">-</span>
         </div>
       </div>
     </div>
 
     <!-- Today's Activity -->
-    <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] p-4 sm:p-5">
-      <h2 class="text-xs font-semibold text-slate-300 uppercase tracking-widest mb-4">Today's Activity</h2>
+    <div class="card-soft rounded-xl p-4 sm:p-5">
+      <div class="flex items-center gap-2.5 mb-4">
+        <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--violet), #818cf8);">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
+          </svg>
+        </span>
+        <h2 class="section-label">Today's Activity</h2>
+      </div>
       <div class="space-y-2.5">
 
         <div class="flex items-center justify-between">
-          <span class="text-slate-500 text-xs">Orders Today</span>
-          <span class="text-white font-semibold" x-text="orders.length">-</span>
+          <span class="text-xs" style="color: var(--text-muted);">Orders Today</span>
+          <span class="font-semibold font-mono-nums" style="color: var(--text-strong);" x-text="orders.length">-</span>
         </div>
 
         <div class="flex items-center justify-between">
-          <span class="text-slate-500 text-xs">Filled</span>
-          <span class="text-slate-300" x-text="orders.filter(o => o.status === 'filled').length">-</span>
+          <span class="text-xs" style="color: var(--text-muted);">Filled</span>
+          <span class="font-mono-nums" style="color: var(--text-base);" x-text="orders.filter(o => o.status === 'filled').length">-</span>
         </div>
 
         <div class="flex items-center justify-between">
-          <span class="text-slate-500 text-xs">PDT Count</span>
-          <span class="text-slate-300" x-text="account?.daytrade_count ?? '-'">-</span>
+          <span class="text-xs" style="color: var(--text-muted);">PDT Count</span>
+          <span class="font-mono-nums" style="color: var(--text-base);" x-text="account?.daytrade_count ?? '-'">-</span>
         </div>
 
         <div class="flex items-center justify-between">
-          <span class="text-slate-500 text-xs">Morning Check</span>
-          <span class="px-2 py-0.5 rounded text-[10px] font-medium"
+          <span class="text-xs" style="color: var(--text-muted);">Morning Check</span>
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-medium"
                 :class="health?.last_morning_check_date
                   ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/20'
                   : 'bg-slate-700/40 text-slate-500 border border-slate-600/20'"
@@ -555,14 +856,14 @@
         </div>
 
         <div class="flex items-center justify-between">
-          <span class="text-slate-500 text-xs">Bot Since</span>
-          <span class="text-slate-400 text-xs"
+          <span class="text-xs" style="color: var(--text-muted);">Bot Since</span>
+          <span class="text-xs font-mono-nums" style="color: var(--text-dim);"
                 x-text="health?.last_startup ? fmtDate(health.last_startup) : '-'">-</span>
         </div>
 
         <div class="flex items-center justify-between">
-          <span class="text-slate-500 text-xs">State Saved</span>
-          <span class="text-slate-400 text-xs"
+          <span class="text-xs" style="color: var(--text-muted);">State Saved</span>
+          <span class="text-xs font-mono-nums" style="color: var(--text-dim);"
                 x-text="health?.last_saved ? fmtTime(health.last_saved) : '-'">-</span>
         </div>
       </div>
@@ -573,101 +874,112 @@
   <!-- ==================================================================
        SCREENER PANEL - Magic Formula candidates (monthly, fetch-on-load)
        ================================================================== -->
-  <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] overflow-hidden">
-    <div class="px-5 py-3.5 border-b border-white/[0.06] flex items-center justify-between flex-wrap gap-2">
-      <div class="flex items-center gap-3">
-        <h2 class="text-xs font-semibold text-slate-300 uppercase tracking-widest">
-          Magic Formula Screener
-        </h2>
-        <template x-if="screener">
-          <span class="text-[10px] text-slate-500 hidden sm:inline truncate"
-                x-text="'Last run ' + fmtDate(screener.screened_at) + ' · ' + screener.universe_size + ' tickers screened'">
-          </span>
-        </template>
+  <div class="card-muted rounded-xl overflow-hidden">
+    <div class="px-5 py-3.5 flex items-center justify-between flex-wrap gap-2" style="border-bottom: 1px dashed var(--bdr-row);">
+      <div class="flex items-center gap-2.5">
+        <span class="icon-chip h-6 w-6" style="background: linear-gradient(135deg, var(--violet), #818cf8); opacity: 0.9;">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>
+          </svg>
+        </span>
+        <div>
+          <h2 class="text-[13px] font-bold" style="color: var(--text-base);">Magic Formula Screener</h2>
+          <template x-if="screener">
+            <p class="section-caption hidden sm:block truncate"
+                  x-text="'Insights only · last run ' + fmtDate(screener.screened_at) + ' · ' + screener.universe_size + ' tickers screened'">
+            </p>
+          </template>
+        </div>
       </div>
       <button
         @click="fetchScreener()"
         :disabled="screenerLoading"
-        class="px-2.5 py-1 rounded text-[10px] font-medium border border-slate-700/50
-               text-slate-400 hover:text-slate-200 hover:border-slate-500 transition-colors
-               disabled:opacity-40"
+        class="px-2.5 py-1.5 rounded-lg text-[10px] font-medium border transition-colors disabled:opacity-40"
+        style="border-color: var(--bdr-row); color: var(--text-muted);"
         x-text="screenerLoading ? 'Loading…' : '↻ Refresh'"
       ></button>
     </div>
 
     <!-- Not yet generated -->
     <template x-if="screener === false">
-      <div class="px-5 py-8 text-center text-slate-600 text-sm">
-        No screener data - runs automatically on the 1st of each month.<br>
-        <span class="text-slate-700 text-xs">Set <code class="text-slate-500">SCREENER_OUTPUT_PATH</code> if the file is not in the project root.</span>
+      <div class="px-5 py-10 text-center flex flex-col items-center gap-2">
+        <div class="rounded-xl p-3 ring-1" style="background: rgba(167,139,250,0.08); ring-color: rgba(167,139,250,0.2);">
+          <svg class="w-5 h-5" style="color: var(--violet);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </div>
+        <p class="text-sm font-medium" style="color: var(--text-base);">No screener data yet</p>
+        <p class="text-xs max-w-sm" style="color: var(--text-dim);">Runs automatically on the 1st of each month. Set <code style="color: var(--text-muted);">SCREENER_OUTPUT_PATH</code> if the file is not in the project root.</p>
       </div>
     </template>
 
     <!-- Loading -->
     <template x-if="screener === null">
-      <div class="px-5 py-8 text-center text-slate-600 text-sm animate-pulse">Loading screener data…</div>
+      <div class="px-5 py-8 text-center text-sm animate-pulse" style="color: var(--text-dim);">Loading screener data…</div>
     </template>
 
     <!-- Data table -->
     <template x-if="screener && screener.candidates">
-      <div class="overflow-x-auto">
+      <div class="overflow-x-auto opacity-95">
         <table class="w-full text-sm" style="min-width: 680px;">
           <thead>
-            <tr class="text-[10px] text-slate-500 uppercase tracking-wider">
-              <th class="px-5 py-2.5 text-left">#</th>
-              <th class="px-4 py-2.5 text-left">Ticker</th>
-              <th class="px-4 py-2.5 text-left">Company</th>
-              <th class="px-4 py-2.5 text-left">Sector</th>
-              <th class="px-4 py-2.5 text-right">Earn. Yield</th>
-              <th class="px-4 py-2.5 text-right">ROE</th>
-              <th class="px-4 py-2.5 text-right">P/E</th>
-              <th class="px-4 py-2.5 text-right">Mkt Cap</th>
-              <th class="px-4 py-2.5 text-right">D/E</th>
-              <th class="px-4 py-2.5 text-left">Status</th>
+            <tr>
+              <th class="px-5 py-2.5 text-left label-caps-dim">#</th>
+              <th class="px-4 py-2.5 text-left label-caps-dim">Ticker</th>
+              <th class="px-4 py-2.5 text-left label-caps-dim">Company</th>
+              <th class="px-4 py-2.5 text-left label-caps-dim">Sector</th>
+              <th class="px-4 py-2.5 text-right label-caps-dim">Earn. Yield</th>
+              <th class="px-4 py-2.5 text-right label-caps-dim">ROE</th>
+              <th class="px-4 py-2.5 text-right label-caps-dim">P/E</th>
+              <th class="px-4 py-2.5 text-right label-caps-dim">Mkt Cap</th>
+              <th class="px-4 py-2.5 text-right label-caps-dim">D/E</th>
+              <th class="px-4 py-2.5 text-left label-caps-dim">Status</th>
             </tr>
           </thead>
           <tbody>
             <template x-for="(c, i) in screener.candidates" :key="c.ticker">
-              <tr class="border-t border-white/[0.04] hover:bg-white/[0.025] transition-colors"
+              <tr class="hover:bg-white/[0.025] transition-colors"
+                  style="border-top: 1px solid var(--bdr-row);"
                   :class="isHeld(c.ticker) ? 'bg-emerald-950/30' : ''">
                 <!-- Rank -->
-                <td class="px-5 py-2.5 text-slate-500 tabular-nums text-xs" x-text="i + 1"></td>
+                <td class="px-5 py-2.5 font-mono-nums text-xs" style="color: var(--text-dim);" x-text="i + 1"></td>
                 <!-- Ticker -->
                 <td class="px-4 py-2.5 font-bold"
-                    :class="isHeld(c.ticker) ? 'text-emerald-400' : 'text-white'"
+                    :class="isHeld(c.ticker) ? 'text-emerald-400' : ''"
+                    :style="isHeld(c.ticker) ? '' : 'color: var(--text-strong)'"
                     x-text="c.ticker"></td>
                 <!-- Company -->
-                <td class="px-4 py-2.5 text-slate-300 text-xs max-w-[180px] truncate"
+                <td class="px-4 py-2.5 text-xs max-w-[180px] truncate" style="color: var(--text-base);"
                     :title="c.company_name"
                     x-text="c.company_name"></td>
                 <!-- Sector -->
-                <td class="px-4 py-2.5 text-slate-500 text-xs" x-text="c.sector"></td>
+                <td class="px-4 py-2.5 text-xs" style="color: var(--text-muted);" x-text="c.sector"></td>
                 <!-- Earnings yield -->
-                <td class="px-4 py-2.5 text-right tabular-nums text-emerald-400 font-medium"
+                <td class="px-4 py-2.5 text-right font-mono-nums text-emerald-400 font-medium"
                     x-text="fmtPct1(c.earnings_yield)"></td>
                 <!-- ROE -->
-                <td class="px-4 py-2.5 text-right tabular-nums text-blue-400"
+                <td class="px-4 py-2.5 text-right font-mono-nums text-cyan-400"
                     x-text="fmtPct1(c.return_on_equity)"></td>
                 <!-- P/E -->
-                <td class="px-4 py-2.5 text-right tabular-nums text-slate-300"
+                <td class="px-4 py-2.5 text-right font-mono-nums" style="color: var(--text-base);"
                     x-text="c.pe_ratio ? c.pe_ratio.toFixed(1) : '-'"></td>
                 <!-- Market cap -->
-                <td class="px-4 py-2.5 text-right tabular-nums text-slate-400 text-xs"
+                <td class="px-4 py-2.5 text-right font-mono-nums text-xs" style="color: var(--text-muted);"
                     x-text="fmtB(c.market_cap_b)"></td>
                 <!-- D/E -->
-                <td class="px-4 py-2.5 text-right tabular-nums text-slate-500 text-xs"
+                <td class="px-4 py-2.5 text-right font-mono-nums text-xs" style="color: var(--text-dim);"
                     x-text="c.debt_to_equity ? c.debt_to_equity.toFixed(2) + 'x' : '-'"></td>
                 <!-- Status -->
                 <td class="px-4 py-2.5">
                   <template x-if="isHeld(c.ticker)">
-                    <span class="px-2 py-0.5 rounded text-[10px] font-bold
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold
                                  bg-emerald-900/60 text-emerald-400 border border-emerald-700/30">
                       HELD
                     </span>
                   </template>
                   <template x-if="!isHeld(c.ticker)">
-                    <span class="px-2 py-0.5 rounded text-[10px] font-medium
-                                 bg-slate-700/30 text-slate-500 border border-slate-600/20">
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-medium"
+                                 style="background: rgba(167,139,250,0.1); color: #c4b5fd; border: 1px solid rgba(167,139,250,0.25);">
                       WATCHING
                     </span>
                   </template>
@@ -684,18 +996,28 @@
   <!-- ==================================================================
        ORDERS LOG - full width
        ================================================================== -->
-  <div class="card bg-[#161b2d] rounded-xl border border-white/[0.06] overflow-hidden">
-    <div class="px-5 py-3.5 border-b border-white/[0.06] flex items-center justify-between gap-3">
-      <h2 class="text-xs font-semibold text-slate-300 uppercase tracking-widest">Recent Orders</h2>
-      <div class="flex items-center gap-3">
-        <span class="text-xs text-slate-500" x-text="orders.length + ' today'"></span>
+  <div class="card rounded-xl overflow-hidden">
+    <div class="panel-head">
+      <div class="flex items-center gap-2.5">
+        <span class="icon-chip h-8 w-8" style="background: linear-gradient(135deg, var(--live-cyan), #0ea5e9);">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
+          </svg>
+        </span>
+        <div>
+          <h2 class="section-label">Recent Orders</h2>
+          <p class="section-caption">Today's execution log</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2.5">
+        <span class="text-xs font-mono-nums" style="color: var(--text-muted);" x-text="orders.length + ' today'"></span>
         <button
           @click="exportCsv()"
           :disabled="!orders.length"
           title="Download today's orders as CSV"
-          class="flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium border
-                 transition-colors disabled:opacity-30 disabled:cursor-not-allowed
-                 border-slate-700/50 text-slate-400 hover:text-slate-200 hover:border-slate-500"
+          class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-medium border
+                 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          style="border-color: var(--bdr-row); color: var(--text-muted);"
         >
           <svg class="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round"
@@ -709,53 +1031,62 @@
     <div class="overflow-x-auto">
       <table class="w-full text-sm" style="min-width: 720px;">
         <thead>
-          <tr class="text-[10px] text-slate-500 uppercase tracking-wider">
-            <th class="px-5 py-2.5 text-left">Symbol</th>
-            <th class="px-4 py-2.5 text-left">Side</th>
-            <th class="px-4 py-2.5 text-left">Type</th>
-            <th class="px-4 py-2.5 text-right">Qty</th>
-            <th class="px-4 py-2.5 text-right">Filled</th>
-            <th class="px-4 py-2.5 text-right">Avg Price</th>
-            <th class="px-4 py-2.5 text-right">Value</th>
-            <th class="px-4 py-2.5 text-right">Realized P&amp;L</th>
-            <th class="px-4 py-2.5 text-left">Status</th>
-            <th class="px-4 py-2.5 text-right">Time</th>
+          <tr style="border-bottom: 1px solid var(--bdr-card); background: rgba(248,250,252,0.02);">
+            <th class="px-5 py-2.5 text-left label-caps">Symbol</th>
+            <th class="px-4 py-2.5 text-left label-caps">Side</th>
+            <th class="px-4 py-2.5 text-left label-caps">Type</th>
+            <th class="px-4 py-2.5 text-right label-caps">Qty</th>
+            <th class="px-4 py-2.5 text-right label-caps">Filled</th>
+            <th class="px-4 py-2.5 text-right label-caps">Avg Price</th>
+            <th class="px-4 py-2.5 text-right label-caps">Value</th>
+            <th class="px-4 py-2.5 text-right label-caps">Realized P&amp;L</th>
+            <th class="px-4 py-2.5 text-left label-caps">Status</th>
+            <th class="px-4 py-2.5 text-right label-caps">Time</th>
           </tr>
         </thead>
         <tbody>
           <template x-if="orders.length === 0">
             <tr>
-              <td colspan="10" class="px-5 py-10 text-center text-slate-600 text-sm">
-                No orders today
+              <td colspan="10" class="px-5 py-16 text-center">
+                <div class="flex flex-col items-center gap-2.5">
+                  <div class="rounded-xl p-3 ring-1" style="background: rgba(34,211,238,0.08); ring-color: rgba(34,211,238,0.2);">
+                    <svg class="w-5 h-5" style="color: var(--live-cyan);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+                    </svg>
+                  </div>
+                  <p class="text-sm font-semibold" style="color: var(--text-strong);">No orders today</p>
+                  <p class="text-xs" style="color: var(--text-dim);">Executed trades will appear here in real time</p>
+                </div>
               </td>
             </tr>
           </template>
           <template x-for="o in orders" :key="o.id">
-            <tr class="border-t border-white/[0.04] hover:bg-white/[0.025] transition-colors">
-              <td class="px-5 py-2.5 font-semibold text-white" x-text="o.symbol"></td>
+            <tr class="hover:bg-white/[0.025] transition-colors" style="border-top: 1px solid var(--bdr-row);">
+              <td class="px-5 py-2.5 font-semibold" style="color: var(--text-strong);" x-text="o.symbol"></td>
               <td class="px-4 py-2.5">
-                <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase"
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase"
                       :class="o.side === 'buy'
                         ? 'bg-emerald-900/60 text-emerald-400 border border-emerald-700/30'
                         : 'bg-red-900/60 text-red-400 border border-red-700/30'"
                       x-text="o.side"></span>
               </td>
-              <td class="px-4 py-2.5 text-slate-500 text-xs uppercase" x-text="o.order_type"></td>
-              <td class="px-4 py-2.5 text-right text-slate-400 tabular-nums" x-text="o.qty"></td>
-              <td class="px-4 py-2.5 text-right text-slate-300 tabular-nums" x-text="o.filled_qty"></td>
-              <td class="px-4 py-2.5 text-right text-slate-200 tabular-nums"
+              <td class="px-4 py-2.5 text-xs uppercase" style="color: var(--text-muted);" x-text="o.order_type"></td>
+              <td class="px-4 py-2.5 text-right font-mono-nums" style="color: var(--text-muted);" x-text="o.qty"></td>
+              <td class="px-4 py-2.5 text-right font-mono-nums" style="color: var(--text-base);" x-text="o.filled_qty"></td>
+              <td class="px-4 py-2.5 text-right font-mono-nums" style="color: var(--text-base);"
                   x-text="o.filled_avg_price ? '$' + o.filled_avg_price.toFixed(2) : '-'"></td>
-              <td class="px-4 py-2.5 text-right text-slate-300 tabular-nums"
+              <td class="px-4 py-2.5 text-right font-mono-nums" style="color: var(--text-base);"
                   x-text="o.filled_avg_price && o.filled_qty
                     ? '$' + (o.filled_qty * o.filled_avg_price).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})
                     : '-'"></td>
               <!-- Realized P&L: only shown on filled SELL orders where today's BUY is known -->
-              <td class="px-4 py-2.5 text-right tabular-nums font-semibold"
-                  :class="orderPnlMap[o.id] != null ? pnlClass(orderPnlMap[o.id]) : 'text-slate-600'"
+              <td class="px-4 py-2.5 text-right font-mono-nums font-semibold"
+                  :class="orderPnlMap[o.id] != null ? pnlClass(orderPnlMap[o.id]) : ''"
+                  :style="orderPnlMap[o.id] != null ? '' : 'color: var(--text-dim)'"
                   :title="orderPnlMap[o.id] == null && o.side === 'sell' ? 'Position opened before today - buy price unavailable' : ''"
                   x-text="orderPnlMap[o.id] != null ? fmtDollar(orderPnlMap[o.id]) : '-'"></td>
               <td class="px-4 py-2.5">
-                <span class="px-2 py-0.5 rounded text-[10px] uppercase font-medium"
+                <span class="px-2 py-0.5 rounded-full text-[10px] uppercase font-medium"
                       :class="{
                         'bg-emerald-900/50 text-emerald-400 border border-emerald-700/20': o.status === 'filled',
                         'bg-yellow-900/50 text-yellow-400 border border-yellow-700/20':
@@ -766,7 +1097,7 @@
                       }"
                       x-text="o.status"></span>
               </td>
-              <td class="px-4 py-2.5 text-right text-slate-500 text-xs tabular-nums"
+              <td class="px-4 py-2.5 text-right text-xs font-mono-nums" style="color: var(--text-dim);"
                   x-text="fmtTime(o.submitted_at)"></td>
             </tr>
           </template>
@@ -779,7 +1110,7 @@
   <!-- ==================================================================
        FOOTER
        ================================================================== -->
-  <footer class="flex flex-wrap justify-center gap-x-2 gap-y-0.5 text-[11px] text-slate-700 pb-4">
+  <footer class="flex flex-wrap justify-center gap-x-2 gap-y-0.5 text-[11px] pb-4" style="color: var(--text-dim);">
     <span>AlphaLive Dashboard</span>
     <span>·</span>
     <span>WebSocket · 5s push</span>
@@ -1062,7 +1393,7 @@ document.addEventListener('alpine:init', () => {
           type: 'doughnut',
           data: {
             labels,
-            datasets: [{ data, backgroundColor: COLORS.slice(0, data.length), borderWidth: 2, borderColor: '#161b2d', hoverOffset: 4 }],
+            datasets: [{ data, backgroundColor: COLORS.slice(0, data.length), borderWidth: 2, borderColor: '#172033', hoverOffset: 4 }],
           },
           options: {
             animation: false, responsive: true, maintainAspectRatio: false, cutout: '62%',
@@ -1328,6 +1659,22 @@ document.addEventListener('alpine:init', () => {
     pnlClass(v) {
       if (v == null || v === 0) return 'text-slate-400';
       return v > 0 ? 'text-emerald-400' : 'text-red-400';
+    },
+
+    // ── Hero snapshot helpers - both derived from data already in state,
+    // no new data source, no fake values ─────────────────────────────
+    openPnl() {
+      return this.positions.reduce((sum, p) => sum + (p.unrealized_pl || 0), 0);
+    },
+
+    sparklinePoints() {
+      const data = this.pnlSeries.data;
+      if (!data || data.length < 2) return '';
+      const recent = data.slice(-60);
+      const min = Math.min(...recent), max = Math.max(...recent);
+      const range = (max - min) || 1;
+      const w = 100, h = 32;
+      return recent.map((v, i) => `${(i / (recent.length - 1)) * w},${h - ((v - min) / range) * h}`).join(' ');
     },
 
     fmtDollar(v) {

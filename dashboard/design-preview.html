@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AlphaLive — Design Preview</title>
+<link rel="icon" type="image/png" href="/logo.png" />
+
+<!-- Tailwind CSS CDN (JIT - supports arbitrary values) -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Chart.js - intraday P&L / allocation / exposure / risk gauge -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+
+<!-- Alpine.js - Pause/Resume demo toggle + live clock only -->
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+
+<style>
+  /*
+    Mock-data-only visual-direction preview for the AlphaLive dashboard redesign.
+    Self-contained — does not share CSS with dashboard/index.html so this file can be
+    iterated on freely without touching the production stylesheet. Second pass: the
+    first version read too close to a restyled admin panel. This pass pushes density,
+    depth, gradient treatments, and a bento-style hero to match the AlphaLab bar.
+  */
+  :root {
+    color-scheme: dark;
+    --bg-page:      #070b16;
+    --bg-card:      #111827;
+    --bg-card-soft: #172033;
+    --bdr-card:     rgba(120,145,180,0.18);
+    --bdr-row:      rgba(120,145,180,0.10);
+    --hover-row:    rgba(120,145,180,0.07);
+    --text-strong:  #f8fafc;
+    --text-base:    #cbd5e1;
+    --text-muted:   #8b98ac;
+    --text-dim:     #5f6d82;
+    --live-primary:   #10b981;
+    --live-secondary: #14f195;
+    --live-cyan:      #22d3ee;
+    --glow:           rgba(16,185,129,0.28);
+    --loss:           #f87171;
+    --warning:        #f59e0b;
+    --violet:         #a78bfa;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { background-color: var(--bg-page); }
+  body {
+    color: var(--text-base);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
+    background-image:
+      radial-gradient(ellipse 1400px 700px at 6% -14%, rgba(16,185,129,0.13), transparent 60%),
+      radial-gradient(ellipse 1100px 600px at 100% -4%, rgba(34,211,238,0.09), transparent 55%),
+      radial-gradient(ellipse 1000px 550px at 40% 105%, rgba(20,241,149,0.06), transparent 60%),
+      linear-gradient(rgba(248,250,252,0.028) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(248,250,252,0.028) 1px, transparent 1px);
+    background-size: auto, auto, auto, 52px 52px, 52px 52px;
+    background-attachment: fixed;
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg-page); }
+  ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+  .font-mono-nums { font-family: "SF Mono", "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  .label-caps { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(226,232,240,0.68); }
+  .label-caps-dim { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); }
+  .section-label { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; color: rgba(226,232,240,0.82); }
+  .section-caption { font-size: 11.5px; color: var(--text-muted); }
+  .gradient-text { background: linear-gradient(135deg, #f8fafc, var(--live-primary) 120%, var(--live-cyan) 190%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+  /* Primary tier: the anchor panels (positions, orders, charts) — strongest depth */
+  .card {
+    background-color: var(--bg-card);
+    background-image: linear-gradient(160deg, rgba(248,250,252,0.035), transparent 40%);
+    border: 1px solid var(--bdr-card);
+    border-radius: 16px;
+    box-shadow: 0 1px 0 rgba(248,250,252,0.04) inset, 0 1px 2px rgba(0,0,0,0.4), 0 16px 40px -16px rgba(0,0,0,0.7);
+  }
+  /* Secondary tier: operational/status cards — flatter, quieter, recede behind primary panels */
+  .card-soft {
+    background-color: var(--bg-card-soft);
+    border: 1px solid var(--bdr-row);
+    border-radius: 14px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.25), 0 8px 20px -12px rgba(0,0,0,0.5);
+  }
+  /* Tertiary tier: lower-priority insights modules (e.g. screener) — muted, minimal depth */
+  .card-muted {
+    background-color: rgba(23,32,51,0.55);
+    border: 1px dashed var(--bdr-row);
+    border-radius: 14px;
+  }
+  .card-interactive { transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+  .card-interactive:hover { transform: translateY(-2px); border-color: rgba(16,185,129,0.4); box-shadow: 0 20px 44px -18px rgba(16,185,129,0.3); }
+
+  .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--bdr-card); }
+  .panel-head-soft { border-bottom: 1px solid var(--bdr-row); }
+
+  .stat-card { position: relative; overflow: hidden; }
+  .stat-card::before {
+    content: ''; position: absolute; inset: 0 0 auto 0; height: 3px;
+    background: linear-gradient(90deg, transparent, var(--accent, var(--live-primary)) 20%, var(--accent, var(--live-primary)) 80%, transparent);
+    opacity: 0.9;
+  }
+  .stat-card .glow-wash {
+    position: absolute; height: 96px; width: 96px; border-radius: 9999px; filter: blur(30px);
+    top: -48px; right: -48px; background: var(--accent, var(--live-primary)); opacity: 0.10;
+    transition: opacity .2s ease;
+  }
+  .stat-card:hover .glow-wash { opacity: 0.18; }
+
+  .hero-panel {
+    position: relative; overflow: hidden; border-radius: 22px;
+    border: 1px solid var(--bdr-card);
+    background:
+      radial-gradient(ellipse 720px 360px at -4% -10%, rgba(16,185,129,0.20), transparent 60%),
+      radial-gradient(ellipse 560px 320px at 104% 108%, rgba(34,211,238,0.13), transparent 55%),
+      var(--bg-card);
+    box-shadow: 0 1px 0 rgba(248,250,252,0.06) inset, 0 30px 70px -26px rgba(0,0,0,0.9);
+  }
+  .glow-blob { position: absolute; border-radius: 9999px; filter: blur(95px); pointer-events: none; }
+
+  .chart-grid-bg {
+    background-image:
+      linear-gradient(rgba(248,250,252,0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(248,250,252,0.04) 1px, transparent 1px);
+    background-size: 100% 20%, 10% 100%;
+  }
+
+  .divider-fade { height: 1px; background: linear-gradient(90deg, transparent, var(--bdr-card), transparent); }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 9999px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap;
+    border: 1px solid transparent;
+  }
+  .badge-dot { width: 6px; height: 6px; border-radius: 9999px; flex-shrink: 0; }
+  .badge-live      { background: rgba(16,185,129,0.13); color: #34d399; border-color: rgba(16,185,129,0.34); }
+  .badge-live .badge-dot { background: var(--live-primary); animation: pulse-live 1.8s ease-in-out infinite; box-shadow: 0 0 0 0 var(--glow); }
+  .badge-cyan      { background: rgba(34,211,238,0.11); color: #67e8f9; border-color: rgba(34,211,238,0.3); }
+  .badge-violet    { background: rgba(167,139,250,0.12); color: #c4b5fd; border-color: rgba(167,139,250,0.3); }
+  .badge-neutral   { background: rgba(148,163,184,0.11); color: #cbd5e1; border-color: rgba(148,163,184,0.24); }
+  .badge-loss      { background: rgba(248,113,113,0.11); color: #fca5a5; border-color: rgba(248,113,113,0.3); }
+  .badge-warning   { background: rgba(245,158,11,0.11); color: #fbbf24; border-color: rgba(245,158,11,0.3); }
+
+  @keyframes pulse-live { 0%,100% { opacity: 1; } 50% { opacity: .5; } }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px; justify-content: center;
+    padding: 9px 16px; border-radius: 10px; font-size: 13px; font-weight: 600;
+    transition: all .15s ease; white-space: nowrap; cursor: pointer; border: 1px solid transparent;
+  }
+  .btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--bg-page), 0 0 0 4px rgba(16,185,129,0.5); }
+  .btn-primary { background: linear-gradient(135deg, var(--live-primary), var(--live-secondary)); color: #04140e; box-shadow: 0 10px 28px -10px rgba(16,185,129,0.6), 0 1px 0 rgba(255,255,255,0.18) inset; }
+  .btn-primary:hover { filter: brightness(1.08); transform: translateY(-1px); }
+  .btn-danger { background: linear-gradient(135deg, #ef4444, #f87171); color: #1a0505; box-shadow: 0 10px 28px -10px rgba(239,68,68,0.55); }
+  .btn-danger:hover { filter: brightness(1.08); transform: translateY(-1px); }
+  .btn-outline { background: rgba(248,250,252,0.025); border-color: var(--bdr-card); color: var(--text-base); }
+  .btn-outline:hover { border-color: rgba(16,185,129,0.45); color: var(--text-strong); background: rgba(16,185,129,0.07); }
+  .btn-ghost { color: var(--text-muted); }
+  .btn-ghost:hover { color: var(--text-strong); background: rgba(248,250,252,0.05); }
+  .btn-icon { padding: 8px; }
+
+  table.data-table { width: 100%; font-size: 13px; border-collapse: collapse; }
+  table.data-table thead tr { border-bottom: 1px solid var(--bdr-card); background: rgba(248,250,252,0.025); }
+  table.data-table th { padding: 10px 14px; text-align: left; }
+  table.data-table td { padding: 12px 14px; border-bottom: 1px solid var(--bdr-row); }
+  table.data-table tbody tr { transition: background-color .12s ease; position: relative; }
+  table.data-table tbody tr:hover { background-color: var(--hover-row); }
+  table.data-table tbody tr:last-child td { border-bottom: none; }
+  table.data-table tbody tr:hover td:first-child::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--live-primary);
+  }
+
+  .icon-chip { display: flex; align-items: center; justify-content: center; border-radius: 10px; color: #04140e; box-shadow: 0 4px 14px -4px rgba(0,0,0,0.5); flex-shrink: 0; }
+  .icon { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+
+  [x-cloak] { display: none !important; }
+</style>
+</head>
+
+<body class="antialiased">
+
+<!-- ============================================================
+     TOP NAV
+     ============================================================ -->
+<header class="sticky top-0 z-40 border-b border-[color:var(--bdr-card)] bg-[#070b16]/90 backdrop-blur-xl" style="box-shadow: 0 1px 0 rgba(248,250,252,0.04), 0 12px 32px -20px rgba(0,0,0,0.9);">
+  <div class="max-w-[1600px] mx-auto flex h-[68px] items-center px-4 sm:px-6 lg:px-8 gap-3 md:gap-6">
+
+    <div class="flex items-center gap-3 shrink-0">
+      <div class="relative shrink-0">
+        <img src="/logo.png" alt="AlphaLive" class="h-9 w-9 rounded-xl object-cover relative z-10 ring-1 ring-white/[0.12]" />
+        <div class="absolute inset-0 blur-lg rounded-xl" style="background: var(--glow);"></div>
+      </div>
+      <div class="flex flex-col leading-none">
+        <span class="text-[16px] font-bold tracking-tight gradient-text">AlphaLive</span>
+        <span class="hidden md:block text-[9.5px] font-semibold uppercase tracking-widest mt-1" style="color:var(--text-muted)">Execution Engine</span>
+      </div>
+      <span class="badge badge-live ml-1.5"><span class="badge-dot"></span>LIVE</span>
+    </div>
+
+    <div class="hidden md:block h-7 w-px" style="background: var(--bdr-card);"></div>
+
+    <nav class="hidden lg:flex items-center gap-1 text-[13.5px] font-semibold">
+      <a class="px-3.5 py-2 rounded-lg relative" style="color:#5eead4; background: rgba(16,185,129,0.13); box-shadow: 0 0 0 1px rgba(16,185,129,0.28), 0 4px 14px -6px rgba(16,185,129,0.4);">Command Center</a>
+      <a class="px-3.5 py-2 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-white/[0.05] transition-colors">Positions</a>
+      <a class="px-3.5 py-2 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-white/[0.05] transition-colors">Orders</a>
+      <a class="px-3.5 py-2 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-white/[0.05] transition-colors">Risk</a>
+      <a class="px-3.5 py-2 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-white/[0.05] transition-colors">Screener</a>
+    </nav>
+
+    <div class="ml-auto flex items-center gap-2 sm:gap-2.5 shrink-0" x-data="{ now: '' }" x-init="now = new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); setInterval(() => now = new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'}), 1000)">
+      <div class="hidden sm:flex items-center gap-1.5 rounded-full pl-1.5 pr-2.5 py-1.5" style="background: rgba(248,250,252,0.025); border: 1px solid var(--bdr-row);">
+        <span class="badge badge-live !border-0 !bg-transparent !px-1.5"><span class="badge-dot"></span>Market Open</span>
+        <span class="h-3 w-px" style="background: var(--bdr-row);"></span>
+        <span class="badge badge-cyan !border-0 !bg-transparent !px-1.5"><svg class="icon !w-3 !h-3"><use href="#i-plug"/></svg>Broker</span>
+        <span class="hidden xl:flex h-3 w-px" style="background: var(--bdr-row);"></span>
+        <span class="hidden xl:inline-flex items-center gap-1.5 text-xs font-mono-nums px-1" style="color: var(--text-base);">
+          <span class="relative flex h-1.5 w-1.5"><span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60" style="background:var(--live-primary)"></span><span class="relative inline-flex rounded-full h-1.5 w-1.5" style="background:var(--live-primary)"></span></span>
+          <span x-text="now"></span> ET
+        </span>
+      </div>
+      <div class="hidden sm:flex items-center gap-1 rounded-lg p-0.5" style="border: 1px solid var(--bdr-row);">
+        <button class="btn btn-ghost !px-2.5 !py-1.5" title="View Logs"><svg class="icon !w-4 !h-4"><use href="#i-logs"/></svg></button>
+        <button class="btn btn-ghost !px-2.5 !py-1.5" title="Settings"><svg class="icon !w-4 !h-4"><use href="#i-settings"/></svg></button>
+        <button class="btn btn-ghost !px-2.5 !py-1.5" title="Redeploy"><svg class="icon !w-4 !h-4"><use href="#i-refresh"/></svg></button>
+      </div>
+      <div class="flex items-center gap-1.5 sm:gap-2.5 pl-1.5 sm:pl-2.5 sm:border-l" style="border-color: var(--bdr-card);">
+        <div class="h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold ring-2 ring-white/[0.08]" style="background: linear-gradient(135deg,var(--live-primary),var(--live-cyan)); color:#04140e;">BG</div>
+        <div class="hidden sm:flex flex-col leading-none">
+          <span class="text-xs font-semibold" style="color: var(--text-strong);">Bernardo</span>
+          <span class="text-[10px] mt-0.5" style="color: var(--text-muted);">Paper · Owner</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- inline icon sprite sheet -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <g id="i-plug"><path d="M9 2v4M15 2v4M6 8h12l-1 5a5 5 0 0 1-10 0L6 8Z"/><path d="M12 17v5"/></g>
+    <g id="i-clock"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></g>
+    <g id="i-refresh"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></g>
+    <g id="i-pause"><rect x="7" y="5" width="4" height="14" rx="1"/><rect x="13" y="5" width="4" height="14" rx="1"/></g>
+    <g id="i-play"><path d="M7 4.5v15l13-7.5-13-7.5Z"/></g>
+    <g id="i-sync"><path d="M4 12a8 8 0 0 1 14.7-4.5M20 12a8 8 0 0 1-14.7 4.5"/><path d="M18 4v4h-4M6 20v-4h4"/></g>
+    <g id="i-logs"><path d="M4 5h16M4 12h16M4 19h10"/></g>
+    <g id="i-settings"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1Z"/></g>
+    <g id="i-wallet"><path d="M3 7a2 2 0 0 1 2-2h13a1 1 0 0 1 1 1v3"/><path d="M3 7v11a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-6a1 1 0 0 0-1-1h-4a2 2 0 1 0 0 4h5"/></g>
+    <g id="i-trend-up"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></g>
+    <g id="i-trend-down"><path d="M3 7l6 6 4-4 8 8"/><path d="M21 11V5h-6"/></g>
+    <g id="i-layers"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></g>
+    <g id="i-shield"><path d="M12 2 4 5v6c0 5 3.4 8.7 8 11 4.6-2.3 8-6 8-11V5l-8-3Z"/></g>
+    <g id="i-activity"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></g>
+    <g id="i-send"><path d="m22 2-7 20-4-9-9-4 20-7Z"/></g>
+    <g id="i-server"><rect x="2" y="3" width="20" height="7" rx="1.5"/><rect x="2" y="14" width="20" height="7" rx="1.5"/><path d="M6 6.5h.01M6 17.5h.01"/></g>
+    <g id="i-alert-triangle"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></g>
+    <g id="i-zap-off"><path d="M12.4 6.4 13 2l-6 8h4l-1 6 3-4"/><path d="m2 2 20 20"/><path d="M14 14l-1.3 6L18 12h-4l.4-2.3"/></g>
+    <g id="i-moon"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></g>
+    <g id="i-inbox"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13l3.5 7v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-7l3.5-7Z"/></g>
+    <g id="i-list"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></g>
+    <g id="i-download"><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 19h16"/></g>
+    <g id="i-check"><path d="M20 6 9 17l-5-5"/></g>
+    <g id="i-target"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></g>
+    <g id="i-gauge"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M12 12 16 8"/><path d="M4.9 19a9 9 0 1 1 14.2 0"/></g>
+    <g id="i-pie"><path d="M21.2 15.5A10 10 0 1 1 8.5 2.8"/><path d="M22 12A10 10 0 0 0 12 2v10Z"/></g>
+    <g id="i-bar"><path d="M12 20V10M6 20V4M18 20v-7"/></g>
+  </defs>
+</svg>
+
+<main class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
+
+  <!-- ============================================================
+       HERO — asymmetric: identity/CTAs left, live P&L snapshot right
+       ============================================================ -->
+  <div class="hero-panel px-7 py-8 sm:px-10 sm:py-10" x-data="{ paused: false }">
+    <div class="glow-blob h-72 w-72 -bottom-32 left-1/4 opacity-25" style="background: var(--live-primary);"></div>
+    <div class="glow-blob h-48 w-48 -top-20 right-16 opacity-20" style="background: var(--live-cyan);"></div>
+
+    <div class="relative grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-10">
+      <!-- left: identity + CTAs -->
+      <div class="flex flex-col justify-between">
+        <div>
+          <div class="inline-flex items-center gap-2 mb-4 rounded-full pl-2 pr-3.5 py-1" style="background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.22);">
+            <span class="relative flex h-2 w-2">
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60" style="background: var(--live-primary);"></span>
+              <span class="relative inline-flex rounded-full h-2 w-2" style="background: var(--live-primary);"></span>
+            </span>
+            <span class="text-[11px] font-bold uppercase tracking-widest" style="color: #5eead4;">Live Execution · Alpaca Paper</span>
+          </div>
+          <h1 class="text-4xl sm:text-[3rem] font-extrabold tracking-tight leading-[1.02]" style="color: var(--text-strong); text-shadow: 0 2px 24px rgba(16,185,129,0.15);">
+            Live Trading<br /> <span class="gradient-text">Command Center</span>
+          </h1>
+          <p class="text-[15.5px] mt-4 leading-relaxed max-w-lg" style="color: var(--text-base);">
+            Monitor positions, execution, risk, and alerts across every live strategy — one operational surface, updated in real time.
+          </p>
+          <div class="flex items-center gap-2 mt-6 flex-wrap">
+            <span class="badge" :class="paused ? 'badge-warning' : 'badge-live'">
+              <span class="badge-dot"></span><span x-text="paused ? 'Trading Paused' : 'LIVE'"></span>
+            </span>
+            <span class="badge badge-cyan"><svg class="icon !w-3 !h-3"><use href="#i-plug"/></svg>Broker Connected</span>
+            <span class="badge badge-live"><svg class="icon !w-3 !h-3"><use href="#i-shield"/></svg>Risk Guard Active</span>
+            <span class="badge badge-live"><span class="badge-dot"></span>Market Open</span>
+          </div>
+        </div>
+        <div class="flex items-center gap-2.5 flex-wrap w-full sm:w-auto mt-8">
+          <button class="btn btn-ghost"><svg class="icon"><use href="#i-sync"/></svg>Sync Broker</button>
+          <button class="btn btn-outline"><svg class="icon"><use href="#i-logs"/></svg>View Logs</button>
+          <button class="btn !px-5 !py-2.5 !text-[13.5px]" :class="paused ? 'btn-primary' : 'btn-danger'" @click="paused = !paused">
+            <svg class="icon"><use :href="paused ? '#i-play' : '#i-pause'"/></svg>
+            <span x-text="paused ? 'Resume Trading' : 'Pause Trading'"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- right: flagship equity snapshot card — gradient-ring wrapper for a "featured" feel -->
+      <div class="rounded-[20px] p-[1px] relative" style="background: linear-gradient(160deg, rgba(16,185,129,0.45), rgba(34,211,238,0.12) 45%, rgba(120,145,180,0.15) 100%); box-shadow: 0 30px 70px -24px rgba(0,0,0,0.95);">
+        <div class="rounded-[19px] h-full relative overflow-hidden" style="background: linear-gradient(175deg, #131c30, #0d1424);">
+          <div class="glow-blob h-40 w-40 -top-16 -right-10 opacity-25" style="background: var(--live-secondary); filter: blur(60px);"></div>
+          <div class="flex items-start justify-between p-5 pb-0 relative">
+            <div class="min-w-0">
+              <p class="label-caps-dim truncate">Today's Equity · Paper Account</p>
+              <p class="text-[32px] leading-tight font-extrabold font-mono-nums mt-2" style="color: var(--live-secondary); text-shadow: 0 0 30px rgba(20,241,149,0.35);">+$842.16</p>
+            </div>
+            <div class="flex items-center gap-1 text-xs font-bold rounded-full px-2.5 py-1.5 shrink-0" style="background: rgba(16,185,129,0.16); color: #5eead4; border: 1px solid rgba(16,185,129,0.3);">
+              <svg class="icon !w-3 !h-3"><use href="#i-trend-up"/></svg>+0.81%
+            </div>
+          </div>
+          <div class="chart-grid-bg mt-4 mx-2 rounded-lg relative">
+            <div class="relative h-28">
+              <canvas id="chart-hero-pnl" class="absolute inset-0 w-full h-full"></canvas>
+            </div>
+          </div>
+          <div class="grid grid-cols-3 gap-2 px-5 py-4 border-t relative" style="border-color: rgba(120,145,180,0.14); background: rgba(0,0,0,0.15);">
+            <div>
+              <p class="label-caps-dim">Equity</p>
+              <p class="text-sm font-mono-nums font-bold mt-1" style="color: var(--text-strong);">$104,382</p>
+            </div>
+            <div class="border-x px-2" style="border-color: rgba(120,145,180,0.14);">
+              <p class="label-caps-dim">Open P&amp;L</p>
+              <p class="text-sm font-mono-nums font-bold mt-1" style="color: var(--live-primary);">+$318.40</p>
+            </div>
+            <div>
+              <p class="label-caps-dim">Positions</p>
+              <p class="text-sm font-mono-nums font-bold mt-1" style="color: var(--text-strong);">5</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       TOP METRIC CARDS — mock populated values
+       ============================================================ -->
+  <div class="grid grid-cols-2 xl:grid-cols-4 gap-4">
+
+    <div class="card stat-card card-interactive p-4" style="--accent: var(--live-primary);">
+      <div class="glow-wash"></div>
+      <div class="flex items-center justify-between relative">
+        <span class="label-caps">Portfolio Value</span>
+        <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--live-primary), var(--live-secondary));"><svg class="icon"><use href="#i-wallet"/></svg></span>
+      </div>
+      <div class="flex items-end justify-between gap-3 mt-2.5 relative">
+        <div>
+          <div class="font-mono-nums text-[28px] font-bold leading-none" style="color: var(--text-strong);">$104,382.41</div>
+          <div class="flex items-center gap-1 mt-1.5 text-xs font-medium" style="color: var(--live-primary);"><svg class="icon !w-3 !h-3"><use href="#i-trend-up"/></svg>+0.81% today</div>
+        </div>
+        <svg viewBox="0 0 100 32" class="w-20 h-8 shrink-0" style="color: var(--live-primary);"><polyline fill="none" stroke="currentColor" stroke-width="2" points="0,26 14,22 28,24 42,16 56,18 70,10 84,12 100,4"/></svg>
+      </div>
+    </div>
+
+    <div class="card stat-card card-interactive p-4" style="--accent: var(--live-secondary);">
+      <div class="glow-wash"></div>
+      <div class="flex items-center justify-between relative">
+        <span class="label-caps">Daily P&amp;L</span>
+        <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--live-secondary), var(--live-cyan));"><svg class="icon"><use href="#i-activity"/></svg></span>
+      </div>
+      <div class="flex items-end justify-between gap-3 mt-2.5 relative">
+        <div>
+          <div class="font-mono-nums text-[28px] font-bold leading-none" style="color: var(--live-secondary);">+$842.16</div>
+          <div class="flex items-center gap-1 mt-1.5 text-xs font-medium" style="color: var(--live-secondary);"><svg class="icon !w-3 !h-3"><use href="#i-trend-up"/></svg>+0.81% of equity</div>
+        </div>
+        <svg viewBox="0 0 100 32" class="w-20 h-8 shrink-0" style="color: var(--live-secondary);"><polyline fill="none" stroke="currentColor" stroke-width="2" points="0,20 14,24 28,18 42,22 56,12 70,16 84,6 100,8"/></svg>
+      </div>
+    </div>
+
+    <div class="card stat-card card-interactive p-4" style="--accent: var(--live-cyan);">
+      <div class="glow-wash"></div>
+      <div class="flex items-center justify-between relative">
+        <span class="label-caps">Cash Available</span>
+        <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--live-cyan), #38bdf8);"><svg class="icon"><use href="#i-layers"/></svg></span>
+      </div>
+      <div class="flex items-end justify-between gap-3 mt-2.5 relative">
+        <div>
+          <div class="font-mono-nums text-[28px] font-bold leading-none" style="color: var(--text-strong);">$27,490.22</div>
+          <div class="text-xs mt-1.5 font-mono-nums" style="color: var(--text-muted);">26.3% of portfolio</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card stat-card card-interactive p-4" style="--accent: var(--violet);">
+      <div class="glow-wash"></div>
+      <div class="flex items-center justify-between relative">
+        <span class="label-caps">Open Positions</span>
+        <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--violet), #818cf8);"><svg class="icon"><use href="#i-target"/></svg></span>
+      </div>
+      <div class="flex items-end justify-between gap-3 mt-2.5 relative">
+        <div>
+          <div class="font-mono-nums text-[28px] font-bold leading-none" style="color: var(--text-strong);">5</div>
+          <div class="text-xs mt-1.5" style="color: var(--text-muted);">across 5 strategies</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       MAIN GRID: Open Positions (anchor) + Risk sidebar
+       ============================================================ -->
+  <div class="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
+
+    <!-- LEFT / CENTER: Open Positions + Recent Orders -->
+    <div class="xl:col-span-8 space-y-5">
+
+      <div class="card overflow-hidden">
+        <div class="panel-head">
+          <div class="flex items-center gap-2.5">
+            <span class="icon-chip h-8 w-8" style="background: linear-gradient(135deg, var(--live-primary), var(--live-cyan));"><svg class="icon"><use href="#i-target"/></svg></span>
+            <div>
+              <h2 class="text-[16px] font-bold tracking-tight" style="color: var(--text-strong);">Open Positions</h2>
+              <p class="section-caption">5 live · $92,140 gross exposure</p>
+            </div>
+          </div>
+          <span class="badge badge-live">5 Active</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th class="label-caps">Ticker</th>
+                <th class="label-caps">Side / Qty</th>
+                <th class="label-caps text-right">Entry</th>
+                <th class="label-caps text-right">Current</th>
+                <th class="label-caps text-right">Unrealized P&amp;L</th>
+                <th class="label-caps">SL / TP</th>
+                <th class="label-caps">Strategy</th>
+                <th class="label-caps">Trend</th>
+                <th class="label-caps text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <div class="flex items-center gap-2.5">
+                    <span class="icon-chip h-7 w-7 text-[11px] font-bold" style="background: linear-gradient(135deg,#10b981,#14f195);">AA</span>
+                    <span class="font-semibold" style="color: var(--text-strong);">AAPL</span>
+                  </div>
+                </td>
+                <td><span class="badge badge-live !px-2 !py-0.5">LONG</span> <span class="font-mono-nums text-xs ml-1">60</span></td>
+                <td class="text-right font-mono-nums">$188.40</td>
+                <td class="text-right font-mono-nums">$194.85</td>
+                <td class="text-right font-mono-nums font-semibold" style="color: var(--live-primary);">+$387.00 <span class="text-[11px] opacity-80">(+3.42%)</span></td>
+                <td class="font-mono-nums text-xs" style="color: var(--text-muted);">$180.00 / $205.00</td>
+                <td class="text-xs" style="color: var(--text-muted);">ma_crossover</td>
+                <td><svg viewBox="0 0 60 20" class="w-14 h-5" style="color: var(--live-primary);"><polyline fill="none" stroke="currentColor" stroke-width="1.6" points="0,16 10,14 20,15 30,9 40,10 50,4 60,3"/></svg></td>
+                <td class="text-center"><span class="badge badge-live !px-2 !py-0.5">ACTIVE</span></td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="flex items-center gap-2.5">
+                    <span class="icon-chip h-7 w-7 text-[11px] font-bold" style="background: linear-gradient(135deg,#22d3ee,#0ea5e9);">MS</span>
+                    <span class="font-semibold" style="color: var(--text-strong);">MSFT</span>
+                  </div>
+                </td>
+                <td><span class="badge badge-live !px-2 !py-0.5">LONG</span> <span class="font-mono-nums text-xs ml-1">22</span></td>
+                <td class="text-right font-mono-nums">$405.10</td>
+                <td class="text-right font-mono-nums">$411.50</td>
+                <td class="text-right font-mono-nums font-semibold" style="color: var(--live-primary);">+$140.80 <span class="text-[11px] opacity-80">(+1.58%)</span></td>
+                <td class="font-mono-nums text-xs" style="color: var(--text-muted);">$392.00 / —</td>
+                <td class="text-xs" style="color: var(--text-muted);">bollinger_breakout</td>
+                <td><svg viewBox="0 0 60 20" class="w-14 h-5" style="color: var(--live-primary);"><polyline fill="none" stroke="currentColor" stroke-width="1.6" points="0,15 10,13 20,14 30,9 40,11 50,6 60,5"/></svg></td>
+                <td class="text-center"><span class="badge badge-live !px-2 !py-0.5">ACTIVE</span></td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="flex items-center gap-2.5">
+                    <span class="icon-chip h-7 w-7 text-[11px] font-bold" style="background: linear-gradient(135deg,#a78bfa,#818cf8);">NV</span>
+                    <span class="font-semibold" style="color: var(--text-strong);">NVDA</span>
+                  </div>
+                </td>
+                <td><span class="badge badge-live !px-2 !py-0.5">LONG</span> <span class="font-mono-nums text-xs ml-1">12</span></td>
+                <td class="text-right font-mono-nums">$121.80</td>
+                <td class="text-right font-mono-nums">$129.10</td>
+                <td class="text-right font-mono-nums font-semibold" style="color: var(--live-primary);">+$87.60 <span class="text-[11px] opacity-80">(+6.00%)</span></td>
+                <td class="font-mono-nums text-xs" style="color: var(--text-muted);">$112.00 / $140.00</td>
+                <td class="text-xs" style="color: var(--text-muted);">momentum_breakout</td>
+                <td><svg viewBox="0 0 60 20" class="w-14 h-5" style="color: var(--live-primary);"><polyline fill="none" stroke="currentColor" stroke-width="1.6" points="0,18 10,15 20,16 30,10 40,8 50,5 60,2"/></svg></td>
+                <td class="text-center"><span class="badge badge-live !px-2 !py-0.5">ACTIVE</span></td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="flex items-center gap-2.5">
+                    <span class="icon-chip h-7 w-7 text-[11px] font-bold" style="background: linear-gradient(135deg,#64748b,#94a3b8); color:#0b1020;">SP</span>
+                    <span class="font-semibold" style="color: var(--text-strong);">SPY</span>
+                  </div>
+                </td>
+                <td><span class="badge badge-cyan !px-2 !py-0.5">SHORT</span> <span class="font-mono-nums text-xs ml-1">18</span> <span class="badge badge-violet !px-1.5 !py-0.5 ml-1">HEDGE</span></td>
+                <td class="text-right font-mono-nums">$563.20</td>
+                <td class="text-right font-mono-nums">$561.00</td>
+                <td class="text-right font-mono-nums font-semibold" style="color: var(--live-primary);">+$39.60 <span class="text-[11px] opacity-80">(+0.39%)</span></td>
+                <td class="font-mono-nums text-xs" style="color: var(--text-muted);">$572.00 / —</td>
+                <td class="text-xs" style="color: var(--text-muted);">portfolio_hedge</td>
+                <td><svg viewBox="0 0 60 20" class="w-14 h-5" style="color: var(--text-muted);"><polyline fill="none" stroke="currentColor" stroke-width="1.6" points="0,10 10,11 20,10 30,12 40,9 50,11 60,9"/></svg></td>
+                <td class="text-center"><span class="badge badge-live !px-2 !py-0.5">ACTIVE</span></td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="flex items-center gap-2.5">
+                    <span class="icon-chip h-7 w-7 text-[11px] font-bold" style="background: linear-gradient(135deg,#f59e0b,#fbbf24); color:#1a0f00;">QQ</span>
+                    <span class="font-semibold" style="color: var(--text-strong);">QQQ</span>
+                  </div>
+                </td>
+                <td><span class="badge badge-live !px-2 !py-0.5">LONG</span> <span class="font-mono-nums text-xs ml-1">14</span></td>
+                <td class="text-right font-mono-nums">$484.00</td>
+                <td class="text-right font-mono-nums">$481.20</td>
+                <td class="text-right font-mono-nums font-semibold" style="color: var(--loss);">-$39.20 <span class="text-[11px] opacity-80">(-0.58%)</span></td>
+                <td class="font-mono-nums text-xs" style="color: var(--text-muted);">$470.00 (trail) / —</td>
+                <td class="text-xs" style="color: var(--text-muted);">greenblatt_weekly</td>
+                <td><svg viewBox="0 0 60 20" class="w-14 h-5" style="color: var(--loss);"><polyline fill="none" stroke="currentColor" stroke-width="1.6" points="0,6 10,8 20,7 30,10 40,12 50,14 60,15"/></svg></td>
+                <td class="text-center"><span class="badge badge-warning !px-2 !py-0.5">WATCH</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT: consolidated risk/exposure sidebar — 2 secondary-tier cards, not 5 similar boxes -->
+    <div class="xl:col-span-4 space-y-5">
+
+      <div class="card-soft p-5">
+        <div class="flex items-center gap-2.5 mb-4">
+          <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--live-primary), var(--live-cyan));"><svg class="icon"><use href="#i-pie"/></svg></span>
+          <div>
+            <h3 class="section-label">Portfolio Risk &amp; Exposure</h3>
+            <p class="section-caption">Gross $92,140 · 5 positions</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-4">
+          <canvas id="chart-allocation" width="112" height="112" class="shrink-0"></canvas>
+          <div class="space-y-1.5 text-xs w-full">
+            <div class="flex items-center justify-between"><span class="flex items-center gap-1.5" style="color:var(--text-base)"><span class="h-2 w-2 rounded-full" style="background:#10b981"></span>AAPL</span><span class="font-mono-nums" style="color:var(--text-strong)">28%</span></div>
+            <div class="flex items-center justify-between"><span class="flex items-center gap-1.5" style="color:var(--text-base)"><span class="h-2 w-2 rounded-full" style="background:#22d3ee"></span>MSFT</span><span class="font-mono-nums" style="color:var(--text-strong)">24%</span></div>
+            <div class="flex items-center justify-between"><span class="flex items-center gap-1.5" style="color:var(--text-base)"><span class="h-2 w-2 rounded-full" style="background:#a78bfa"></span>NVDA</span><span class="font-mono-nums" style="color:var(--text-strong)">18%</span></div>
+            <div class="flex items-center justify-between"><span class="flex items-center gap-1.5" style="color:var(--text-base)"><span class="h-2 w-2 rounded-full" style="background:#64748b"></span>SPY (short)</span><span class="font-mono-nums" style="color:var(--text-strong)">17%</span></div>
+            <div class="flex items-center justify-between"><span class="flex items-center gap-1.5" style="color:var(--text-base)"><span class="h-2 w-2 rounded-full" style="background:#f59e0b"></span>QQQ</span><span class="font-mono-nums" style="color:var(--text-strong)">13%</span></div>
+          </div>
+        </div>
+        <div class="divider-fade my-4"></div>
+        <div class="space-y-2.5">
+          <div class="flex items-center justify-between text-xs"><span style="color:var(--text-muted)">Portfolio drawdown</span><span class="font-mono-nums font-semibold text-amber-400">4.2% <span style="color:var(--text-dim)">/ 20% warn</span></span></div>
+          <div class="h-1.5 rounded-full overflow-hidden" style="background: rgba(148,163,184,0.15);"><div class="h-full rounded-full" style="width:21%; background: linear-gradient(90deg,var(--live-primary),var(--warning));"></div></div>
+          <div class="flex items-center justify-between text-xs pt-1"><span style="color:var(--text-muted)">Circuit breaker</span><span class="badge badge-live !px-2 !py-0.5">Armed</span></div>
+          <div class="flex items-center justify-between text-xs"><span style="color:var(--text-muted)">Consecutive losses</span><span class="font-mono-nums font-semibold" style="color:var(--text-strong)">0 / 3</span></div>
+        </div>
+      </div>
+
+      <div class="card-soft p-5">
+        <div class="flex items-center gap-2.5 mb-4">
+          <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--live-cyan), #0ea5e9);"><svg class="icon"><use href="#i-server"/></svg></span>
+          <div>
+            <h3 class="section-label">Broker &amp; Alerts</h3>
+            <p class="section-caption">Connectivity at a glance</p>
+          </div>
+        </div>
+        <div class="space-y-2 text-xs">
+          <div class="flex items-center justify-between"><span style="color:var(--text-muted)">Alpaca API</span><span class="badge badge-live !px-2 !py-0.5">Connected</span></div>
+          <div class="flex items-center justify-between"><span style="color:var(--text-muted)">Mode</span><span class="font-mono-nums font-semibold" style="color:var(--text-strong)">Paper</span></div>
+          <div class="flex items-center justify-between"><span style="color:var(--text-muted)">Latency</span><span class="font-mono-nums font-semibold" style="color:var(--text-strong)">42ms</span></div>
+          <div class="divider-fade my-1"></div>
+          <div class="flex items-center justify-between"><span style="color:var(--text-muted)">Telegram bot</span><span class="badge badge-live !px-2 !py-0.5">Connected</span></div>
+          <div class="flex items-center justify-between"><span style="color:var(--text-muted)">Last alert</span><span class="font-mono-nums font-semibold" style="color:var(--text-strong)">12 min ago</span></div>
+          <div class="flex items-center justify-between"><span style="color:var(--text-muted)">Sent today</span><span class="font-mono-nums font-semibold" style="color:var(--text-strong)">11</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       CHART / RISK / EXPOSURE ROW
+       ============================================================ -->
+  <div class="grid grid-cols-1 xl:grid-cols-3 gap-5">
+    <div class="card p-5 xl:col-span-2">
+      <div class="flex items-center gap-2 mb-4">
+        <svg class="icon !w-3.5 !h-3.5" style="color: var(--live-secondary);"><use href="#i-activity"/></svg>
+        <h3 class="section-label">Intraday P&amp;L</h3>
+      </div>
+      <div class="chart-grid-bg rounded-lg">
+        <div class="relative h-56">
+          <canvas id="chart-intraday" class="absolute inset-0 w-full h-full"></canvas>
+        </div>
+      </div>
+    </div>
+    <div class="card p-5">
+      <div class="flex items-center gap-2 mb-4">
+        <svg class="icon !w-3.5 !h-3.5" style="color: var(--live-cyan);"><use href="#i-bar"/></svg>
+        <h3 class="section-label">Exposure by Ticker</h3>
+      </div>
+      <div class="relative h-56">
+        <canvas id="chart-exposure" class="absolute inset-0 w-full h-full"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       LOWER OPERATIONAL CARDS — Daily Loss Limit / System Status / Today's Activity
+       ============================================================ -->
+  <div class="space-y-3">
+    <h2 class="section-label px-1">Operational Status</h2>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+      <!-- Daily Loss Limit — prominent, primary tier, condition-colored -->
+      <div class="card stat-card p-5 flex flex-col" style="--accent: var(--live-primary);">
+        <div class="flex items-center gap-2.5 mb-1">
+          <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--live-primary), var(--live-secondary));"><svg class="icon"><use href="#i-gauge"/></svg></span>
+          <div>
+            <h3 class="section-label">Daily Loss Limit</h3>
+            <p class="section-caption">$3,562 max · resets at midnight ET</p>
+          </div>
+        </div>
+        <div class="relative flex-1 min-h-[140px] mt-1">
+          <canvas id="chart-risk-gauge" class="absolute inset-0 w-full h-full"></canvas>
+        </div>
+        <div class="text-center -mt-2">
+          <p class="text-2xl font-extrabold font-mono-nums" style="color: var(--text-strong);">18%</p>
+          <p class="text-xs mt-0.5" style="color: var(--text-muted);">of daily loss limit used · <span style="color: var(--live-primary); font-weight:600;">Safe</span></p>
+        </div>
+      </div>
+
+      <!-- System Status -->
+      <div class="card-soft p-5">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2.5">
+            <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--live-primary), var(--live-cyan));"><svg class="icon"><use href="#i-server"/></svg></span>
+            <div>
+              <h3 class="section-label">System Status</h3>
+              <p class="section-caption">Trading state &amp; market hours</p>
+            </div>
+          </div>
+        </div>
+        <div class="space-y-2 text-xs">
+          <div class="flex items-center justify-between"><span style="color:var(--text-muted)">Trading state</span><span class="badge badge-live !px-2 !py-0.5">Active</span></div>
+          <div class="flex items-center justify-between"><span style="color:var(--text-muted)">Mode</span><span class="font-mono-nums font-semibold" style="color:var(--text-strong)">Paper</span></div>
+          <div class="flex items-center justify-between"><span style="color:var(--text-muted)">Market hours</span><span class="font-mono-nums font-semibold" style="color:var(--text-strong)">Open · closes 4:00 PM</span></div>
+          <div class="flex items-center justify-between"><span style="color:var(--text-muted)">Main loop</span><span class="badge badge-live !px-2 !py-0.5">Heartbeat 8s ago</span></div>
+        </div>
+        <button class="btn btn-outline w-full mt-4 !py-2"><svg class="icon !w-3.5 !h-3.5"><use href="#i-pause"/></svg>Pause Trading</button>
+      </div>
+
+      <!-- Today's Activity -->
+      <div class="card-soft p-5">
+        <div class="flex items-center gap-2.5 mb-4">
+          <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--violet), #818cf8);"><svg class="icon"><use href="#i-list"/></svg></span>
+          <div>
+            <h3 class="section-label">Today's Activity</h3>
+            <p class="section-caption">Since market open · 09:30 ET</p>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3 text-xs">
+          <div><p class="label-caps-dim">Orders</p><p class="font-mono-nums font-bold text-sm mt-0.5" style="color:var(--text-strong)">7</p></div>
+          <div><p class="label-caps-dim">Fills</p><p class="font-mono-nums font-bold text-sm mt-0.5" style="color:var(--text-strong)">5</p></div>
+          <div><p class="label-caps-dim">Day Trades</p><p class="font-mono-nums font-bold text-sm mt-0.5" style="color:var(--text-strong)">1 / 3 PDT</p></div>
+          <div><p class="label-caps-dim">Uptime</p><p class="font-mono-nums font-bold text-sm mt-0.5" style="color:var(--text-strong)">6d 14h</p></div>
+        </div>
+        <div class="divider-fade my-3"></div>
+        <div class="flex items-center justify-between text-xs"><span style="color:var(--text-muted)">Morning check</span><span class="badge badge-live !px-2 !py-0.5">Done · 09:35</span></div>
+        <div class="flex items-center justify-between text-xs mt-2"><span style="color:var(--text-muted)">State saved</span><span class="font-mono-nums" style="color:var(--text-strong)">38s ago</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       MAGIC FORMULA SCREENER — lower-priority insights module, muted tier
+       ============================================================ -->
+  <div class="card-muted overflow-hidden">
+    <div class="flex items-center justify-between px-5 py-3.5 flex-wrap gap-2" style="border-bottom: 1px dashed var(--bdr-row);">
+      <div class="flex items-center gap-2.5">
+        <span class="icon-chip h-6 w-6" style="background: linear-gradient(135deg, var(--violet), #818cf8); opacity: 0.85;"><svg class="icon !w-3.5 !h-3.5"><use href="#i-target"/></svg></span>
+        <div>
+          <h3 class="text-[13px] font-bold" style="color: var(--text-base);">Magic Formula Screener</h3>
+          <p class="section-caption">Insights only · ranks universe by earnings yield + ROE · updates monthly</p>
+        </div>
+      </div>
+      <button class="btn btn-ghost !text-xs !py-1.5"><svg class="icon !w-3.5 !h-3.5"><use href="#i-refresh"/></svg>Refresh</button>
+    </div>
+    <div class="overflow-x-auto opacity-90">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th class="label-caps-dim">Rank</th>
+            <th class="label-caps-dim">Ticker</th>
+            <th class="label-caps-dim text-right">Earnings Yield</th>
+            <th class="label-caps-dim text-right">ROE</th>
+            <th class="label-caps-dim text-right">P/E</th>
+            <th class="label-caps-dim text-right">Mkt Cap</th>
+            <th class="label-caps-dim text-right">D/E</th>
+            <th class="label-caps-dim text-center">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="font-mono-nums text-xs" style="color:var(--text-muted)">1</td><td class="font-semibold text-sm">META</td><td class="text-right font-mono-nums text-xs">8.4%</td><td class="text-right font-mono-nums text-xs">34.1%</td><td class="text-right font-mono-nums text-xs">21.2</td><td class="text-right font-mono-nums text-xs">$1.28T</td><td class="text-right font-mono-nums text-xs">0.31</td><td class="text-center"><span class="badge badge-violet !px-2 !py-0.5">WATCHING</span></td></tr>
+          <tr><td class="font-mono-nums text-xs" style="color:var(--text-muted)">2</td><td class="font-semibold text-sm">AAPL</td><td class="text-right font-mono-nums text-xs">6.1%</td><td class="text-right font-mono-nums text-xs">28.7%</td><td class="text-right font-mono-nums text-xs">27.9</td><td class="text-right font-mono-nums text-xs">$3.02T</td><td class="text-right font-mono-nums text-xs">1.45</td><td class="text-center"><span class="badge badge-live !px-2 !py-0.5">HELD</span></td></tr>
+          <tr><td class="font-mono-nums text-xs" style="color:var(--text-muted)">3</td><td class="font-semibold text-sm">JPM</td><td class="text-right font-mono-nums text-xs">7.9%</td><td class="text-right font-mono-nums text-xs">17.3%</td><td class="text-right font-mono-nums text-xs">12.1</td><td class="text-right font-mono-nums text-xs">$610B</td><td class="text-right font-mono-nums text-xs">1.12</td><td class="text-center"><span class="badge badge-violet !px-2 !py-0.5">WATCHING</span></td></tr>
+          <tr><td class="font-mono-nums text-xs" style="color:var(--text-muted)">4</td><td class="font-semibold text-sm">MSFT</td><td class="text-right font-mono-nums text-xs">4.8%</td><td class="text-right font-mono-nums text-xs">33.4%</td><td class="text-right font-mono-nums text-xs">33.6</td><td class="text-right font-mono-nums text-xs">$3.11T</td><td class="text-right font-mono-nums text-xs">0.58</td><td class="text-center"><span class="badge badge-live !px-2 !py-0.5">HELD</span></td></tr>
+          <tr><td class="font-mono-nums text-xs" style="color:var(--text-muted)">5</td><td class="font-semibold text-sm">LLY</td><td class="text-right font-mono-nums text-xs">3.9%</td><td class="text-right font-mono-nums text-xs">61.2%</td><td class="text-right font-mono-nums text-xs">45.8</td><td class="text-right font-mono-nums text-xs">$820B</td><td class="text-right font-mono-nums text-xs">0.89</td><td class="text-center"><span class="badge badge-violet !px-2 !py-0.5">WATCHING</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       RECENT ORDERS — full-width execution log, primary tier
+       ============================================================ -->
+  <div class="card overflow-hidden">
+    <div class="panel-head">
+      <div class="flex items-center gap-2.5">
+        <span class="icon-chip h-8 w-8" style="background: linear-gradient(135deg, var(--live-cyan), #0ea5e9);"><svg class="icon"><use href="#i-list"/></svg></span>
+        <div>
+          <h2 class="text-[16px] font-bold tracking-tight" style="color: var(--text-strong);">Recent Orders</h2>
+          <p class="section-caption">Today's execution log · every fill, partial, and reject</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2.5">
+        <span class="badge badge-neutral">7 today</span>
+        <span class="badge badge-live">5 filled</span>
+        <span class="badge badge-warning">1 partial</span>
+        <span class="badge badge-loss">1 rejected</span>
+        <button class="btn btn-outline !py-1.5 !px-3 !text-xs"><svg class="icon !w-3.5 !h-3.5"><use href="#i-download"/></svg>Export CSV</button>
+      </div>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th class="label-caps">Time</th>
+            <th class="label-caps">Ticker</th>
+            <th class="label-caps">Side</th>
+            <th class="label-caps">Type</th>
+            <th class="label-caps text-right">Qty</th>
+            <th class="label-caps text-right">Filled @</th>
+            <th class="label-caps text-center">Status</th>
+            <th class="label-caps">Strategy</th>
+            <th class="label-caps text-right">P&amp;L / Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="font-mono-nums text-xs" style="color:var(--text-muted)">09:31:05</td><td class="font-semibold">AAPL</td><td><span class="badge badge-live !px-2 !py-0.5">BUY</span></td><td class="text-xs" style="color:var(--text-muted)">Market</td><td class="text-right font-mono-nums">60</td><td class="text-right font-mono-nums">$188.40</td><td class="text-center"><span class="badge badge-live !px-2 !py-0.5">FILLED</span></td><td class="text-xs" style="color:var(--text-muted)">ma_crossover</td><td class="text-right text-xs" style="color:var(--text-dim)">Opening</td></tr>
+          <tr><td class="font-mono-nums text-xs" style="color:var(--text-muted)">10:02:41</td><td class="font-semibold">NVDA</td><td><span class="badge badge-live !px-2 !py-0.5">BUY</span></td><td class="text-xs" style="color:var(--text-muted)">Limit</td><td class="text-right font-mono-nums">12</td><td class="text-right font-mono-nums">$121.80</td><td class="text-center"><span class="badge badge-live !px-2 !py-0.5">FILLED</span></td><td class="text-xs" style="color:var(--text-muted)">momentum_breakout</td><td class="text-right text-xs" style="color:var(--text-dim)">Opening</td></tr>
+          <tr><td class="font-mono-nums text-xs" style="color:var(--text-muted)">10:45:12</td><td class="font-semibold">SPY</td><td><span class="badge badge-cyan !px-2 !py-0.5">SELL SHORT</span></td><td class="text-xs" style="color:var(--text-muted)">Market</td><td class="text-right font-mono-nums">18</td><td class="text-right font-mono-nums">$563.20</td><td class="text-center"><span class="badge badge-live !px-2 !py-0.5">FILLED</span></td><td class="text-xs" style="color:var(--text-muted)">portfolio_hedge</td><td class="text-right text-xs" style="color:var(--text-dim)">Opening</td></tr>
+          <tr><td class="font-mono-nums text-xs" style="color:var(--text-muted)">11:20:33</td><td class="font-semibold">QQQ</td><td><span class="badge badge-live !px-2 !py-0.5">BUY</span></td><td class="text-xs" style="color:var(--text-muted)">Market</td><td class="text-right font-mono-nums">14</td><td class="text-right font-mono-nums">$484.00</td><td class="text-center"><span class="badge badge-live !px-2 !py-0.5">FILLED</span></td><td class="text-xs" style="color:var(--text-muted)">greenblatt_weekly</td><td class="text-right text-xs" style="color:var(--text-dim)">Opening</td></tr>
+          <tr><td class="font-mono-nums text-xs" style="color:var(--text-muted)">13:05:50</td><td class="font-semibold">MSFT</td><td><span class="badge badge-live !px-2 !py-0.5">BUY</span></td><td class="text-xs" style="color:var(--text-muted)">Limit</td><td class="text-right font-mono-nums">22</td><td class="text-right font-mono-nums">$405.10</td><td class="text-center"><span class="badge badge-live !px-2 !py-0.5">FILLED</span></td><td class="text-xs" style="color:var(--text-muted)">bollinger_breakout</td><td class="text-right text-xs" style="color:var(--text-dim)">Opening</td></tr>
+          <tr><td class="font-mono-nums text-xs" style="color:var(--text-muted)">14:40:22</td><td class="font-semibold">AAPL</td><td><span class="badge badge-cyan !px-2 !py-0.5">SELL</span></td><td class="text-xs" style="color:var(--text-muted)">Limit</td><td class="text-right font-mono-nums">15</td><td class="text-right font-mono-nums">$193.50</td><td class="text-center"><span class="badge badge-warning !px-2 !py-0.5">PARTIAL</span></td><td class="text-xs" style="color:var(--text-muted)">ma_crossover</td><td class="text-right font-mono-nums text-xs font-semibold" style="color: var(--live-primary);">+$76.50</td></tr>
+          <tr><td class="font-mono-nums text-xs" style="color:var(--text-muted)">15:02:00</td><td class="font-semibold">TSLA</td><td><span class="badge badge-live !px-2 !py-0.5">BUY</span></td><td class="text-xs" style="color:var(--text-muted)">Market</td><td class="text-right font-mono-nums">8</td><td class="text-right font-mono-nums">—</td><td class="text-center"><span class="badge badge-loss !px-2 !py-0.5">REJECTED</span></td><td class="text-xs" style="color:var(--text-muted)">rsi_mean_reversion</td><td class="text-right text-xs" style="color:var(--loss)">Insufficient buying power</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       EMPTY / ERROR STATE GALLERY — polished, not plain
+       ============================================================ -->
+  <div class="space-y-3">
+    <h2 class="section-label px-1">Empty &amp; Error State Treatments</h2>
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+
+      <div class="card p-5 flex flex-col items-center text-center overflow-hidden relative">
+        <div class="absolute inset-x-0 top-0 h-24 opacity-40" style="background: radial-gradient(ellipse 160px 60px at 50% 0%, rgba(16,185,129,0.25), transparent 70%);"></div>
+        <div class="rounded-xl p-3 mb-3 ring-1 relative" style="background: rgba(16,185,129,0.1); ring-color: rgba(16,185,129,0.25);">
+          <svg class="icon !w-5 !h-5" style="color: var(--live-primary);"><use href="#i-target"/></svg>
+        </div>
+        <p class="text-sm font-semibold relative" style="color: var(--text-strong);">No open positions</p>
+        <p class="text-xs mt-1.5 max-w-[210px] relative" style="color: var(--text-muted);">Positions will appear here the moment a strategy signal executes.</p>
+        <div class="w-full mt-4 rounded-lg border p-2.5 opacity-60 relative" style="border-color: var(--bdr-row); background: rgba(248,250,252,0.02);">
+          <div class="flex items-center justify-between gap-2">
+            <div class="h-2 w-10 rounded-full" style="background: rgba(148,163,184,0.25);"></div>
+            <div class="h-2 w-14 rounded-full" style="background: rgba(148,163,184,0.18);"></div>
+          </div>
+        </div>
+        <button class="btn btn-outline !text-xs !py-1.5 mt-4 relative">View Strategy Config</button>
+      </div>
+
+      <div class="card p-5 flex flex-col items-center text-center overflow-hidden relative">
+        <div class="absolute inset-x-0 top-0 h-24 opacity-40" style="background: radial-gradient(ellipse 160px 60px at 50% 0%, rgba(34,211,238,0.25), transparent 70%);"></div>
+        <div class="rounded-xl p-3 mb-3 ring-1 relative" style="background: rgba(34,211,238,0.1); ring-color: rgba(34,211,238,0.25);">
+          <svg class="icon !w-5 !h-5" style="color: var(--live-cyan);"><use href="#i-inbox"/></svg>
+        </div>
+        <p class="text-sm font-semibold relative" style="color: var(--text-strong);">No orders yet today</p>
+        <p class="text-xs mt-1.5 max-w-[210px] relative" style="color: var(--text-muted);">Orders submitted by the execution engine will show up here in real time.</p>
+        <div class="w-full mt-4 rounded-lg border p-2.5 opacity-60 relative" style="border-color: var(--bdr-row); background: rgba(248,250,252,0.02);">
+          <div class="flex items-center justify-between gap-2">
+            <div class="h-2 w-16 rounded-full" style="background: rgba(148,163,184,0.25);"></div>
+            <div class="h-2 w-8 rounded-full" style="background: rgba(148,163,184,0.18);"></div>
+          </div>
+        </div>
+        <button class="btn btn-outline !text-xs !py-1.5 mt-4 relative">View Logs</button>
+      </div>
+
+      <div class="card p-5 flex flex-col items-center text-center overflow-hidden relative" style="border-color: rgba(248,113,113,0.32); background: rgba(248,113,113,0.035);">
+        <div class="absolute inset-x-0 top-0 h-24 opacity-40" style="background: radial-gradient(ellipse 160px 60px at 50% 0%, rgba(248,113,113,0.28), transparent 70%);"></div>
+        <div class="rounded-xl p-3 mb-3 ring-1 relative" style="background: rgba(248,113,113,0.13); ring-color: rgba(248,113,113,0.32);">
+          <svg class="icon !w-5 !h-5" style="color: var(--loss);"><use href="#i-zap-off"/></svg>
+        </div>
+        <p class="text-sm font-semibold relative" style="color: var(--loss);">Broker connection lost</p>
+        <p class="text-xs mt-1.5 max-w-[210px] relative" style="color: var(--text-muted);">Alpaca API is unreachable. Retrying automatically every 30s.</p>
+        <div class="w-full mt-4 flex items-center gap-1.5 relative justify-center">
+          <span class="h-1.5 w-1.5 rounded-full animate-pulse" style="background: var(--loss);"></span>
+          <span class="text-[10px] font-mono-nums" style="color: var(--loss);">retry in 00:14</span>
+        </div>
+        <button class="btn btn-danger !text-xs !py-1.5 mt-4 relative"><svg class="icon !w-3.5 !h-3.5"><use href="#i-refresh"/></svg>Retry Now</button>
+      </div>
+
+      <div class="card p-5 flex flex-col items-center text-center overflow-hidden relative">
+        <div class="absolute inset-x-0 top-0 h-24 opacity-30" style="background: radial-gradient(ellipse 160px 60px at 50% 0%, rgba(148,163,184,0.25), transparent 70%);"></div>
+        <div class="rounded-xl p-3 mb-3 ring-1 relative" style="background: rgba(148,163,184,0.1); ring-color: rgba(148,163,184,0.25);">
+          <svg class="icon !w-5 !h-5" style="color: var(--text-muted);"><use href="#i-moon"/></svg>
+        </div>
+        <p class="text-sm font-semibold relative" style="color: var(--text-strong);">Market is closed</p>
+        <p class="text-xs mt-1.5 max-w-[210px] relative" style="color: var(--text-muted);">Next open: Mon 9:30 AM ET. Trading resumes automatically.</p>
+        <div class="w-full mt-4 rounded-lg border p-2.5 relative" style="border-color: var(--bdr-row); background: rgba(248,250,252,0.02);">
+          <p class="text-[10px] font-mono-nums" style="color: var(--text-muted);">Reopens in 14h 22m</p>
+        </div>
+        <span class="badge badge-neutral mt-4 relative">Standing by</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="pt-2 pb-8 text-center text-[11px]" style="color: var(--text-muted);">
+    AlphaLive Design Preview — mock data only, not wired to any API or broker · <a href="/" class="underline hover:no-underline" style="color: var(--live-primary);">Back to live dashboard</a>
+  </div>
+</main>
+
+<script>
+  Chart.defaults.color = '#64748b';
+  Chart.defaults.font.size = 11;
+  const gridColor = 'rgba(120,145,180,0.10)';
+
+  // Hero snapshot sparkline (today's equity delta, compact)
+  new Chart(document.getElementById('chart-hero-pnl'), {
+    type: 'line',
+    data: {
+      labels: Array.from({length: 14}, (_, i) => i),
+      datasets: [{
+        data: [0,60,20,140,90,220,180,310,260,400,350,480,560,842].map(v => v + 103500),
+        borderColor: '#14f195', backgroundColor: 'rgba(20,241,149,0.12)',
+        borderWidth: 2, pointRadius: 0, fill: true, tension: 0.35,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: { x: { display: false }, y: { display: false } },
+      elements: { line: { borderJoinStyle: 'round' } },
+    },
+  });
+
+  // Intraday P&L
+  const intraLabels = ['9:30','10:00','10:30','11:00','11:30','12:00','12:30','1:00','1:30','2:00','2:30','3:00','3:30','4:00'];
+  const intraData = [0,40,-30,90,140,110,220,180,290,250,380,420,520,842];
+
+  new Chart(document.getElementById('chart-intraday'), {
+    type: 'line',
+    data: { labels: intraLabels, datasets: [{
+      data: intraData, borderColor: '#14f195', backgroundColor: 'rgba(20,241,149,0.10)',
+      borderWidth: 2, pointRadius: 0, fill: true, tension: 0.3,
+    }]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { maxTicksLimit: 6 } },
+        y: { grid: { color: gridColor }, ticks: { callback: v => `$${v}` } },
+      },
+    },
+  });
+
+  // Exposure by ticker (horizontal bar)
+  new Chart(document.getElementById('chart-exposure'), {
+    type: 'bar',
+    data: {
+      labels: ['AAPL','MSFT','NVDA','SPY','QQQ'],
+      datasets: [{
+        data: [26010,19860,15220,10130,6740],
+        backgroundColor: ['#10b981','#22d3ee','#a78bfa','#64748b','#f59e0b'],
+        borderRadius: 5, barThickness: 16,
+      }],
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: gridColor }, ticks: { callback: v => `$${(v/1000).toFixed(0)}k` } },
+        y: { grid: { display: false } },
+      },
+    },
+  });
+
+  // Risk usage gauge (doughnut styled as a gauge)
+  new Chart(document.getElementById('chart-risk-gauge'), {
+    type: 'doughnut',
+    data: {
+      datasets: [{
+        data: [18, 82],
+        backgroundColor: ['#10b981', 'rgba(148,163,184,0.12)'],
+        borderWidth: 0,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      rotation: -90, circumference: 180, cutout: '75%',
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+    },
+  });
+
+  // Allocation donut (sidebar)
+  new Chart(document.getElementById('chart-allocation'), {
+    type: 'doughnut',
+    data: {
+      labels: ['AAPL','MSFT','NVDA','SPY','QQQ'],
+      datasets: [{
+        data: [28,24,18,17,13],
+        backgroundColor: ['#10b981','#22d3ee','#a78bfa','#64748b','#f59e0b'],
+        borderColor: '#111827', borderWidth: 2,
+      }],
+    },
+    options: { responsive: false, plugins: { legend: { display: false } }, cutout: '68%' },
+  });
+</script>
+
+</body>
+</html>
