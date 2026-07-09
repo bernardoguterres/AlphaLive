@@ -16,7 +16,6 @@ import time
 from typing import Dict, Any, Optional
 
 import pandas as pd
-import numpy as np
 
 from alphalive.strategy_schema import StrategySchema
 from alphalive.strategy import indicators

@@ -562,6 +562,7 @@ def test_run_exit_checks_exit_fires_and_closes_position():
     market_data.get_current_price.return_value = 105.0
 
     order_manager = Mock()
+    order_manager.config.risk.commission_per_trade = 0.0
     order_manager.check_exits.return_value = [
         {"ticker": "AAPL", "reason": "stop_loss", "current_price": 105.0}
     ]

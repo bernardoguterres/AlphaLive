@@ -12,7 +12,6 @@ import threading
 import time
 import logging
 from datetime import datetime
-from typing import Optional
 from zoneinfo import ZoneInfo
 from collections import defaultdict
 
