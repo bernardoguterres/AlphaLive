@@ -264,6 +264,16 @@ class BotState:
         self.state["last_startup"] = datetime.now(ET).isoformat()
         self.save()
 
+    def add_daily_pnl(self, pnl: float):
+        """
+        Add a realized trade P&L to the running daily total and persist it.
+
+        Args:
+            pnl: Realized profit/loss in dollars (negative for losses)
+        """
+        self.state["daily_pnl"] = self.state.get("daily_pnl", 0.0) + pnl
+        self.save()
+
     def reset_daily(self, today: str):
         """
         Reset daily counters (call at start of new trading day).
