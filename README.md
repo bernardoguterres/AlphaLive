@@ -1057,7 +1057,7 @@ For questions, issues, or contributions, open an issue on GitHub.
 
 ## License
 
-MIT License - see LICENSE file for details.
+All rights reserved. This is proprietary, original work - no license is granted for use, copying, or redistribution.
 
 ---
 

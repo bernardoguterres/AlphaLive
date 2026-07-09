@@ -70,7 +70,7 @@ CLAUDE.md
 # Claude Code local settings (may contain env vars / API keys in allow-rules)
 .claude/
 
-# Downloaded market data — never commit, regenerate with yfinance (see README)
+# Downloaded market data - never commit, regenerate with yfinance (see README)
 data/
 *.parquet
 

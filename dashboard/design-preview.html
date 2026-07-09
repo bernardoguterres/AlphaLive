@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>AlphaLive — Design Preview</title>
+<title>AlphaLive - Design Preview</title>
 <link rel="icon" type="image/png" href="/logo.png" />
 
 <!-- Tailwind CSS CDN (JIT - supports arbitrary values) -->
@@ -18,7 +18,7 @@
 <style>
   /*
     Mock-data-only visual-direction preview for the AlphaLive dashboard redesign.
-    Self-contained — does not share CSS with dashboard/index.html so this file can be
+    Self-contained - does not share CSS with dashboard/index.html so this file can be
     iterated on freely without touching the production stylesheet. Second pass: the
     first version read too close to a restyled admin panel. This pass pushes density,
     depth, gradient treatments, and a bento-style hero to match the AlphaLab bar.
@@ -71,7 +71,7 @@
   .section-caption { font-size: 11.5px; color: var(--text-muted); }
   .gradient-text { background: linear-gradient(135deg, #f8fafc, var(--live-primary) 120%, var(--live-cyan) 190%); -webkit-background-clip: text; background-clip: text; color: transparent; }
 
-  /* Primary tier: the anchor panels (positions, orders, charts) — strongest depth */
+  /* Primary tier: the anchor panels (positions, orders, charts) - strongest depth */
   .card {
     background-color: var(--bg-card);
     background-image: linear-gradient(160deg, rgba(248,250,252,0.035), transparent 40%);
@@ -79,14 +79,14 @@
     border-radius: 16px;
     box-shadow: 0 1px 0 rgba(248,250,252,0.04) inset, 0 1px 2px rgba(0,0,0,0.4), 0 16px 40px -16px rgba(0,0,0,0.7);
   }
-  /* Secondary tier: operational/status cards — flatter, quieter, recede behind primary panels */
+  /* Secondary tier: operational/status cards - flatter, quieter, recede behind primary panels */
   .card-soft {
     background-color: var(--bg-card-soft);
     border: 1px solid var(--bdr-row);
     border-radius: 14px;
     box-shadow: 0 1px 2px rgba(0,0,0,0.25), 0 8px 20px -12px rgba(0,0,0,0.5);
   }
-  /* Tertiary tier: lower-priority insights modules (e.g. screener) — muted, minimal depth */
+  /* Tertiary tier: lower-priority insights modules (e.g. screener) - muted, minimal depth */
   .card-muted {
     background-color: rgba(23,32,51,0.55);
     border: 1px dashed var(--bdr-row);
@@ -276,7 +276,7 @@
 <main class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
 
   <!-- ============================================================
-       HERO — asymmetric: identity/CTAs left, live P&L snapshot right
+       HERO - asymmetric: identity/CTAs left, live P&L snapshot right
        ============================================================ -->
   <div class="hero-panel px-7 py-8 sm:px-10 sm:py-10" x-data="{ paused: false }">
     <div class="glow-blob h-72 w-72 -bottom-32 left-1/4 opacity-25" style="background: var(--live-primary);"></div>
@@ -297,7 +297,7 @@
             Live Trading<br /> <span class="gradient-text">Command Center</span>
           </h1>
           <p class="text-[15.5px] mt-4 leading-relaxed max-w-lg" style="color: var(--text-base);">
-            Monitor positions, execution, risk, and alerts across every live strategy — one operational surface, updated in real time.
+            Monitor positions, execution, risk, and alerts across every live strategy - one operational surface, updated in real time.
           </p>
           <div class="flex items-center gap-2 mt-6 flex-wrap">
             <span class="badge" :class="paused ? 'badge-warning' : 'badge-live'">
@@ -318,7 +318,7 @@
         </div>
       </div>
 
-      <!-- right: flagship equity snapshot card — gradient-ring wrapper for a "featured" feel -->
+      <!-- right: flagship equity snapshot card - gradient-ring wrapper for a "featured" feel -->
       <div class="rounded-[20px] p-[1px] relative" style="background: linear-gradient(160deg, rgba(16,185,129,0.45), rgba(34,211,238,0.12) 45%, rgba(120,145,180,0.15) 100%); box-shadow: 0 30px 70px -24px rgba(0,0,0,0.95);">
         <div class="rounded-[19px] h-full relative overflow-hidden" style="background: linear-gradient(175deg, #131c30, #0d1424);">
           <div class="glow-blob h-40 w-40 -top-16 -right-10 opacity-25" style="background: var(--live-secondary); filter: blur(60px);"></div>
@@ -356,7 +356,7 @@
   </div>
 
   <!-- ============================================================
-       TOP METRIC CARDS — mock populated values
+       TOP METRIC CARDS - mock populated values
        ============================================================ -->
   <div class="grid grid-cols-2 xl:grid-cols-4 gap-4">
 
@@ -481,7 +481,7 @@
                 <td class="text-right font-mono-nums">$405.10</td>
                 <td class="text-right font-mono-nums">$411.50</td>
                 <td class="text-right font-mono-nums font-semibold" style="color: var(--live-primary);">+$140.80 <span class="text-[11px] opacity-80">(+1.58%)</span></td>
-                <td class="font-mono-nums text-xs" style="color: var(--text-muted);">$392.00 / —</td>
+                <td class="font-mono-nums text-xs" style="color: var(--text-muted);">$392.00 / -</td>
                 <td class="text-xs" style="color: var(--text-muted);">bollinger_breakout</td>
                 <td><svg viewBox="0 0 60 20" class="w-14 h-5" style="color: var(--live-primary);"><polyline fill="none" stroke="currentColor" stroke-width="1.6" points="0,15 10,13 20,14 30,9 40,11 50,6 60,5"/></svg></td>
                 <td class="text-center"><span class="badge badge-live !px-2 !py-0.5">ACTIVE</span></td>
@@ -513,7 +513,7 @@
                 <td class="text-right font-mono-nums">$563.20</td>
                 <td class="text-right font-mono-nums">$561.00</td>
                 <td class="text-right font-mono-nums font-semibold" style="color: var(--live-primary);">+$39.60 <span class="text-[11px] opacity-80">(+0.39%)</span></td>
-                <td class="font-mono-nums text-xs" style="color: var(--text-muted);">$572.00 / —</td>
+                <td class="font-mono-nums text-xs" style="color: var(--text-muted);">$572.00 / -</td>
                 <td class="text-xs" style="color: var(--text-muted);">portfolio_hedge</td>
                 <td><svg viewBox="0 0 60 20" class="w-14 h-5" style="color: var(--text-muted);"><polyline fill="none" stroke="currentColor" stroke-width="1.6" points="0,10 10,11 20,10 30,12 40,9 50,11 60,9"/></svg></td>
                 <td class="text-center"><span class="badge badge-live !px-2 !py-0.5">ACTIVE</span></td>
@@ -529,7 +529,7 @@
                 <td class="text-right font-mono-nums">$484.00</td>
                 <td class="text-right font-mono-nums">$481.20</td>
                 <td class="text-right font-mono-nums font-semibold" style="color: var(--loss);">-$39.20 <span class="text-[11px] opacity-80">(-0.58%)</span></td>
-                <td class="font-mono-nums text-xs" style="color: var(--text-muted);">$470.00 (trail) / —</td>
+                <td class="font-mono-nums text-xs" style="color: var(--text-muted);">$470.00 (trail) / -</td>
                 <td class="text-xs" style="color: var(--text-muted);">greenblatt_weekly</td>
                 <td><svg viewBox="0 0 60 20" class="w-14 h-5" style="color: var(--loss);"><polyline fill="none" stroke="currentColor" stroke-width="1.6" points="0,6 10,8 20,7 30,10 40,12 50,14 60,15"/></svg></td>
                 <td class="text-center"><span class="badge badge-warning !px-2 !py-0.5">WATCH</span></td>
@@ -541,7 +541,7 @@
 
     </div>
 
-    <!-- RIGHT: consolidated risk/exposure sidebar — 2 secondary-tier cards, not 5 similar boxes -->
+    <!-- RIGHT: consolidated risk/exposure sidebar - 2 secondary-tier cards, not 5 similar boxes -->
     <div class="xl:col-span-4 space-y-5">
 
       <div class="card-soft p-5">
@@ -619,13 +619,13 @@
   </div>
 
   <!-- ============================================================
-       LOWER OPERATIONAL CARDS — Daily Loss Limit / System Status / Today's Activity
+       LOWER OPERATIONAL CARDS - Daily Loss Limit / System Status / Today's Activity
        ============================================================ -->
   <div class="space-y-3">
     <h2 class="section-label px-1">Operational Status</h2>
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
-      <!-- Daily Loss Limit — prominent, primary tier, condition-colored -->
+      <!-- Daily Loss Limit - prominent, primary tier, condition-colored -->
       <div class="card stat-card p-5 flex flex-col" style="--accent: var(--live-primary);">
         <div class="flex items-center gap-2.5 mb-1">
           <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--live-primary), var(--live-secondary));"><svg class="icon"><use href="#i-gauge"/></svg></span>
@@ -686,7 +686,7 @@
   </div>
 
   <!-- ============================================================
-       MAGIC FORMULA SCREENER — lower-priority insights module, muted tier
+       MAGIC FORMULA SCREENER - lower-priority insights module, muted tier
        ============================================================ -->
   <div class="card-muted overflow-hidden">
     <div class="flex items-center justify-between px-5 py-3.5 flex-wrap gap-2" style="border-bottom: 1px dashed var(--bdr-row);">
@@ -725,7 +725,7 @@
   </div>
 
   <!-- ============================================================
-       RECENT ORDERS — full-width execution log, primary tier
+       RECENT ORDERS - full-width execution log, primary tier
        ============================================================ -->
   <div class="card overflow-hidden">
     <div class="panel-head">
@@ -766,14 +766,14 @@
           <tr><td class="font-mono-nums text-xs" style="color:var(--text-muted)">11:20:33</td><td class="font-semibold">QQQ</td><td><span class="badge badge-live !px-2 !py-0.5">BUY</span></td><td class="text-xs" style="color:var(--text-muted)">Market</td><td class="text-right font-mono-nums">14</td><td class="text-right font-mono-nums">$484.00</td><td class="text-center"><span class="badge badge-live !px-2 !py-0.5">FILLED</span></td><td class="text-xs" style="color:var(--text-muted)">greenblatt_weekly</td><td class="text-right text-xs" style="color:var(--text-dim)">Opening</td></tr>
           <tr><td class="font-mono-nums text-xs" style="color:var(--text-muted)">13:05:50</td><td class="font-semibold">MSFT</td><td><span class="badge badge-live !px-2 !py-0.5">BUY</span></td><td class="text-xs" style="color:var(--text-muted)">Limit</td><td class="text-right font-mono-nums">22</td><td class="text-right font-mono-nums">$405.10</td><td class="text-center"><span class="badge badge-live !px-2 !py-0.5">FILLED</span></td><td class="text-xs" style="color:var(--text-muted)">bollinger_breakout</td><td class="text-right text-xs" style="color:var(--text-dim)">Opening</td></tr>
           <tr><td class="font-mono-nums text-xs" style="color:var(--text-muted)">14:40:22</td><td class="font-semibold">AAPL</td><td><span class="badge badge-cyan !px-2 !py-0.5">SELL</span></td><td class="text-xs" style="color:var(--text-muted)">Limit</td><td class="text-right font-mono-nums">15</td><td class="text-right font-mono-nums">$193.50</td><td class="text-center"><span class="badge badge-warning !px-2 !py-0.5">PARTIAL</span></td><td class="text-xs" style="color:var(--text-muted)">ma_crossover</td><td class="text-right font-mono-nums text-xs font-semibold" style="color: var(--live-primary);">+$76.50</td></tr>
-          <tr><td class="font-mono-nums text-xs" style="color:var(--text-muted)">15:02:00</td><td class="font-semibold">TSLA</td><td><span class="badge badge-live !px-2 !py-0.5">BUY</span></td><td class="text-xs" style="color:var(--text-muted)">Market</td><td class="text-right font-mono-nums">8</td><td class="text-right font-mono-nums">—</td><td class="text-center"><span class="badge badge-loss !px-2 !py-0.5">REJECTED</span></td><td class="text-xs" style="color:var(--text-muted)">rsi_mean_reversion</td><td class="text-right text-xs" style="color:var(--loss)">Insufficient buying power</td></tr>
+          <tr><td class="font-mono-nums text-xs" style="color:var(--text-muted)">15:02:00</td><td class="font-semibold">TSLA</td><td><span class="badge badge-live !px-2 !py-0.5">BUY</span></td><td class="text-xs" style="color:var(--text-muted)">Market</td><td class="text-right font-mono-nums">8</td><td class="text-right font-mono-nums">-</td><td class="text-center"><span class="badge badge-loss !px-2 !py-0.5">REJECTED</span></td><td class="text-xs" style="color:var(--text-muted)">rsi_mean_reversion</td><td class="text-right text-xs" style="color:var(--loss)">Insufficient buying power</td></tr>
         </tbody>
       </table>
     </div>
   </div>
 
   <!-- ============================================================
-       EMPTY / ERROR STATE GALLERY — polished, not plain
+       EMPTY / ERROR STATE GALLERY - polished, not plain
        ============================================================ -->
   <div class="space-y-3">
     <h2 class="section-label px-1">Empty &amp; Error State Treatments</h2>
@@ -841,7 +841,7 @@
   </div>
 
   <div class="pt-2 pb-8 text-center text-[11px]" style="color: var(--text-muted);">
-    AlphaLive Design Preview — mock data only, not wired to any API or broker · <a href="/" class="underline hover:no-underline" style="color: var(--live-primary);">Back to live dashboard</a>
+    AlphaLive Design Preview - mock data only, not wired to any API or broker · <a href="/" class="underline hover:no-underline" style="color: var(--live-primary);">Back to live dashboard</a>
   </div>
 </main>
 
