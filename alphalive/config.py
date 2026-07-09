@@ -11,7 +11,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator, ValidationError
 from dotenv import load_dotenv

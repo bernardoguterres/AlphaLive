@@ -14,6 +14,7 @@ import os
 import sys
 import signal
 import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -292,7 +293,25 @@ def _check_signal_for_strategy(
                 morning_checks_done.add(strat_cfg.ticker)
                 return
 
-        signal_result = signal_engine_map[strat_cfg.ticker].generate_signal(df)
+        timeout = order_manager_map[strat_cfg.ticker].risk.signal_timeout_seconds
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(
+                signal_engine_map[strat_cfg.ticker].generate_signal, df
+            )
+            try:
+                signal_result = future.result(timeout=timeout)
+            except FutureTimeoutError:
+                logger.critical(
+                    f"Signal generation timed out after {timeout}s for "
+                    f"{strat_cfg.strategy.name}/{strat_cfg.ticker} - skipping this check"
+                )
+                notifier.send_error_alert(
+                    f"⏱️ Signal generation timeout: {strat_cfg.ticker} "
+                    f"(exceeded {timeout}s)"
+                )
+                morning_checks_done.add(strat_cfg.ticker)
+                return
+
         logger.info(
             f"Signal: {signal_result['signal']} | "
             f"Confidence: {signal_result['confidence']:.2%}"
@@ -490,10 +509,13 @@ def _run_exit_checks(
                             None,
                         )
                         if closed_pos:
+                            commission = (
+                                order_manager_map[ticker].config.risk.commission_per_trade
+                            )
                             pnl = (
                                 exit_signal["current_price"]
                                 - closed_pos.avg_entry_price
-                            ) * closed_pos.qty
+                            ) * closed_pos.qty - (2 * commission)
                             pnl_pct = (
                                 (
                                     exit_signal["current_price"]
