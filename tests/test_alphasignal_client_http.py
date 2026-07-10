@@ -96,31 +96,26 @@ async def test_get_sentiment_no_api_key_omits_header():
 # ---------------------------------------------------------------------------
 
 
-async def test_run_pre_execution_checks_none_clients_passthrough():
-    allowed_lob, lob_pred, allowed_sentiment, sentiment_pred = await run_pre_execution_checks(
-        deeplob_client=None, alphasignal_client=None, lob_snapshot=None,
-        ticker="AAPL", signal_direction=2,
+async def test_run_pre_execution_checks_none_client_passthrough():
+    allowed, pred = await run_pre_execution_checks(
+        alphasignal_client=None, ticker="AAPL", signal_direction=2,
     )
 
-    assert allowed_lob is True
-    assert lob_pred == {}
-    assert allowed_sentiment is True
-    assert sentiment_pred == {}
+    assert allowed is True
+    assert pred == {}
 
 
-async def test_run_pre_execution_checks_deeplob_exception_fails_open():
-    mock_deeplob = MagicMock()
+async def test_run_pre_execution_checks_exception_fails_open():
+    mock_client = MagicMock()
 
     async def _raise(*args, **kwargs):
-        raise RuntimeError("deeplob down")
+        raise RuntimeError("alphasignal down")
 
-    mock_deeplob.is_execution_allowed = MagicMock(side_effect=lambda *a, **k: _raise())
+    mock_client.is_execution_allowed = MagicMock(side_effect=lambda *a, **k: _raise())
 
-    allowed_lob, lob_pred, allowed_sentiment, sentiment_pred = await run_pre_execution_checks(
-        deeplob_client=mock_deeplob, alphasignal_client=None, lob_snapshot=None,
-        ticker="AAPL", signal_direction=2,
+    allowed, pred = await run_pre_execution_checks(
+        alphasignal_client=mock_client, ticker="AAPL", signal_direction=2,
     )
 
-    assert allowed_lob is True
-    assert lob_pred == {}
-    assert allowed_sentiment is True
+    assert allowed is True
+    assert pred == {}

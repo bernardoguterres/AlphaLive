@@ -190,80 +190,41 @@ class AlphaSignalClient:
 
 
 async def run_pre_execution_checks(
-    deeplob_client,
-    alphasignal_client: AlphaSignalClient,
-    lob_snapshot,
+    alphasignal_client: Optional[AlphaSignalClient],
     ticker: str,
     signal_direction: int,
-) -> tuple[bool, dict, bool, dict]:
-    """Run DeepLOB and AlphaSignal execution filters concurrently.
+) -> tuple[bool, dict]:
+    """Run the pre-execution filter gate before placing an order.
 
-    Uses ``asyncio.gather`` so both network calls happen in parallel,
-    halving latency compared to sequential awaits.
+    Currently a single arm (AlphaSignal sentiment), but kept as a gather
+    over a coroutine list so a future second filter (e.g. an execution-
+    timing model) slots in as one more coroutine with fail-open handling
+    for free. The DeepLOB arm that used to live here was removed
+    2026-07-10 along with the DeepLOB project.
 
-    When ``deeplob_client`` is None (Integration A not yet wired), a
-    passthrough coroutine is used that always returns ``(True, {})``, so
-    the gather still fires with two coroutines and the AlphaSignal check
-    is not skipped.
-
-    On any exception from either coroutine (timeout, network error, etc.),
-    that filter fails open - execution is allowed.
+    On any exception (timeout, network error, etc.) the filter fails
+    open - execution is allowed.
 
     Args:
-        deeplob_client: DeepLOB client (Integration A). ``None`` = pass-
-            through (always allow). Expected interface:
-            ``async is_execution_allowed(lob_snapshot, signal_direction)
-              -> tuple[bool, dict]``.
-        alphasignal_client: Initialised ``AlphaSignalClient``.
-        lob_snapshot: LOB data passed to DeepLOB. ``None`` when not yet
-            available (Integration A placeholder).
+        alphasignal_client: Initialised ``AlphaSignalClient``, or None
+            (passthrough - always allow).
         ticker: Stock ticker symbol.
         signal_direction: 2=long, 1=neutral, 0=short.
 
     Returns:
-        ``(lob_allowed, lob_pred, sentiment_allowed, sentiment_pred)``
-        where each ``*_pred`` dict is the raw filter output (empty on
-        error or passthrough).
+        ``(sentiment_allowed, sentiment_pred)`` where ``sentiment_pred``
+        is the raw filter output (empty on error or passthrough).
     """
-    # Build DeepLOB coroutine - passthrough when client is absent.
-    if deeplob_client is not None:
-        lob_coro = deeplob_client.is_execution_allowed(lob_snapshot, signal_direction)
-    else:
+    if alphasignal_client is None:
+        return True, {}
 
-        async def _lob_passthrough() -> tuple[bool, dict]:
-            return True, {}
-
-        lob_coro = _lob_passthrough()
-
-    if alphasignal_client is not None:
-        sentiment_coro = alphasignal_client.is_execution_allowed(
-            ticker, signal_direction
-        )
-    else:
-
-        async def _sentiment_passthrough() -> tuple[bool, dict]:
-            return True, {}
-
-        sentiment_coro = _sentiment_passthrough()
-
-    # Run both filters concurrently.
-    lob_result, sentiment_result = await asyncio.gather(
-        lob_coro,
-        sentiment_coro,
+    (sentiment_result,) = await asyncio.gather(
+        alphasignal_client.is_execution_allowed(ticker, signal_direction),
         return_exceptions=True,
     )
 
-    # Handle exceptions from either filter - fail open.
-    if isinstance(lob_result, BaseException):
-        logger.warning("DeepLOB filter raised (failing open): %s", lob_result)
-        lob_allowed, lob_pred = True, {}
-    else:
-        lob_allowed, lob_pred = lob_result
-
     if isinstance(sentiment_result, BaseException):
         logger.warning("AlphaSignal filter raised (failing open): %s", sentiment_result)
-        sentiment_allowed, sentiment_pred = True, {}
-    else:
-        sentiment_allowed, sentiment_pred = sentiment_result
+        return True, {}
 
-    return lob_allowed, lob_pred, sentiment_allowed, sentiment_pred
+    return sentiment_result

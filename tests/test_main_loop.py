@@ -1,7 +1,7 @@
 """
 Tests for alphalive.main.main() - the orchestration entry point.
 
-Everything I/O-bound (broker, market data, Telegram, DeepLOB/AlphaSignal
+Everything I/O-bound (broker, market data, Telegram, AlphaSignal
 clients, state file) is mocked out via patching the names imported into
 alphalive.main. The infinite `while True` loop is exited deterministically
 by making time.sleep() raise KeyboardInterrupt after a bounded number of
@@ -289,21 +289,18 @@ def test_main_multi_strategy_setup(main_mocks, sample_strategy_config):
     assert main_mocks["OrderManager"].call_count == 2
 
 
-def test_main_deeplob_and_alphasignal_enabled(main_mocks):
+def test_main_alphasignal_enabled(main_mocks):
     cfg = _make_app_config()
     cfg.alphasignal.enabled = True
-    cfg.deeplob.enabled = True
     main_mocks["load_env"].return_value = cfg
     main_mocks["broker"].is_market_open.return_value = False
     main_mocks["sleep"].side_effect = _sleep_raises_after(1)
 
-    with patch("alphalive.main.DeepLOBClient") as m_deeplob_cls, \
-         patch("alphalive.main.AlphaSignalClient") as m_alphasignal_cls, \
+    with patch("alphalive.main.AlphaSignalClient") as m_alphasignal_cls, \
          patch("alphalive.main.datetime") as m_dt:
         m_dt.now.return_value = datetime(2024, 1, 6, 10, 0, tzinfo=ET)
         main_module.main(config_path="dummy.json")
 
-        m_deeplob_cls.assert_called_once()
         m_alphasignal_cls.assert_called_once()
 
 
