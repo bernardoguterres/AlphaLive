@@ -216,7 +216,7 @@ class AlpacaBroker(BaseBroker):
             logger.error(f"Failed to get all positions: {e}", exc_info=True)
             raise BrokerError(f"Failed to get all positions: {e}")
 
-    def place_market_order(self, symbol: str, qty: int, side: str) -> Order:
+    def place_market_order(self, symbol: str, qty: float, side: str) -> Order:
         """Place a market order."""
         self._ensure_connected()
         self._validate_order_params(symbol, qty, side)
@@ -540,14 +540,27 @@ class AlpacaBroker(BaseBroker):
             raise BrokerError("Not connected to Alpaca. Call connect() first.")
 
     def _validate_order_params(
-        self, symbol: str, qty: int, side: str, limit_price: Optional[float] = None
+        self, symbol: str, qty: float, side: str, limit_price: Optional[float] = None
     ):
-        """Validate order parameters."""
+        """Validate order parameters.
+
+        Fractional quantities are allowed for market orders (Alpaca supports
+        fractional shares on market DAY orders only). Limit orders must be
+        whole shares - an Alpaca constraint, and also why Position.qty (a
+        float) previously blew up here on every real SELL sized from
+        holdings.
+        """
         if not symbol or not isinstance(symbol, str):
             raise ValueError("Symbol must be a non-empty string")
 
-        if not isinstance(qty, int) or qty <= 0:
-            raise ValueError("Quantity must be a positive integer")
+        if not isinstance(qty, (int, float)) or isinstance(qty, bool) or qty <= 0:
+            raise ValueError("Quantity must be a positive number")
+
+        if limit_price is not None and float(qty) != int(qty):
+            raise ValueError(
+                "Fractional quantities are not supported for limit orders "
+                "(Alpaca allows fractional shares on market DAY orders only)"
+            )
 
         if side.lower() not in ("buy", "sell"):
             raise ValueError("Side must be 'buy' or 'sell'")

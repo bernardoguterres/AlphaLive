@@ -733,3 +733,31 @@ def test_get_historical_bars_unexpected_error_wraps_as_broker_error():
         broker.get_historical_bars(
             "AAPL", "1Day", datetime(2024, 1, 1), datetime(2024, 1, 5)
         )
+
+
+# ---------------------------------------------------------------------------
+# Fractional order validation
+# ---------------------------------------------------------------------------
+
+
+def test_validate_order_params_accepts_fractional_market_qty():
+    broker = AlpacaBroker(api_key="k", secret_key="s", paper=True)
+    # Must not raise - fractional market orders are supported
+    broker._validate_order_params("SPY", 0.166, "buy")
+    broker._validate_order_params("AAPL", 66.0, "sell")  # Position.qty is float
+
+
+def test_validate_order_params_rejects_fractional_limit_qty():
+    broker = AlpacaBroker(api_key="k", secret_key="s", paper=True)
+    with pytest.raises(ValueError, match="[Ff]ractional"):
+        broker._validate_order_params("SPY", 0.166, "buy", limit_price=100.0)
+    # Whole-share limit orders still fine
+    broker._validate_order_params("SPY", 5, "buy", limit_price=100.0)
+    broker._validate_order_params("SPY", 5.0, "buy", limit_price=100.0)
+
+
+def test_validate_order_params_rejects_nonpositive_qty():
+    broker = AlpacaBroker(api_key="k", secret_key="s", paper=True)
+    for bad in (0, -1, 0.0, -0.5, True):
+        with pytest.raises(ValueError):
+            broker._validate_order_params("SPY", bad, "buy")

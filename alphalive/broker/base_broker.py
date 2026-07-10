@@ -167,7 +167,7 @@ class BaseBroker(ABC):
 
         Args:
             symbol: Ticker symbol (e.g., "AAPL")
-            qty: Quantity of shares (positive integer)
+            qty: Quantity of shares (fractional allowed for market orders)
             side: "buy" or "sell"
 
         Returns:
@@ -187,7 +187,7 @@ class BaseBroker(ABC):
     def place_limit_order(
         self,
         symbol: str,
-        qty: int,
+        qty: float,
         side: str,
         limit_price: float
     ) -> Order:
@@ -196,7 +196,7 @@ class BaseBroker(ABC):
 
         Args:
             symbol: Ticker symbol (e.g., "AAPL")
-            qty: Quantity of shares (positive integer)
+            qty: Quantity of shares (fractional allowed for market orders)
             side: "buy" or "sell"
             limit_price: Limit price per share
 

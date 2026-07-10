@@ -57,10 +57,10 @@ def test_risk_manager_initialization(risk_manager, sample_risk_config):
 
 
 def test_calculate_position_size(risk_manager):
-    """Test position size calculation."""
+    """Test position size calculation (market orders: fractional, 3 dp floor)."""
     # max_position_size_pct = 10%, equity = 100000
     # Max position value = 10000
-    # At $150/share, can buy 66 shares (floor of 10000/150)
+    # At $150/share: 10000/150 = 66.666... -> 66.666 (floored to 3 dp)
     shares = risk_manager.calculate_position_size(
         ticker="AAPL",
         signal="BUY",
@@ -68,9 +68,9 @@ def test_calculate_position_size(risk_manager):
         account_equity=100000.0
     )
 
-    assert shares == 66
+    assert shares == 66.666
 
-    # Test with different price
+    # Exact division stays exact
     shares = risk_manager.calculate_position_size(
         ticker="AAPL",
         signal="BUY",
@@ -78,7 +78,54 @@ def test_calculate_position_size(risk_manager):
         account_equity=100000.0
     )
 
-    assert shares == 50  # floor(10000/200)
+    assert shares == 50.0
+
+
+def test_calculate_position_size_fractional_small_account(risk_manager):
+    """A $1,000 account with 10% sizing must be able to buy expensive tickers -
+    integer sizing rounded $100/$600 to 0 shares and the strategy never traded."""
+    shares = risk_manager.calculate_position_size(
+        ticker="SPY",
+        signal="BUY",
+        current_price=600.0,
+        account_equity=1000.0
+    )
+
+    assert shares == 0.166  # floor(100/600 * 1000) / 1000
+    assert shares * 600.0 >= 1.0  # above Alpaca's $1 minimum notional
+
+
+def test_calculate_position_size_below_min_notional_returns_zero(risk_manager):
+    # 10% of $8 equity = $0.80 -> below Alpaca's $1 fractional minimum
+    shares = risk_manager.calculate_position_size(
+        ticker="SPY",
+        signal="BUY",
+        current_price=600.0,
+        account_equity=8.0
+    )
+
+    assert shares == 0
+
+
+def test_calculate_position_size_limit_orders_whole_shares(
+    sample_risk_config, sample_strategy_config
+):
+    """Alpaca does not support fractional limit orders - sizing must floor to
+    whole shares when order_type is limit."""
+    rm = RiskManager(
+        risk_config=sample_risk_config,
+        execution_config=Execution(order_type="limit", cooldown_bars=1),
+        strategy_name="test_strategy",
+        safety_limits=sample_strategy_config.safety_limits,
+    )
+    shares = rm.calculate_position_size(
+        ticker="AAPL",
+        signal="BUY",
+        current_price=150.0,
+        account_equity=100000.0
+    )
+
+    assert shares == 66
 
 
 def test_calculate_position_size_invalid_inputs(risk_manager):
