@@ -594,3 +594,86 @@ def test_trend_adaptive_rsi_sell_clears_position_state(sample_strategy_dict):
 
     if result["signal"] == "SELL":
         assert engine._in_position is False, "State not cleared after SELL"
+
+
+# ---------------------------------------------------------------------------
+# get_state() / restore_state() - restart survival for stateful strategies
+# ---------------------------------------------------------------------------
+
+
+def _make_engine(sample_strategy_dict, name="greenblatt_weekly", params=None):
+    from alphalive.strategy_schema import StrategySchema
+
+    sample_strategy_dict["strategy"]["name"] = name
+    sample_strategy_dict["strategy"]["parameters"] = params or {}
+    return SignalEngine(StrategySchema(**sample_strategy_dict))
+
+
+def test_get_state_defaults_flat(sample_strategy_dict):
+    engine = _make_engine(sample_strategy_dict)
+    assert engine.get_state() == {
+        "in_position": False,
+        "entry_price": 0.0,
+        "peak_price": 0.0,
+    }
+
+
+def test_restore_state_roundtrip(sample_strategy_dict):
+    engine = _make_engine(sample_strategy_dict)
+    engine._in_position = True
+    engine._entry_price = 150.0
+    engine._peak_price = 172.5
+
+    snapshot = engine.get_state()
+
+    restored = _make_engine(sample_strategy_dict)
+    restored.restore_state(snapshot)
+    assert restored._in_position is True
+    assert restored._entry_price == 150.0
+    assert restored._peak_price == 172.5
+
+
+def test_restore_state_none_and_empty_are_noops(sample_strategy_dict):
+    engine = _make_engine(sample_strategy_dict)
+    engine._in_position = True
+    engine.restore_state(None)
+    assert engine._in_position is True  # untouched
+    engine.restore_state({})
+    assert engine._in_position is True  # untouched
+
+
+def test_restore_state_partial_dict_uses_defaults(sample_strategy_dict):
+    engine = _make_engine(sample_strategy_dict)
+    engine.restore_state({"in_position": True})
+    assert engine._in_position is True
+    assert engine._entry_price == 0.0
+    assert engine._peak_price == 0.0
+
+
+def test_restored_peak_drives_trailing_stop(sample_strategy_dict):
+    """The whole point: after a restart, the trailing stop must fire off the
+    pre-restart peak, not off whatever price the bot sees post-restart."""
+    engine = _make_engine(
+        sample_strategy_dict,
+        params={"fast_sma": 10, "slow_sma": 50, "trailing_stop_pct": 0.20},
+    )
+    # Simulate restart mid-position: entry 100, peak 200 before the restart
+    engine.restore_state(
+        {"in_position": True, "entry_price": 100.0, "peak_price": 200.0}
+    )
+
+    # 155 is +55% from entry (no stop without restored peak), but -22.5% from
+    # the restored 200 peak -> trailing stop must fire
+    n = 60
+    prices = [150.0] * (n - 1) + [155.0]
+    df = pd.DataFrame({
+        "open": prices, "high": [p + 1 for p in prices],
+        "low": [p - 1 for p in prices], "close": prices,
+        "volume": [1_000_000] * n,
+    })
+    df.index = pd.date_range(start="2024-01-05", periods=n, freq="W-FRI", tz="America/New_York")
+
+    signal = engine.generate_signal(df)
+
+    assert signal["signal"] == "SELL"
+    assert "Trailing stop" in signal["reason"]

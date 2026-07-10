@@ -443,3 +443,39 @@ def test_position_ledger_missing_key_in_old_state_file(temp_state_file):
     assert state.get_open_positions() == {}
     state.record_position_open("AAPL", 1.0, 100.0)
     assert "AAPL" in state.get_open_positions()
+
+
+# ---------------------------------------------------------------------------
+# SignalEngine state persistence
+# ---------------------------------------------------------------------------
+
+
+def test_engine_state_save_get_clear(temp_state_file):
+    state = BotState(temp_state_file)
+    assert state.get_engine_state("AAPL") is None
+
+    state.save_engine_state("AAPL", {"in_position": True, "entry_price": 150.0, "peak_price": 160.0})
+    saved = state.get_engine_state("AAPL")
+    assert saved["in_position"] is True
+    assert saved["peak_price"] == 160.0
+
+    state.clear_engine_state("AAPL")
+    assert state.get_engine_state("AAPL") is None
+
+
+def test_engine_state_survives_restart(temp_state_file):
+    state = BotState(temp_state_file)
+    state.save_engine_state("MSFT", {"in_position": True, "entry_price": 400.0, "peak_price": 410.0})
+
+    reloaded = BotState(temp_state_file)
+    assert reloaded.get_engine_state("MSFT")["entry_price"] == 400.0
+
+
+def test_engine_state_missing_key_in_old_state_file(temp_state_file):
+    with open(temp_state_file, "w") as f:
+        json.dump({"position_highs": {}, "version": "1.0"}, f)
+
+    state = BotState(temp_state_file)
+    assert state.get_engine_state("AAPL") is None
+    state.save_engine_state("AAPL", {"in_position": False})
+    assert state.get_engine_state("AAPL") == {"in_position": False}

@@ -94,6 +94,7 @@ class BotState:
             "position_highs": {},
             "entry_timestamps": {},  # {ticker: ISO timestamp} for minimum hold enforcement
             "open_positions": {},  # {ticker: {qty, entry_price, opened_at}} - persisted ledger
+            "engine_state": {},  # {ticker: {in_position, entry_price, peak_price}} - SignalEngine state
             "last_startup": None,
             "dashboard_paused": False,
             "version": "1.0",
@@ -273,6 +274,28 @@ class BotState:
     def get_open_positions(self) -> dict:
         """Return the persisted open-position ledger: {ticker: {qty, entry_price, opened_at}}."""
         return dict(self.state.get("open_positions", {}))
+
+    def save_engine_state(self, ticker: str, engine_state: dict):
+        """Persist a SignalEngine's stateful fields (in_position/entry/peak).
+
+        Stateful strategies must survive Railway restarts mid-position -
+        otherwise they think they're flat, can double-buy, and never emit
+        their exit. Saved after every signal check.
+        """
+        states = self.state.setdefault("engine_state", {})
+        states[ticker] = engine_state
+        self.save()
+
+    def get_engine_state(self, ticker: str) -> Optional[dict]:
+        """Return the persisted SignalEngine state for a ticker, or None."""
+        return self.state.get("engine_state", {}).get(ticker)
+
+    def clear_engine_state(self, ticker: str):
+        """Drop persisted engine state (position closed outside the engine)."""
+        states = self.state.get("engine_state", {})
+        if ticker in states:
+            del states[ticker]
+            self.save()
 
     def set_dashboard_pause(self, paused: bool):
         """Set dashboard kill switch. Persisted to state file immediately."""
