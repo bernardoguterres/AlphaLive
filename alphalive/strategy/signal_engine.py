@@ -844,7 +844,11 @@ class SignalEngine:
         Entry: Weekly RSI < rsi_oversold OR 10w/50w golden cross.
         Exit:  Trailing stop (20% below peak) always fires.
                RSI/SMA exits only if exit_rsi_overbought/exit_sma_cross=True.
-               Minimum hold enforced via state.is_min_hold_met() in main.py.
+               Minimum hold is NOT yet enforced anywhere (state.is_min_hold_met()
+               exists but is not called before SELL execution). Acceptable only
+               because both optional exits default to False; wire the check in
+               main.py before enabling either flag. Note the check must happen
+               BEFORE this method flips _in_position, or engine state desyncs.
         """
         p = self.params
         fast_sma = p.get("fast_sma", 10)
@@ -910,7 +914,7 @@ class SignalEngine:
             sma_cross_down = (fast_now < slow_now) and (fast_prev >= slow_prev)
             rsi_ob = rsi_now > rsi_overbought
 
-            # Optional exits - min hold enforced by main.py
+            # Optional exits - min hold NOT enforced yet (see docstring above)
             if (exit_rsi and rsi_ob) or (exit_sma and sma_cross_down):
                 reason = (
                     f"RSI overbought ({rsi_now:.1f} > {rsi_overbought})"

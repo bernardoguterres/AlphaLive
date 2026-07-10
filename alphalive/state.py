@@ -93,6 +93,7 @@ class BotState:
             "trades_today": [],
             "position_highs": {},
             "entry_timestamps": {},  # {ticker: ISO timestamp} for minimum hold enforcement
+            "open_positions": {},  # {ticker: {qty, entry_price, opened_at}} - persisted ledger
             "last_startup": None,
             "dashboard_paused": False,
             "version": "1.0",
@@ -244,6 +245,34 @@ class BotState:
         except Exception as exc:
             logger.warning(f"Could not parse entry timestamp for {ticker}: {exc}")
             return True  # Fail-safe: allow exit
+
+    def record_position_open(self, ticker: str, qty: float, entry_price: float):
+        """Record an opened position in the persisted ledger.
+
+        The ledger is the source of truth for position reconciliation -
+        unlike OrderManager's order history, it survives restarts and is
+        not reset daily, so multi-day holds don't trigger false drift.
+        """
+        ledger = self.state.setdefault("open_positions", {})
+        ledger[ticker] = {
+            "qty": qty,
+            "entry_price": entry_price,
+            "opened_at": datetime.now(ET).isoformat(),
+        }
+        self.save()
+        logger.info(f"Position ledger: opened {ticker} ({qty} @ ${entry_price:.2f})")
+
+    def record_position_close(self, ticker: str):
+        """Remove a position from the persisted ledger (position fully closed)."""
+        ledger = self.state.setdefault("open_positions", {})
+        if ticker in ledger:
+            del ledger[ticker]
+            self.save()
+            logger.info(f"Position ledger: closed {ticker}")
+
+    def get_open_positions(self) -> dict:
+        """Return the persisted open-position ledger: {ticker: {qty, entry_price, opened_at}}."""
+        return dict(self.state.get("open_positions", {}))
 
     def set_dashboard_pause(self, paused: bool):
         """Set dashboard kill switch. Persisted to state file immediately."""

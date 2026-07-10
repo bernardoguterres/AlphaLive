@@ -269,6 +269,7 @@ def _check_signal_for_strategy(
     broker,
     notifier,
     global_risk,
+    bot_state,
 ) -> None:
     """Run the signal check for one strategy. Mutates morning_checks_done and last_signal_check_map."""
     if strat_cfg.timeframe in ("1Day", "1Week"):
@@ -436,6 +437,21 @@ def _check_signal_for_strategy(
                         f"@ ${result['filled_price']:.2f} | "
                         f"Total: ${result['filled_qty'] * result['filled_price']:.2f}"
                     )
+                    # Update the persisted position ledger (drift reconciliation
+                    # + min-hold tracking). Skip in dry-run: no real order was
+                    # placed, so the broker will never show this position.
+                    if not order_manager_map[strat_cfg.ticker].dry_run:
+                        if signal_result["signal"] == "BUY":
+                            bot_state.record_position_open(
+                                strat_cfg.ticker,
+                                result["filled_qty"],
+                                result["filled_price"],
+                            )
+                            bot_state.record_entry(strat_cfg.ticker)
+                        else:  # SELL - full exit (sized to held qty)
+                            bot_state.record_position_close(strat_cfg.ticker)
+                            bot_state.clear_position_high(strat_cfg.ticker)
+                            bot_state.clear_entry_timestamp(strat_cfg.ticker)
                     notifier.send_trade_notification(
                         ticker=strat_cfg.ticker,
                         side=signal_result["signal"],
@@ -542,6 +558,8 @@ def _run_exit_checks(
 
                     if result["status"] == "success":
                         bot_state.clear_position_high(ticker)
+                        bot_state.record_position_close(ticker)
+                        bot_state.clear_entry_timestamp(ticker)
 
                         closed_pos = next(
                             (p for p in positions if p.symbol == exit_signal["ticker"]),
@@ -586,13 +604,60 @@ def _run_exit_checks(
         notifier.send_error_alert(f"Exit check failed: {str(e)}")
 
 
+def _sync_position_ledger(broker, bot_state, notifier) -> None:
+    """Reconcile the persisted position ledger with the broker at startup.
+
+    A restart with a lost/stale state file is expected (ephemeral STATE_FILE,
+    first boot, manual cleanup) - absorb differences here with a warning
+    instead of letting the mid-session drift check auto-halt on them.
+    """
+    try:
+        alpaca_positions = broker.get_all_positions()
+    except Exception as e:
+        logger.warning(f"Startup ledger sync skipped (broker error): {e}")
+        return
+
+    alpaca_by_ticker = {pos.symbol: pos for pos in alpaca_positions}
+    ledger = bot_state.get_open_positions()
+
+    for symbol, pos in alpaca_by_ticker.items():
+        if symbol not in ledger:
+            logger.warning(
+                f"Startup sync: broker holds {symbol} ({pos.qty} @ "
+                f"${pos.avg_entry_price:.2f}) not in ledger - adopting it."
+            )
+            bot_state.record_position_open(symbol, pos.qty, pos.avg_entry_price)
+            notifier.send_alert(
+                f"ℹ️ Startup sync: adopted untracked position {symbol} "
+                f"({pos.qty} @ ${pos.avg_entry_price:.2f}) into the ledger."
+            )
+
+    for symbol in ledger:
+        if symbol not in alpaca_by_ticker:
+            logger.warning(
+                f"Startup sync: ledger tracks {symbol} but broker shows no "
+                f"position - removing from ledger (closed while bot was down?)."
+            )
+            bot_state.record_position_close(symbol)
+            notifier.send_alert(
+                f"ℹ️ Startup sync: {symbol} in ledger but not at broker - "
+                f"removed. If unexpected, check Alpaca order history."
+            )
+
+
 def _run_position_reconciliation(
     broker,
     order_manager_map: dict,
     app_config,
     notifier,
+    bot_state,
 ) -> None:
-    """Compare Alpaca positions against internal order history; auto-halt on drift."""
+    """Compare Alpaca positions against the persisted ledger; auto-halt on drift.
+
+    Uses BotState's open-position ledger (survives restarts, not reset daily)
+    rather than OrderManager's order history, which only covers today - a
+    multi-day hold would otherwise look like drift every morning.
+    """
     try:
         try:
             alpaca_positions = broker.get_all_positions()
@@ -611,11 +676,7 @@ def _run_position_reconciliation(
             for pos in alpaca_positions
         }
 
-        internal_tickers: set = set()
-        for ticker in order_manager_map:
-            for order in order_manager_map[ticker].get_order_history():
-                if order.get("status") == "filled":
-                    internal_tickers.add(order["ticker"])
+        internal_tickers: set = set(bot_state.get_open_positions().keys())
 
         drift_detected = False
 
@@ -804,6 +865,11 @@ def main(
         chat_id=app_config.telegram.chat_id,
         enabled=app_config.telegram.enabled,
     )
+
+    # Reconcile the persisted position ledger with the broker before trading.
+    # Restart-time differences are adopted with an alert; only mid-session
+    # drift (checked every 30 min) auto-halts.
+    _sync_position_ledger(broker, bot_state, notifier)
 
     for strategy_config in all_strategy_configs:
         strategy_name = strategy_config.strategy.name
@@ -1107,6 +1173,7 @@ def main(
                     broker,
                     notifier,
                     global_risk,
+                    bot_state,
                 )
 
             # --- Exit condition checks (every 5 minutes during market hours) ---
@@ -1126,7 +1193,7 @@ def main(
             # Auto-halts trading if Alpaca positions diverge from internal order history.
             if time.time() - last_position_reconciliation >= 1800:  # 30 minutes
                 _run_position_reconciliation(
-                    broker, order_manager_map, app_config, notifier
+                    broker, order_manager_map, app_config, notifier, bot_state
                 )
                 last_position_reconciliation = time.time()
 

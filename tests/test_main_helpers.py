@@ -267,7 +267,7 @@ def test_check_signal_for_strategy_1day_skips_outside_window(sample_strategy_con
 
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, morning_checks_done, last_signal_check_map,
-        market_data, {}, {}, None, None, Mock(), Mock(), main_module.GlobalRiskManager(),
+        market_data, {}, {}, None, None, Mock(), Mock(), main_module.GlobalRiskManager(), Mock(),
     )
 
     market_data.get_latest_bars.assert_not_called()
@@ -281,7 +281,7 @@ def test_check_signal_for_strategy_1day_skips_if_already_done(sample_strategy_co
 
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, morning_checks_done, {},
-        market_data, {}, {}, None, None, Mock(), Mock(), main_module.GlobalRiskManager(),
+        market_data, {}, {}, None, None, Mock(), Mock(), main_module.GlobalRiskManager(), Mock(),
     )
 
     market_data.get_latest_bars.assert_not_called()
@@ -304,7 +304,7 @@ def test_check_signal_for_strategy_hold_signal_no_order(sample_strategy_config):
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, morning_checks_done, {},
         market_data, signal_engine_map, order_manager_map, None, None, Mock(), Mock(),
-        main_module.GlobalRiskManager(),
+        main_module.GlobalRiskManager(), Mock(),
     )
 
     order_manager.execute_signal.assert_not_called()
@@ -339,7 +339,7 @@ def test_check_signal_for_strategy_buy_signal_executes_order(sample_strategy_con
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, morning_checks_done, {},
         market_data, signal_engine_map, order_manager_map, None, None, broker, notifier,
-        main_module.GlobalRiskManager(),
+        main_module.GlobalRiskManager(), Mock(),
     )
 
     order_manager.execute_signal.assert_called_once()
@@ -370,7 +370,7 @@ def test_check_signal_for_strategy_buy_signal_blocked(sample_strategy_config):
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, set(), {},
         market_data, signal_engine_map, order_manager_map, None, None, broker, notifier,
-        main_module.GlobalRiskManager(),
+        main_module.GlobalRiskManager(), Mock(),
     )
 
     notifier.send_trade_notification.assert_not_called()
@@ -401,7 +401,7 @@ def test_check_signal_for_strategy_buy_signal_error_status(sample_strategy_confi
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, set(), {},
         market_data, signal_engine_map, order_manager_map, None, None, broker, notifier,
-        main_module.GlobalRiskManager(),
+        main_module.GlobalRiskManager(), Mock(),
     )
 
 
@@ -423,7 +423,7 @@ def test_check_signal_for_strategy_corporate_action_detected(sample_strategy_con
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, morning_checks_done, {},
         market_data, signal_engine_map, {}, None, None, Mock(), notifier,
-        main_module.GlobalRiskManager(),
+        main_module.GlobalRiskManager(), Mock(),
     )
 
     notifier.send_alert.assert_called_once()
@@ -442,7 +442,7 @@ def test_check_signal_for_strategy_data_stale_error(sample_strategy_config):
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, morning_checks_done, {},
         market_data, {}, {}, None, None, Mock(), notifier,
-        main_module.GlobalRiskManager(),
+        main_module.GlobalRiskManager(), Mock(),
     )
 
     notifier.send_error_alert.assert_called_once()
@@ -459,7 +459,7 @@ def test_check_signal_for_strategy_generic_exception(sample_strategy_config):
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, morning_checks_done, {},
         market_data, {}, {}, None, None, Mock(), notifier,
-        main_module.GlobalRiskManager(),
+        main_module.GlobalRiskManager(), Mock(),
     )
 
     notifier.send_error_alert.assert_called_once()
@@ -476,7 +476,7 @@ def test_check_signal_for_strategy_intraday_uses_should_run_check(sample_strateg
         main_module._check_signal_for_strategy(
             intraday_cfg, now_et, set(), {},
             market_data, {}, {}, None, None, Mock(), Mock(),
-            main_module.GlobalRiskManager(),
+            main_module.GlobalRiskManager(), Mock(),
         )
         mock_should_run.assert_called_once()
     market_data.get_latest_bars.assert_not_called()
@@ -507,7 +507,7 @@ def test_check_signal_for_strategy_with_pre_execution_checks_blocked(sample_stra
             sample_strategy_config, now_et, set(), {},
             market_data, signal_engine_map, order_manager_map,
             deeplob_client, alphasignal_client, Mock(), Mock(),
-            main_module.GlobalRiskManager(),
+            main_module.GlobalRiskManager(), Mock(),
         )
 
     order_manager.execute_signal.assert_not_called()
@@ -711,56 +711,87 @@ def test_run_exit_checks_broker_success_recorded_on_risk_manager():
 # ---------------------------------------------------------------------------
 
 
+def _mock_bot_state(ledger=None):
+    bot_state = Mock()
+    bot_state.get_open_positions.return_value = ledger or {}
+    return bot_state
+
+
 def test_run_position_reconciliation_no_drift():
     pos = _mock_position()
     broker = Mock()
     broker.get_all_positions.return_value = [pos]
 
-    order_manager = Mock()
-    order_manager.get_order_history.return_value = [
-        {"ticker": "AAPL", "status": "filled"}
-    ]
-    order_manager_map = {"AAPL": order_manager}
+    bot_state = _mock_bot_state({"AAPL": {"qty": 10, "entry_price": 150.0}})
+    order_manager_map = {"AAPL": Mock()}
     app_config = Mock(trading_paused=False)
     notifier = Mock()
 
     with patch.dict("os.environ", {}, clear=False):
-        main_module._run_position_reconciliation(broker, order_manager_map, app_config, notifier)
+        main_module._run_position_reconciliation(
+            broker, order_manager_map, app_config, notifier, bot_state
+        )
+
+    notifier.send_alert.assert_not_called()
+    assert app_config.trading_paused is False
+
+
+def test_run_position_reconciliation_multi_day_hold_no_drift():
+    """A position opened on a previous day (empty order history today) must NOT
+    look like drift - the ledger, not the daily order log, is the source of truth."""
+    pos = _mock_position()
+    broker = Mock()
+    broker.get_all_positions.return_value = [pos]
+
+    bot_state = _mock_bot_state({"AAPL": {"qty": 10, "entry_price": 150.0}})
+    # Simulates the morning after: reset_daily() wiped today's order history
+    order_manager_map = {"AAPL": Mock(get_order_history=Mock(return_value=[]))}
+    app_config = Mock(trading_paused=False)
+    notifier = Mock()
+
+    with patch.dict("os.environ", {}, clear=False):
+        main_module._run_position_reconciliation(
+            broker, order_manager_map, app_config, notifier, bot_state
+        )
 
     notifier.send_alert.assert_not_called()
     assert app_config.trading_paused is False
 
 
 def test_run_position_reconciliation_alpaca_only_drift_pauses_trading():
-    """Broker has a position the bot never recorded - the first drift branch."""
+    """Broker has a position the ledger never recorded - the first drift branch."""
     pos = _mock_position()
     broker = Mock()
     broker.get_all_positions.return_value = [pos]
 
-    order_manager_map = {"AAPL": Mock(get_order_history=Mock(return_value=[]))}
+    bot_state = _mock_bot_state({})
+    order_manager_map = {"AAPL": Mock()}
     app_config = Mock(trading_paused=False)
     notifier = Mock()
 
     with patch.dict("os.environ", {}, clear=False):
-        main_module._run_position_reconciliation(broker, order_manager_map, app_config, notifier)
+        main_module._run_position_reconciliation(
+            broker, order_manager_map, app_config, notifier, bot_state
+        )
 
     assert app_config.trading_paused is True
     assert notifier.send_alert.call_count == 2  # per-ticker alert + halt alert
 
 
 def test_run_position_reconciliation_internal_only_drift_pauses_trading():
-    """Bot recorded a fill the broker no longer shows - the second drift branch."""
+    """Ledger tracks a position the broker no longer shows - the second drift branch."""
     broker = Mock()
     broker.get_all_positions.return_value = []
 
-    order_manager = Mock()
-    order_manager.get_order_history.return_value = [{"ticker": "AAPL", "status": "filled"}]
-    order_manager_map = {"AAPL": order_manager}
+    bot_state = _mock_bot_state({"AAPL": {"qty": 10, "entry_price": 150.0}})
+    order_manager_map = {"AAPL": Mock()}
     app_config = Mock(trading_paused=False)
     notifier = Mock()
 
     with patch.dict("os.environ", {}, clear=False):
-        main_module._run_position_reconciliation(broker, order_manager_map, app_config, notifier)
+        main_module._run_position_reconciliation(
+            broker, order_manager_map, app_config, notifier, bot_state
+        )
 
     assert app_config.trading_paused is True
 
@@ -772,6 +803,144 @@ def test_run_position_reconciliation_broker_error_caught():
     notifier = Mock()
 
     # Should not raise
-    main_module._run_position_reconciliation(broker, {}, app_config, notifier)
+    main_module._run_position_reconciliation(
+        broker, {}, app_config, notifier, _mock_bot_state()
+    )
 
     notifier.send_alert.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _sync_position_ledger()
+# ---------------------------------------------------------------------------
+
+
+def test_sync_position_ledger_adopts_untracked_broker_position():
+    """Broker position missing from the ledger at startup is adopted, not halted."""
+    pos = _mock_position()
+    broker = Mock()
+    broker.get_all_positions.return_value = [pos]
+    bot_state = _mock_bot_state({})
+    notifier = Mock()
+
+    main_module._sync_position_ledger(broker, bot_state, notifier)
+
+    bot_state.record_position_open.assert_called_once_with(
+        "AAPL", pos.qty, pos.avg_entry_price
+    )
+    notifier.send_alert.assert_called_once()
+
+
+def test_sync_position_ledger_removes_stale_ledger_entry():
+    """Ledger entry with no broker position at startup is removed, not halted."""
+    broker = Mock()
+    broker.get_all_positions.return_value = []
+    bot_state = _mock_bot_state({"MSFT": {"qty": 5, "entry_price": 400.0}})
+    notifier = Mock()
+
+    main_module._sync_position_ledger(broker, bot_state, notifier)
+
+    bot_state.record_position_close.assert_called_once_with("MSFT")
+    notifier.send_alert.assert_called_once()
+
+
+def test_sync_position_ledger_in_sync_is_silent():
+    pos = _mock_position()
+    broker = Mock()
+    broker.get_all_positions.return_value = [pos]
+    bot_state = _mock_bot_state({"AAPL": {"qty": 10, "entry_price": 150.0}})
+    notifier = Mock()
+
+    main_module._sync_position_ledger(broker, bot_state, notifier)
+
+    bot_state.record_position_open.assert_not_called()
+    bot_state.record_position_close.assert_not_called()
+    notifier.send_alert.assert_not_called()
+
+
+def test_sync_position_ledger_broker_error_skips_quietly():
+    broker = Mock()
+    broker.get_all_positions.side_effect = RuntimeError("boom")
+    bot_state = _mock_bot_state()
+    notifier = Mock()
+
+    # Should not raise, should not touch the ledger
+    main_module._sync_position_ledger(broker, bot_state, notifier)
+
+    bot_state.record_position_open.assert_not_called()
+    bot_state.record_position_close.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Ledger updates from the signal path
+# ---------------------------------------------------------------------------
+
+
+def _run_signal_check_with_result(sample_strategy_config, signal, exec_result, dry_run=False):
+    now_et = datetime(2024, 1, 2, 9, 40, tzinfo=ET)
+    market_data = Mock()
+    market_data.get_latest_bars.return_value = _make_ohlcv_df()
+    market_data.get_current_price.return_value = 150.0
+
+    signal_engine = Mock()
+    signal_engine.generate_signal.return_value = {
+        "signal": signal, "confidence": 0.8, "reason": "test",
+    }
+    order_manager = Mock()
+    order_manager.dry_run = dry_run
+    order_manager.execute_signal.return_value = exec_result
+
+    broker = Mock()
+    broker.get_account.return_value = Mock(equity=100000.0)
+    broker.get_all_positions.return_value = []
+    bot_state = Mock()
+
+    main_module._check_signal_for_strategy(
+        sample_strategy_config, now_et, set(), {},
+        market_data,
+        {sample_strategy_config.ticker: signal_engine},
+        {sample_strategy_config.ticker: order_manager},
+        None, None, broker, Mock(),
+        main_module.GlobalRiskManager(), bot_state,
+    )
+    return bot_state
+
+
+def test_buy_success_records_position_in_ledger(sample_strategy_config):
+    bot_state = _run_signal_check_with_result(
+        sample_strategy_config, "BUY",
+        {"status": "success", "order_id": "o1", "filled_qty": 10, "filled_price": 150.0},
+    )
+    bot_state.record_position_open.assert_called_once_with(
+        sample_strategy_config.ticker, 10, 150.0
+    )
+    bot_state.record_entry.assert_called_once_with(sample_strategy_config.ticker)
+
+
+def test_sell_success_clears_ledger_and_tracking(sample_strategy_config):
+    bot_state = _run_signal_check_with_result(
+        sample_strategy_config, "SELL",
+        {"status": "success", "order_id": "o2", "filled_qty": 10, "filled_price": 160.0},
+    )
+    bot_state.record_position_close.assert_called_once_with(sample_strategy_config.ticker)
+    bot_state.clear_position_high.assert_called_once_with(sample_strategy_config.ticker)
+    bot_state.clear_entry_timestamp.assert_called_once_with(sample_strategy_config.ticker)
+
+
+def test_dry_run_buy_does_not_touch_ledger(sample_strategy_config):
+    """Dry-run fills place no real order - recording them in the ledger would
+    make the next reconciliation see phantom drift and auto-halt."""
+    bot_state = _run_signal_check_with_result(
+        sample_strategy_config, "BUY",
+        {"status": "success", "order_id": "DRY_RUN_x", "filled_qty": 10, "filled_price": 150.0},
+        dry_run=True,
+    )
+    bot_state.record_position_open.assert_not_called()
+
+
+def test_blocked_trade_does_not_touch_ledger(sample_strategy_config):
+    bot_state = _run_signal_check_with_result(
+        sample_strategy_config, "BUY",
+        {"status": "blocked", "reason": "risk limit"},
+    )
+    bot_state.record_position_open.assert_not_called()
