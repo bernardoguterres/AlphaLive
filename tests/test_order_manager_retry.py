@@ -95,13 +95,67 @@ def test_place_with_retry_403_raises_value_error_no_retry(om):
     om.notifier.send_alert.assert_called_once()
 
 
-def test_place_with_retry_409_reraises_api_error_no_retry(om):
+def test_place_with_retry_409_recovers_existing_order(om):
+    """A 409 means a previous attempt DID place the order - recover it via
+    client_order_id and return it as success instead of raising."""
+    om.broker.place_market_order.side_effect = _api_error("dup client_order_id", 409)
+    existing = _order()
+    om.broker.get_order_by_client_id.return_value = existing
+
+    result = om._place_with_retry(
+        lambda: om.broker.place_market_order(),
+        ticker="AAPL",
+        client_order_id="AAPL_buy_20260710_093500",
+    )
+
+    assert result is existing
+    om.broker.get_order_by_client_id.assert_called_once_with("AAPL_buy_20260710_093500")
+    assert om.broker.place_market_order.call_count == 1  # no retry
+
+
+def test_place_with_retry_409_reraises_when_recovery_fails(om):
+    om.broker.place_market_order.side_effect = _api_error("dup client_order_id", 409)
+    om.broker.get_order_by_client_id.return_value = None
+
+    with pytest.raises(APIError):
+        om._place_with_retry(
+            lambda: om.broker.place_market_order(),
+            ticker="AAPL",
+            client_order_id="AAPL_buy_20260710_093500",
+        )
+
+    assert om.broker.place_market_order.call_count == 1
+
+
+def test_place_with_retry_409_reraises_without_client_order_id(om):
     om.broker.place_market_order.side_effect = _api_error("dup client_order_id", 409)
 
     with pytest.raises(APIError):
         om._place_with_retry(lambda: om.broker.place_market_order(), ticker="AAPL")
 
     assert om.broker.place_market_order.call_count == 1
+
+
+def test_execute_signal_passes_idempotency_key_to_broker(om):
+    """The key must actually reach the broker as client_order_id - it was
+    previously generated and logged but never sent, so restart/retry
+    duplicate protection did not exist."""
+    om.broker.place_market_order.side_effect = None
+    om.broker.place_market_order.return_value = _order()
+
+    result = om.execute_signal(
+        ticker="AAPL",
+        signal={"signal": "BUY", "reason": "test"},
+        current_price=150.0,
+        account_equity=100000.0,
+        current_positions_count=0,
+        total_portfolio_positions=0,
+    )
+
+    assert result["status"] == "success"
+    _, kwargs = om.broker.place_market_order.call_args
+    key = kwargs["client_order_id"]
+    assert key is not None and key.startswith("AAPL_buy_")
 
 
 def test_place_with_retry_422_market_closed_halts_and_raises(om):
