@@ -761,3 +761,40 @@ def test_validate_order_params_rejects_nonpositive_qty():
     for bad in (0, -1, 0.0, -0.5, True):
         with pytest.raises(ValueError):
             broker._validate_order_params("SPY", bad, "buy")
+
+
+# ---------------------------------------------------------------------------
+# client_order_id (idempotency key) threading
+# ---------------------------------------------------------------------------
+
+
+def test_place_market_order_sends_client_order_id():
+    broker = _connected_broker()
+    with patch.object(broker, "_convert_order", return_value=Mock()):
+        broker.place_market_order(
+            "AAPL", 10.0, "buy", client_order_id="AAPL_buy_20260710_093500"
+        )
+    request = broker.trading_client.submit_order.call_args[0][0]
+    assert request.client_order_id == "AAPL_buy_20260710_093500"
+
+
+def test_place_limit_order_sends_client_order_id():
+    broker = _connected_broker()
+    with patch.object(broker, "_convert_order", return_value=Mock()):
+        broker.place_limit_order(
+            "AAPL", 10, "buy", limit_price=150.0,
+            client_order_id="AAPL_buy_20260710_093500",
+        )
+    request = broker.trading_client.submit_order.call_args[0][0]
+    assert request.client_order_id == "AAPL_buy_20260710_093500"
+
+
+def test_get_order_by_client_id_returns_converted_order():
+    broker = _connected_broker()
+    converted = Mock()
+    with patch.object(broker, "_convert_order", return_value=converted):
+        result = broker.get_order_by_client_id("AAPL_buy_20260710_093500")
+    assert result is converted
+    broker.trading_client.get_order_by_client_id.assert_called_once_with(
+        "AAPL_buy_20260710_093500"
+    )

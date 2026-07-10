@@ -159,8 +159,9 @@ class BaseBroker(ABC):
     def place_market_order(
         self,
         symbol: str,
-        qty: int,
-        side: str
+        qty: float,
+        side: str,
+        client_order_id: Optional[str] = None,
     ) -> Order:
         """
         Place a market order.
@@ -169,6 +170,9 @@ class BaseBroker(ABC):
             symbol: Ticker symbol (e.g., "AAPL")
             qty: Quantity of shares (fractional allowed for market orders)
             side: "buy" or "sell"
+            client_order_id: Idempotency key - the broker rejects a duplicate
+                (HTTP 409), preventing double orders on retry after an
+                ambiguous failure or a bot restart mid-placement
 
         Returns:
             Order instance with order details
@@ -189,16 +193,18 @@ class BaseBroker(ABC):
         symbol: str,
         qty: float,
         side: str,
-        limit_price: float
+        limit_price: float,
+        client_order_id: Optional[str] = None,
     ) -> Order:
         """
         Place a limit order.
 
         Args:
             symbol: Ticker symbol (e.g., "AAPL")
-            qty: Quantity of shares (fractional allowed for market orders)
+            qty: Quantity of shares (whole shares only for limit orders)
             side: "buy" or "sell"
             limit_price: Limit price per share
+            client_order_id: Idempotency key (see place_market_order)
 
         Returns:
             Order instance with order details

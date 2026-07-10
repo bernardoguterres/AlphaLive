@@ -216,7 +216,9 @@ class AlpacaBroker(BaseBroker):
             logger.error(f"Failed to get all positions: {e}", exc_info=True)
             raise BrokerError(f"Failed to get all positions: {e}")
 
-    def place_market_order(self, symbol: str, qty: float, side: str) -> Order:
+    def place_market_order(
+        self, symbol: str, qty: float, side: str, client_order_id: Optional[str] = None
+    ) -> Order:
         """Place a market order."""
         self._ensure_connected()
         self._validate_order_params(symbol, qty, side)
@@ -224,9 +226,14 @@ class AlpacaBroker(BaseBroker):
         # Convert side to Alpaca enum
         order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
 
-        # Create market order request
+        # Create market order request. client_order_id makes the order
+        # idempotent: Alpaca rejects a duplicate with HTTP 409.
         order_request = MarketOrderRequest(
-            symbol=symbol, qty=qty, side=order_side, time_in_force=TimeInForce.DAY
+            symbol=symbol,
+            qty=qty,
+            side=order_side,
+            time_in_force=TimeInForce.DAY,
+            client_order_id=client_order_id,
         )
 
         # Submit order
@@ -244,7 +251,12 @@ class AlpacaBroker(BaseBroker):
         return self._convert_order(alpaca_order)
 
     def place_limit_order(
-        self, symbol: str, qty: int, side: str, limit_price: float
+        self,
+        symbol: str,
+        qty: int,
+        side: str,
+        limit_price: float,
+        client_order_id: Optional[str] = None,
     ) -> Order:
         """Place a limit order."""
         self._ensure_connected()
@@ -253,13 +265,15 @@ class AlpacaBroker(BaseBroker):
         # Convert side to Alpaca enum
         order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
 
-        # Create limit order request
+        # Create limit order request. client_order_id makes the order
+        # idempotent: Alpaca rejects a duplicate with HTTP 409.
         order_request = LimitOrderRequest(
             symbol=symbol,
             qty=qty,
             side=order_side,
             time_in_force=TimeInForce.DAY,
             limit_price=limit_price,
+            client_order_id=client_order_id,
         )
 
         # Submit order
@@ -275,6 +289,30 @@ class AlpacaBroker(BaseBroker):
             f"Order ID: {alpaca_order.id}"
         )
 
+        return self._convert_order(alpaca_order)
+
+    def get_order_by_client_id(self, client_order_id: str) -> Optional[Order]:
+        """Look up an order by its client_order_id (idempotency key).
+
+        Used to recover the existing order after a 409 duplicate rejection -
+        the 409 means a previous attempt DID succeed, so the caller can treat
+        the retry as a success instead of an error.
+        """
+        self._ensure_connected()
+
+        def _on_404():
+            logger.warning(f"No order found for client_order_id {client_order_id}")
+            return None
+
+        alpaca_order = self._execute(
+            self.trading_client.get_order_by_client_id,
+            client_order_id,
+            on_404=_on_404,
+            error_context="Failed to get order by client_order_id",
+        )
+
+        if alpaca_order is None:
+            return None
         return self._convert_order(alpaca_order)
 
     def cancel_order(self, order_id: str) -> bool:

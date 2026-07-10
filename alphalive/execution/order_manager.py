@@ -212,10 +212,14 @@ class OrderManager:
             if order_type == "market":
                 result = self._place_with_retry(
                     lambda: self.broker.place_market_order(
-                        symbol=ticker, qty=qty, side=signal_action.lower()
+                        symbol=ticker,
+                        qty=qty,
+                        side=signal_action.lower(),
+                        client_order_id=idempotency_key,
                     ),
                     ticker=ticker,
                     max_retries=3,
+                    client_order_id=idempotency_key,
                 )
             else:  # limit
                 limit_price = self._calculate_limit_price(
@@ -227,9 +231,11 @@ class OrderManager:
                         qty=qty,
                         side=signal_action.lower(),
                         limit_price=limit_price,
+                        client_order_id=idempotency_key,
                     ),
                     ticker=ticker,
                     max_retries=3,
+                    client_order_id=idempotency_key,
                 )
 
             self.risk.record_api_call(f"place_{order_type}_order")
@@ -311,13 +317,18 @@ class OrderManager:
         order_func,
         ticker: str,
         max_retries: int = 3,
+        client_order_id: Optional[str] = None,
     ):
         """
         Place order with exponential backoff retry.
 
         Routes on HTTP status code (AlpacaAPIError.status_code), not error strings:
         - 403 Forbidden          → no retry (insufficient buying power)
-        - 409 Conflict           → no retry (duplicate client_order_id; idempotency OK)
+        - 409 Conflict           → duplicate client_order_id: a previous attempt
+                                   already placed this order. Recover it via
+                                   get_order_by_client_id and return it as
+                                   success - this is what makes retries after
+                                   ambiguous failures genuinely idempotent.
         - 422 Unprocessable      → no retry; sub-case by message (market closed / bad symbol)
         - 429 Too Many Requests  → retry with 4s/8s/16s backoff
         - 5xx / unknown 4xx      → retry with 2s/4s/8s backoff
@@ -327,6 +338,8 @@ class OrderManager:
             order_func: Zero-argument callable that places the order.
             ticker: Ticker symbol (for error messages).
             max_retries: Maximum retry attempts.
+            client_order_id: Idempotency key the order was placed with -
+                used to recover the existing order on a 409.
 
         Returns:
             Order object from broker.
@@ -356,8 +369,14 @@ class OrderManager:
                 if status == 409:
                     logger.info(
                         f"Idempotency: duplicate client_order_id for {ticker}. "
-                        f"Order was already placed by a previous attempt. Not an error."
+                        f"Order was already placed by a previous attempt - "
+                        f"recovering the existing order."
                     )
+                    if client_order_id is not None:
+                        existing = self.broker.get_order_by_client_id(client_order_id)
+                        if existing is not None:
+                            return existing
+                    # Couldn't recover the original order - surface the 409
                     raise
 
                 if status == 422:
