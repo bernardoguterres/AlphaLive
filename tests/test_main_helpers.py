@@ -944,3 +944,131 @@ def test_blocked_trade_does_not_touch_ledger(sample_strategy_config):
         {"status": "blocked", "reason": "risk limit"},
     )
     bot_state.record_position_open.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _restore_engine_states()
+# ---------------------------------------------------------------------------
+
+
+def _restore_setup(sample_strategy_config, ledger=None, saved=None, position_high=None):
+    engine = Mock()
+    engine.get_state.return_value = {"in_position": True, "entry_price": 1.0, "peak_price": 1.0}
+    bot_state = Mock()
+    bot_state.get_open_positions.return_value = ledger or {}
+    bot_state.get_engine_state.return_value = saved
+    bot_state.get_position_high.return_value = position_high
+    main_module._restore_engine_states(
+        [sample_strategy_config], {sample_strategy_config.ticker: engine}, bot_state
+    )
+    return engine, bot_state
+
+
+def test_restore_engine_states_no_ledger_position_forces_flat(sample_strategy_config):
+    """Saved in-position state with no ledger position (closed while bot was
+    down) must be discarded, not restored."""
+    engine, bot_state = _restore_setup(
+        sample_strategy_config,
+        ledger={},
+        saved={"in_position": True, "entry_price": 150.0, "peak_price": 160.0},
+    )
+    engine.restore_state.assert_not_called()
+    bot_state.clear_engine_state.assert_called_once_with(sample_strategy_config.ticker)
+
+
+def test_restore_engine_states_ledger_and_saved_state_restores(sample_strategy_config):
+    ticker = sample_strategy_config.ticker
+    saved = {"in_position": True, "entry_price": 150.0, "peak_price": 172.0}
+    engine, bot_state = _restore_setup(
+        sample_strategy_config,
+        ledger={ticker: {"qty": 10, "entry_price": 150.0}},
+        saved=saved,
+    )
+    engine.restore_state.assert_called_once_with(saved)
+    bot_state.save_engine_state.assert_called_once()
+
+
+def test_restore_engine_states_ledger_without_saved_state_rebuilds(sample_strategy_config):
+    """Position in ledger but no saved engine state (pre-persistence state
+    file): rebuild in-position state from ledger entry + tracked high."""
+    ticker = sample_strategy_config.ticker
+    engine, bot_state = _restore_setup(
+        sample_strategy_config,
+        ledger={ticker: {"qty": 10, "entry_price": 150.0}},
+        saved=None,
+        position_high=165.0,
+    )
+    engine.restore_state.assert_called_once_with(
+        {"in_position": True, "entry_price": 150.0, "peak_price": 165.0}
+    )
+
+
+def test_restore_engine_states_flat_everywhere_is_noop(sample_strategy_config):
+    engine, bot_state = _restore_setup(sample_strategy_config, ledger={}, saved=None)
+    engine.restore_state.assert_not_called()
+    bot_state.clear_engine_state.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Warmup must not consume stateful entries; exits must reset engine state
+# ---------------------------------------------------------------------------
+
+
+def test_warmup_snapshots_and_restores_engine_state(sample_strategy_config):
+    """generate_signal() mutates stateful engines - the warmup throwaway call
+    must not leave that mutation behind (it would consume the real entry)."""
+    market_data = Mock()
+    market_data.get_latest_bars.return_value = pd.DataFrame({"close": [1, 2, 3]})
+
+    engine = Mock()
+    pre_state = {"in_position": False, "entry_price": 0.0, "peak_price": 0.0}
+    engine.get_state.return_value = pre_state
+    engine.generate_signal.return_value = {
+        "warmup_complete": True, "signal": "BUY", "confidence": 0.8,
+    }
+
+    main_module._run_startup_warmup(
+        [sample_strategy_config], market_data,
+        {sample_strategy_config.ticker: engine}, Mock(),
+    )
+
+    engine.restore_state.assert_called_once_with(pre_state)
+
+
+def test_exit_close_resets_engine_state():
+    """A SL/TP close happens outside the signal engine - the engine must be
+    reset to flat and the reset persisted, or it never re-enters."""
+    pos = _mock_position()
+    broker = Mock()
+    broker.get_all_positions.return_value = [pos]
+    market_data = Mock()
+    market_data.get_current_price.return_value = 90.0
+
+    order_manager = Mock()
+    order_manager.check_exits.return_value = [
+        {"ticker": "AAPL", "reason": "Stop loss hit", "current_price": 90.0}
+    ]
+    order_manager.close_position.return_value = {"status": "success", "order_id": "o9"}
+    order_manager.config.risk.commission_per_trade = 0.0
+
+    engine = Mock()
+    bot_state = Mock()
+    app_config = Mock(dry_run=False)
+
+    main_module._run_exit_checks(
+        broker, market_data, {"AAPL": order_manager}, bot_state, app_config,
+        Mock(), main_module.GlobalRiskManager(), {"AAPL": engine},
+    )
+
+    engine.restore_state.assert_called_once_with(
+        {"in_position": False, "entry_price": 0.0, "peak_price": 0.0}
+    )
+    bot_state.save_engine_state.assert_called()
+
+
+def test_signal_check_persists_engine_state(sample_strategy_config):
+    bot_state = _run_signal_check_with_result(
+        sample_strategy_config, "HOLD",
+        {"status": "blocked", "reason": "non-actionable"},
+    )
+    bot_state.save_engine_state.assert_called_once()

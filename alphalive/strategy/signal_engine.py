@@ -70,6 +70,33 @@ class SignalEngine:
             f"Params: {self.params}"
         )
 
+    def get_state(self) -> Dict[str, Any]:
+        """Snapshot the stateful-strategy fields for persistence.
+
+        Without persistence, a Railway restart mid-position makes stateful
+        strategies (bollinger_rsi_combo, trend_adaptive_rsi, greenblatt_weekly)
+        think they're flat: they can double-buy and never emit their exit,
+        and the greenblatt trailing-stop peak resets to the post-restart price.
+        """
+        return {
+            "in_position": self._in_position,
+            "entry_price": self._entry_price,
+            "peak_price": self._peak_price,
+        }
+
+    def restore_state(self, state: Optional[Dict[str, Any]]) -> None:
+        """Restore fields captured by get_state(). None/missing keys keep defaults."""
+        if not state:
+            return
+        self._in_position = bool(state.get("in_position", False))
+        self._entry_price = float(state.get("entry_price", 0.0) or 0.0)
+        self._peak_price = float(state.get("peak_price", 0.0) or 0.0)
+        if self._in_position:
+            logger.info(
+                f"Signal engine state restored | {self.strategy_name}: in position "
+                f"(entry ${self._entry_price:.2f}, peak ${self._peak_price:.2f})"
+            )
+
     def generate_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
         Generate signal for the LAST row of the DataFrame.

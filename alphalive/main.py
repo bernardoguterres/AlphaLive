@@ -166,6 +166,48 @@ def should_run_signal_check(timeframe: str, last_check_time: float) -> bool:
     return time_since_last >= (interval_minutes * 60 - 35)  # -35s for timing slop
 
 
+def _restore_engine_states(
+    all_strategy_configs: list, signal_engine_map: dict, bot_state
+) -> None:
+    """Restore SignalEngine state from BotState, reconciled against the ledger.
+
+    The persisted engine state is only trusted when the position ledger (which
+    _sync_position_ledger just reconciled with the broker) agrees:
+    - ledger has no position  -> engine must be flat, whatever was saved
+    - ledger has a position   -> engine must be in-position; if the saved state
+      is missing/flat (e.g. state written by an older version), rebuild it from
+      the ledger entry price and the tracked position high.
+    """
+    for strategy_config in all_strategy_configs:
+        ticker = strategy_config.ticker
+        engine = signal_engine_map[ticker]
+        saved = bot_state.get_engine_state(ticker)
+        ledger_entry = bot_state.get_open_positions().get(ticker)
+
+        if ledger_entry is None:
+            if saved and saved.get("in_position"):
+                logger.warning(
+                    f"Engine state for {ticker} said in-position but the ledger "
+                    f"has no position - resetting engine to flat."
+                )
+                bot_state.clear_engine_state(ticker)
+            continue
+
+        if saved and saved.get("in_position"):
+            engine.restore_state(saved)
+        else:
+            entry_price = ledger_entry.get("entry_price", 0.0)
+            peak = max(bot_state.get_position_high(ticker) or 0.0, entry_price)
+            logger.warning(
+                f"Ledger holds {ticker} but no saved engine state - rebuilding "
+                f"from ledger (entry ${entry_price:.2f}, peak ${peak:.2f})."
+            )
+            engine.restore_state(
+                {"in_position": True, "entry_price": entry_price, "peak_price": peak}
+            )
+        bot_state.save_engine_state(ticker, engine.get_state())
+
+
 def _run_startup_warmup(
     all_strategy_configs: list,
     market_data,
@@ -181,7 +223,13 @@ def _run_startup_warmup(
             df = market_data.get_latest_bars(
                 ticker, strategy_config.timeframe, lookback_bars=250
             )
+            # The warmup signal is a throwaway - but generate_signal() mutates
+            # stateful strategies (an entry here would flip _in_position without
+            # any order, silently consuming the real 9:35 AM entry signal).
+            # Snapshot and restore around it.
+            _pre_warmup_state = signal_engine_map[ticker].get_state()
             test_signal = signal_engine_map[ticker].generate_signal(df)
+            signal_engine_map[ticker].restore_state(_pre_warmup_state)
             warmup_complete = test_signal.get("warmup_complete", True)
 
             if not warmup_complete:
@@ -485,6 +533,13 @@ def _check_signal_for_strategy(
         morning_checks_done.add(strat_cfg.ticker)
         return
 
+    # Persist engine state (stateful strategies must survive restarts).
+    # Saved regardless of outcome - generate_signal() already mutated the
+    # engine, and this must faithfully reflect what the engine believes.
+    bot_state.save_engine_state(
+        strat_cfg.ticker, signal_engine_map[strat_cfg.ticker].get_state()
+    )
+
     morning_checks_done.add(strat_cfg.ticker)
     last_signal_check_map[strat_cfg.ticker] = time.time()
 
@@ -497,6 +552,7 @@ def _run_exit_checks(
     app_config,
     notifier,
     global_risk,
+    signal_engine_map: dict = None,
 ) -> None:
     """Check stop loss, take profit, and trailing stop for all open positions."""
     try:
@@ -560,6 +616,17 @@ def _run_exit_checks(
                         bot_state.clear_position_high(ticker)
                         bot_state.record_position_close(ticker)
                         bot_state.clear_entry_timestamp(ticker)
+
+                        # SL/TP closed the position outside the signal engine -
+                        # reset the engine to flat or it thinks it's still in
+                        # position and never re-enters (nor exits again).
+                        if signal_engine_map and ticker in signal_engine_map:
+                            signal_engine_map[ticker].restore_state(
+                                {"in_position": False, "entry_price": 0.0, "peak_price": 0.0}
+                            )
+                            bot_state.save_engine_state(
+                                ticker, signal_engine_map[ticker].get_state()
+                            )
 
                         closed_pos = next(
                             (p for p in positions if p.symbol == exit_signal["ticker"]),
@@ -901,6 +968,10 @@ def main(
 
         logger.info(f"  Initialized components for {strategy_name} ({ticker})")
 
+    # Restore stateful signal-engine state (in_position/entry/peak) from the
+    # state file, reconciled against the just-synced position ledger.
+    _restore_engine_states(all_strategy_configs, signal_engine_map, bot_state)
+
     # 5. Initialize Telegram command listener
     # Polls for inbound commands (/status, /pause, /resume, etc.) on background thread
     # NOTE: For multi-strategy mode, uses first strategy's components
@@ -1186,6 +1257,7 @@ def main(
                     app_config,
                     notifier,
                     global_risk,
+                    signal_engine_map,
                 )
                 last_exit_check = time.time()
 
