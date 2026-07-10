@@ -129,13 +129,22 @@ class RiskManager:
 
     def calculate_position_size(
         self, ticker: str, signal: str, current_price: float, account_equity: float
-    ) -> int:
+    ) -> float:
         """
         Calculate number of shares to buy/sell.
 
         Formula:
             max_dollars = account_equity * max_position_size_pct / 100
-            shares = floor(max_dollars / current_price)
+            shares = max_dollars / current_price, floored to 3 decimal places
+                     for market orders (Alpaca supports fractional shares on
+                     market DAY orders), or to a whole number for limit orders
+                     (Alpaca constraint: no fractional limit orders).
+
+        Fractional sizing matters at small account sizes: a $1,000 account
+        with 10% position sizing has $100 per position - integer sizing
+        rounds that to 0 shares for anything above $100/share and the
+        strategy never trades. Alpaca's minimum fractional order is $1
+        notional; below that we return 0.
 
         Args:
             ticker: Ticker symbol
@@ -144,7 +153,7 @@ class RiskManager:
             account_equity: Total account equity
 
         Returns:
-            Number of shares (0 if position would be invalid)
+            Number of shares, possibly fractional (0 if position would be invalid)
         """
         if current_price <= 0:
             logger.warning(
@@ -159,8 +168,18 @@ class RiskManager:
         # Calculate max dollars for this position
         max_dollars = account_equity * (self.risk_config.max_position_size_pct / 100.0)
 
-        # Calculate shares (always floor to avoid overallocation)
-        shares = int(max_dollars / current_price)
+        if self.execution_config.order_type == "market":
+            # Floor to 3 decimal places to avoid overallocation
+            shares = int((max_dollars / current_price) * 1000) / 1000.0
+            if shares * current_price < 1.0:  # Alpaca minimum: $1 notional
+                logger.warning(
+                    f"[{self.strategy_name}] Position below $1 minimum notional "
+                    f"for {ticker} (${shares * current_price:.2f})"
+                )
+                return 0
+        else:
+            # Limit orders: whole shares only (always floor)
+            shares = int(max_dollars / current_price)
 
         logger.debug(
             f"[{self.strategy_name}] Position sizing | "

@@ -142,11 +142,11 @@ def test_alpaca_broker_validate_order_params():
         broker._validate_order_params("", 10, "buy")
 
     # Invalid qty (zero)
-    with pytest.raises(ValueError, match="Quantity must be a positive integer"):
+    with pytest.raises(ValueError, match="Quantity must be a positive number"):
         broker._validate_order_params("AAPL", 0, "buy")
 
     # Invalid qty (negative)
-    with pytest.raises(ValueError, match="Quantity must be a positive integer"):
+    with pytest.raises(ValueError, match="Quantity must be a positive number"):
         broker._validate_order_params("AAPL", -10, "buy")
 
     # Invalid side
