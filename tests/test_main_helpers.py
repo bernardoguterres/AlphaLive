@@ -1072,3 +1072,50 @@ def test_signal_check_persists_engine_state(sample_strategy_config):
         {"status": "blocked", "reason": "non-actionable"},
     )
     bot_state.save_engine_state.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# _wire_min_hold_checkers()
+# ---------------------------------------------------------------------------
+
+
+def test_wire_min_hold_checkers_greenblatt_only(sample_strategy_config):
+    """Only greenblatt_weekly engines get the min-hold gate; the checker must
+    call BotState.is_min_hold_met with the config's ticker and min_hold_bars."""
+    gb_cfg = sample_strategy_config.model_copy(deep=True)
+    gb_cfg.strategy.name = "greenblatt_weekly"
+    gb_cfg.strategy.parameters = {"min_hold_bars": 26}
+    gb_cfg.ticker = "META"
+
+    gb_engine = Mock(min_hold_checker=None)
+    other_engine = Mock(min_hold_checker=None)
+    engine_map = {"META": gb_engine, sample_strategy_config.ticker: other_engine}
+
+    bot_state = Mock()
+    bot_state.is_min_hold_met.return_value = False
+
+    main_module._wire_min_hold_checkers(
+        [gb_cfg, sample_strategy_config], engine_map, bot_state
+    )
+
+    assert other_engine.min_hold_checker is None
+    assert gb_engine.min_hold_checker is not None
+    assert gb_engine.min_hold_checker() is False
+    bot_state.is_min_hold_met.assert_called_once_with("META", 26)
+
+
+def test_wire_min_hold_checkers_defaults_to_52_weeks(sample_strategy_config):
+    gb_cfg = sample_strategy_config.model_copy(deep=True)
+    gb_cfg.strategy.name = "greenblatt_weekly"
+    gb_cfg.strategy.parameters = {}
+
+    engine = Mock(min_hold_checker=None)
+    bot_state = Mock()
+    bot_state.is_min_hold_met.return_value = True
+
+    main_module._wire_min_hold_checkers(
+        [gb_cfg], {gb_cfg.ticker: engine}, bot_state
+    )
+
+    assert engine.min_hold_checker() is True
+    bot_state.is_min_hold_met.assert_called_once_with(gb_cfg.ticker, 52)

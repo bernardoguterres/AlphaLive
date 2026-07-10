@@ -13,7 +13,7 @@ Expected: <0.5s for 200 bars on Railway's shared vCPU
 
 import logging
 import time
-from typing import Dict, Any, Optional
+from typing import Callable, Dict, Any, Optional
 
 import pandas as pd
 
@@ -46,6 +46,13 @@ class SignalEngine:
         self._in_position = False
         self._entry_price: float = 0.0
         self._peak_price: float = 0.0  # for greenblatt_weekly trailing stop
+
+        # Minimum-hold gate for greenblatt_weekly's opt-in exits. Wired by
+        # main.py to BotState.is_min_hold_met(); zero-arg, returns True when
+        # the exit is allowed. None = no enforcement (tests, replay).
+        # Must be checked INSIDE the signal method, before _in_position flips -
+        # a veto after the SELL is emitted would desync engine state.
+        self.min_hold_checker: Optional[Callable[[], bool]] = None
 
         # Indicator cache: skip recalculation when the same bar is checked again
         # (e.g. exit-checks during market hours reuse the morning's indicator values)
@@ -869,13 +876,12 @@ class SignalEngine:
         """Greenblatt Weekly strategy on the last weekly bar.
 
         Entry: Weekly RSI < rsi_oversold OR 10w/50w golden cross.
-        Exit:  Trailing stop (20% below peak) always fires.
-               RSI/SMA exits only if exit_rsi_overbought/exit_sma_cross=True.
-               Minimum hold is NOT yet enforced anywhere (state.is_min_hold_met()
-               exists but is not called before SELL execution). Acceptable only
-               because both optional exits default to False; wire the check in
-               main.py before enabling either flag. Note the check must happen
-               BEFORE this method flips _in_position, or engine state desyncs.
+        Exit:  Trailing stop (20% below peak) always fires - bypasses min hold.
+               RSI/SMA exits only if exit_rsi_overbought/exit_sma_cross=True,
+               and only once self.min_hold_checker() returns True (wired by
+               main.py to BotState.is_min_hold_met(); entry timestamps are
+               recorded on every real BUY fill). Suppressed exits return HOLD
+               without flipping _in_position.
         """
         p = self.params
         fast_sma = p.get("fast_sma", 10)
@@ -941,8 +947,21 @@ class SignalEngine:
             sma_cross_down = (fast_now < slow_now) and (fast_prev >= slow_prev)
             rsi_ob = rsi_now > rsi_overbought
 
-            # Optional exits - min hold NOT enforced yet (see docstring above)
+            # Optional exits - gated on minimum hold (trailing stop above is
+            # NOT gated: it bypasses min hold by design). Checked BEFORE the
+            # state flip so a suppressed exit leaves the engine in-position.
             if (exit_rsi and rsi_ob) or (exit_sma and sma_cross_down):
+                if self.min_hold_checker is not None and not self.min_hold_checker():
+                    return {
+                        "signal": "HOLD",
+                        "confidence": 0.0,
+                        "reason": (
+                            "Optional exit condition met but minimum hold "
+                            "not elapsed - exit suppressed"
+                        ),
+                        "indicators": indicators_out,
+                        "warmup_complete": True,
+                    }
                 reason = (
                     f"RSI overbought ({rsi_now:.1f} > {rsi_overbought})"
                     if (exit_rsi and rsi_ob)
