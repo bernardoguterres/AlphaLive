@@ -396,3 +396,50 @@ def test_health_returns_503_when_secret_not_configured(sample_strategy_dict, cap
 
         finally:
             health.stop()
+
+
+# ---------------------------------------------------------------------------
+# Open-position ledger (drives position reconciliation)
+# ---------------------------------------------------------------------------
+
+
+def test_position_ledger_open_and_close(temp_state_file):
+    state = BotState(temp_state_file)
+    state.record_position_open("AAPL", 10.0, 150.0)
+
+    ledger = state.get_open_positions()
+    assert "AAPL" in ledger
+    assert ledger["AAPL"]["qty"] == 10.0
+    assert ledger["AAPL"]["entry_price"] == 150.0
+    assert "opened_at" in ledger["AAPL"]
+
+    state.record_position_close("AAPL")
+    assert state.get_open_positions() == {}
+
+
+def test_position_ledger_survives_restart(temp_state_file):
+    """The whole point of the ledger: it must survive a process restart,
+    unlike OrderManager's in-memory daily order history."""
+    state = BotState(temp_state_file)
+    state.record_position_open("MSFT", 5.0, 400.0)
+
+    reloaded = BotState(temp_state_file)
+    assert "MSFT" in reloaded.get_open_positions()
+
+
+def test_position_ledger_close_unknown_ticker_is_noop(temp_state_file):
+    state = BotState(temp_state_file)
+    state.record_position_close("NVDA")  # never opened - should not raise
+    assert state.get_open_positions() == {}
+
+
+def test_position_ledger_missing_key_in_old_state_file(temp_state_file):
+    """State files written before the ledger existed have no open_positions
+    key - all ledger methods must tolerate that."""
+    with open(temp_state_file, "w") as f:
+        json.dump({"position_highs": {}, "version": "1.0"}, f)
+
+    state = BotState(temp_state_file)
+    assert state.get_open_positions() == {}
+    state.record_position_open("AAPL", 1.0, 100.0)
+    assert "AAPL" in state.get_open_positions()

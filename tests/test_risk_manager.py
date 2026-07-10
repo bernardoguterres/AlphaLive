@@ -492,3 +492,32 @@ def test_global_risk_manager_is_trading_halted():
     grm.global_daily_stats["strategies_halted"] = True
 
     assert grm.is_trading_halted() is True
+
+
+def test_can_trade_sell_bypasses_max_positions(risk_manager):
+    """A SELL (exposure-reducing) must not be blocked by position caps -
+    otherwise the bot gets trapped fully invested with no signal-based exit."""
+    can_trade, reason = risk_manager.can_trade(
+        ticker="AAPL",
+        signal="SELL",
+        account_equity=100000.0,
+        current_positions_count=5,   # at per-strategy limit
+        total_portfolio_positions=10,  # at portfolio limit
+    )
+
+    assert can_trade is True
+
+
+def test_can_trade_sell_still_blocked_by_kill_switch(risk_manager, monkeypatch):
+    """The kill switch applies to everything, including SELLs."""
+    monkeypatch.setenv("TRADING_PAUSED", "true")
+
+    can_trade, reason = risk_manager.can_trade(
+        ticker="AAPL",
+        signal="SELL",
+        account_equity=100000.0,
+        current_positions_count=1,
+        total_portfolio_positions=1,
+    )
+
+    assert can_trade is False

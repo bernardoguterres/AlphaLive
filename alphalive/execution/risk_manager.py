@@ -575,6 +575,16 @@ class RiskManager:
             logger.warning(f"[{self.strategy_name}] {reason}")
             return (False, reason)
 
+        # Checks 8-10 only apply to BUYs (position-opening trades).
+        # A SELL reduces exposure - blocking it on max-positions or cooldown
+        # would trap the bot fully invested with no signal-based way to exit.
+        if signal == "SELL":
+            logger.info(
+                f"[{self.strategy_name}] Trade approved (SELL, exposure-reducing) | "
+                f"{ticker} | Trades today: {self.trades_today}/{self.max_trades_per_day}"
+            )
+            return (True, "OK")
+
         # 8. Check max positions (per-strategy)
         if not self.check_max_positions(current_positions_count):
             reason = (

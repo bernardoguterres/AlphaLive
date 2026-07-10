@@ -154,12 +154,36 @@ class OrderManager:
         logger.info(f"Using idempotency key: {idempotency_key}")
 
         # 3. POSITION SIZE CALCULATION
-        qty = self.risk.calculate_position_size(
-            ticker=ticker,
-            signal=signal_action,
-            current_price=current_price,
-            account_equity=account_equity,
-        )
+        # BUY: size from equity and max_position_size_pct.
+        # SELL: sell exactly what we hold - never the computed entry size.
+        #       Sizing a SELL from equity can exceed the held quantity and
+        #       open a naked short on Alpaca (margin account by default).
+        if signal_action == "SELL":
+            try:
+                position = self.broker.get_position(ticker)
+            except Exception as e:
+                logger.error(f"Could not fetch position for SELL {ticker}: {e}")
+                return {
+                    "status": "error",
+                    "reason": f"Position lookup failed for SELL: {e}",
+                }
+            if position is None or position.qty <= 0:
+                logger.info(
+                    f"SELL signal for {ticker} with no open position - skipping "
+                    f"(would open a short)"
+                )
+                return {
+                    "status": "blocked",
+                    "reason": "SELL signal with no open position",
+                }
+            qty = position.qty
+        else:
+            qty = self.risk.calculate_position_size(
+                ticker=ticker,
+                signal=signal_action,
+                current_price=current_price,
+                account_equity=account_equity,
+            )
 
         if qty == 0:
             return {
@@ -256,6 +280,7 @@ class OrderManager:
                 "timestamp": datetime.now(ET),
                 "signal_reason": signal.get("reason", "N/A"),
                 "bar": current_bar,
+                "status": "filled",
             }
             self.order_history.append(_order_record)
             self._recent_order_index[(ticker, signal_action)] = _order_record

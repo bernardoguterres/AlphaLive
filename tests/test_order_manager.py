@@ -489,3 +489,95 @@ def test_get_order_history(order_manager):
     # Should be a copy, not reference
     history.append({"ticker": "MSFT", "side": "SELL", "order_id": "456"})
     assert len(order_manager.order_history) == 1  # Original unchanged
+
+
+# ---------------------------------------------------------------------------
+# SELL safety: sell exactly what we hold, never a computed entry size
+# ---------------------------------------------------------------------------
+
+
+def _mock_held_position(qty=42.0, avg_entry=140.0):
+    pos = Mock()
+    pos.qty = qty
+    pos.avg_entry_price = avg_entry
+    pos.side = "long"
+    return pos
+
+
+def test_execute_signal_sell_with_no_position_blocked(order_manager, mock_broker):
+    """A SELL signal with no open position must be blocked - a market sell
+    with nothing held would open a naked short on Alpaca."""
+    mock_broker.get_position = Mock(return_value=None)
+
+    result = order_manager.execute_signal(
+        ticker="AAPL",
+        signal={"signal": "SELL", "reason": "death cross"},
+        current_price=150.0,
+        account_equity=100000.0,
+        current_positions_count=0,
+        total_portfolio_positions=0,
+    )
+
+    assert result["status"] == "blocked"
+    assert "no open position" in result["reason"]
+    mock_broker.place_market_order.assert_not_called()
+
+
+def test_execute_signal_sell_uses_held_qty_not_position_sizing(
+    order_manager, mock_risk_manager, mock_broker
+):
+    """SELL must be sized from the actual broker position, not from
+    calculate_position_size (which could exceed holdings and go short)."""
+    mock_broker.get_position = Mock(return_value=_mock_held_position(qty=42.0))
+    mock_risk_manager.calculate_position_size = Mock(return_value=66)  # would over-sell
+
+    result = order_manager.execute_signal(
+        ticker="AAPL",
+        signal={"signal": "SELL", "reason": "death cross"},
+        current_price=150.0,
+        account_equity=100000.0,
+        current_positions_count=1,
+        total_portfolio_positions=1,
+    )
+
+    assert result["status"] == "success"
+    mock_risk_manager.calculate_position_size.assert_not_called()
+    _, kwargs = mock_broker.place_market_order.call_args
+    assert kwargs["qty"] == 42.0
+    assert kwargs["side"] == "sell"
+
+
+def test_execute_signal_sell_position_lookup_error_returns_error(
+    order_manager, mock_broker
+):
+    mock_broker.get_position = Mock(side_effect=RuntimeError("api down"))
+
+    result = order_manager.execute_signal(
+        ticker="AAPL",
+        signal={"signal": "SELL", "reason": "death cross"},
+        current_price=150.0,
+        account_equity=100000.0,
+        current_positions_count=1,
+        total_portfolio_positions=1,
+    )
+
+    assert result["status"] == "error"
+    mock_broker.place_market_order.assert_not_called()
+
+
+def test_execute_signal_order_record_has_filled_status(
+    order_manager, mock_broker
+):
+    """Order records must carry status='filled' - consumers (dashboard,
+    daily stats) filter on it."""
+    result = order_manager.execute_signal(
+        ticker="AAPL",
+        signal={"signal": "BUY", "reason": "golden cross"},
+        current_price=150.0,
+        account_equity=100000.0,
+        current_positions_count=0,
+        total_portfolio_positions=0,
+    )
+
+    assert result["status"] == "success"
+    assert order_manager.order_history[-1]["status"] == "filled"
