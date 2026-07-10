@@ -225,3 +225,104 @@ class TestGreenblattWeeklyParity:
             f"Unbalanced entries/exits: {buys} BUY, {sells} SELL "
             "(at most 1 open position allowed at end of series)"
         )
+
+
+# ---------------------------------------------------------------------------
+# Parity with exit_rsi_overbought=True - covers the min-hold gated exit path
+# ---------------------------------------------------------------------------
+
+EXPECTED_RSI_EXIT_PATH = (
+    PROJECT_ROOT / "tests" / "fixtures" / "expected_signals_greenblatt_weekly_rsi_exit.csv"
+)
+
+
+def _make_rsi_exit_config() -> StrategySchema:
+    cfg = _make_config()
+    cfg.strategy.parameters = {**STRATEGY_PARAMS, "exit_rsi_overbought": True}
+    return cfg
+
+
+def _run_engine_with_min_hold(df: pd.DataFrame) -> list[dict]:
+    """Replay with a bar-counting min-hold checker mirroring AlphaLab.
+
+    In production the checker is timestamp-based (BotState.is_min_hold_met);
+    here it counts bars since the engine's last BUY so the comparison against
+    AlphaLab's bar-counted enforcement is exact.
+    """
+    engine = SignalEngine(_make_rsi_exit_config())
+    hold = {"entry_bar": None, "current_bar": 0}
+    engine.min_hold_checker = lambda: (
+        hold["entry_bar"] is not None
+        and (hold["current_bar"] - hold["entry_bar"]) >= STRATEGY_PARAMS["min_hold_bars"]
+    )
+
+    results = []
+    for i in range(len(df)):
+        hold["current_bar"] = i
+        result = engine.generate_signal(df.iloc[: i + 1].copy())
+        if result["signal"] == "BUY":
+            hold["entry_bar"] = i
+        elif result["signal"] == "SELL":
+            hold["entry_bar"] = None
+        results.append({"bar_index": i, "signal": result["signal"], "reason": result["reason"]})
+    return results
+
+
+class TestGreenblattWeeklyParityRsiExit:
+    """Same fixture, exit_rsi_overbought=True.
+
+    This exercises the min-hold gate: AlphaLab's expected signals show the
+    RSI exit at bar 105 firing 'after 53w hold' - RSI was overbought earlier
+    but the 52-week minimum hold suppressed it. Without the gate, AlphaLive
+    would exit early and every subsequent signal would diverge.
+    Expected CSV generated from AlphaLab's current code on 2026-07-10.
+    """
+
+    def setup_method(self):
+        self.df = _load_fixture()
+        self.expected = pd.read_csv(EXPECTED_RSI_EXIT_PATH)
+        self.actual = _run_engine_with_min_hold(self.df)
+
+    def test_zero_mismatches_with_min_hold_gate(self):
+        mismatches = []
+        for _, exp_row in self.expected.iterrows():
+            i = int(exp_row["bar_index"])
+            if exp_row["signal"] != self.actual[i]["signal"]:
+                mismatches.append(
+                    f"bar {i}: expected {exp_row['signal']}, got {self.actual[i]['signal']} "
+                    f"| reason: {self.actual[i]['reason'][:80]}"
+                )
+        assert mismatches == [], (
+            f"{len(mismatches)} mismatch(es):\n" + "\n".join(mismatches)
+        )
+
+    def test_rsi_exits_respect_min_hold(self):
+        """Every RSI-overbought SELL in the expected set held >= 52 weeks."""
+        non_hold = self.expected[self.expected["signal"] != "HOLD"].reset_index(drop=True)
+        entry_bar = None
+        for _, row in non_hold.iterrows():
+            if row["signal"] == "BUY":
+                entry_bar = int(row["bar_index"])
+            elif "RSI overbought" in str(row["reason"]):
+                held = int(row["bar_index"]) - entry_bar
+                assert held >= STRATEGY_PARAMS["min_hold_bars"], (
+                    f"RSI exit at bar {int(row['bar_index'])} held only {held}w"
+                )
+
+    def test_gate_is_load_bearing(self):
+        """Without the min-hold gate the engine must exit EARLIER than
+        AlphaLab at least once - proving the gate changes behavior and the
+        parity above isn't passing vacuously."""
+        engine = SignalEngine(_make_rsi_exit_config())  # no checker wired
+        first_expected_sell = int(
+            self.expected[self.expected["signal"] == "SELL"]["bar_index"].iloc[0]
+        )
+        for i in range(len(self.df)):
+            result = engine.generate_signal(self.df.iloc[: i + 1].copy())
+            if result["signal"] == "SELL":
+                assert i < first_expected_sell, (
+                    "Ungated engine did not exit earlier - fixture no longer "
+                    "exercises the min-hold gate; regenerate expected signals"
+                )
+                return
+        pytest.fail("Ungated engine never emitted a SELL")
