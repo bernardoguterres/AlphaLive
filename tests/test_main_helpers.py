@@ -1195,3 +1195,99 @@ def test_run_monthly_screener_failure_alerts_and_skips_month():
     bot_state.set_last_screener_month.assert_called_once_with("2026-08")
     notifier.send_error_alert.assert_called_once()
     notifier.send_message.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Small-fix regression tests: EOD restart guard, qty-aware FIFO, fill-price P&L
+# ---------------------------------------------------------------------------
+
+
+def test_compute_daily_stats_zero_start_equity_reports_zero_pnl():
+    """Restart after 4 PM with no persisted morning equity: P&L must be 0,
+    not the entire account equity."""
+    stats = main_module._compute_daily_stats([], start_equity=0.0, end_equity=100000.0)
+    assert stats["pnl"] == 0.0
+
+
+def test_compute_daily_stats_qty_aware_fifo():
+    """One sell consuming two buy lots: win/loss judged against the
+    weighted-average cost of the matched shares, not lot-per-lot."""
+    orders = [
+        {"ticker": "AAPL", "side": "BUY", "qty": 10, "price": 100.0, "timestamp": "t1"},
+        {"ticker": "AAPL", "side": "BUY", "qty": 10, "price": 120.0, "timestamp": "t2"},
+        # Sells all 20 @ 111: avg cost = 110 -> win (old price-only FIFO would
+        # have judged against the first lot only)
+        {"ticker": "AAPL", "side": "SELL", "qty": 20, "price": 111.0, "timestamp": "t3"},
+    ]
+    stats = main_module._compute_daily_stats(orders, 100000.0, 100020.0)
+    assert stats["win_rate"] == 100.0
+
+
+def test_compute_daily_stats_partial_sell_leaves_remaining_lot():
+    orders = [
+        {"ticker": "AAPL", "side": "BUY", "qty": 10, "price": 100.0, "timestamp": "t1"},
+        {"ticker": "AAPL", "side": "SELL", "qty": 4, "price": 90.0, "timestamp": "t2"},   # loss
+        {"ticker": "AAPL", "side": "SELL", "qty": 6, "price": 110.0, "timestamp": "t3"},  # win
+    ]
+    stats = main_module._compute_daily_stats(orders, 100000.0, 100000.0)
+    assert stats["win_rate"] == 50.0
+
+
+def test_exit_check_pnl_uses_fill_price_when_available():
+    """P&L and the Telegram notification must use the close order's actual
+    fill price, not the pre-order price the exit was decided on."""
+    pos = _mock_position(avg_entry=100.0, current=90.0)
+    broker = Mock()
+    broker.get_all_positions.return_value = [pos]
+    market_data = Mock()
+    market_data.get_current_price.return_value = 90.0
+
+    order_manager = Mock()
+    order_manager.check_exits.return_value = [
+        {"ticker": "AAPL", "reason": "Stop loss hit", "current_price": 90.0}
+    ]
+    # Actual fill came back worse than the decision price (slippage)
+    order_manager.close_position.return_value = {
+        "status": "success", "order_id": "o9",
+        "filled_price": 89.5, "filled_qty": 10.0,
+    }
+    order_manager.config.risk.commission_per_trade = 0.0
+
+    notifier = Mock()
+    main_module._run_exit_checks(
+        broker, market_data, {"AAPL": order_manager}, Mock(), Mock(dry_run=False),
+        notifier, main_module.GlobalRiskManager(), {"AAPL": Mock()},
+    )
+
+    kwargs = notifier.send_position_closed_notification.call_args.kwargs
+    assert kwargs["exit_price"] == 89.5
+    assert kwargs["pnl"] == pytest.approx((89.5 - 100.0) * 10.0)
+
+
+def test_exit_check_pnl_falls_back_to_decision_price():
+    """No fill details yet (market order in flight): fall back to the price
+    the exit was decided on."""
+    pos = _mock_position(avg_entry=100.0, current=90.0)
+    broker = Mock()
+    broker.get_all_positions.return_value = [pos]
+    market_data = Mock()
+    market_data.get_current_price.return_value = 90.0
+
+    order_manager = Mock()
+    order_manager.check_exits.return_value = [
+        {"ticker": "AAPL", "reason": "Stop loss hit", "current_price": 90.0}
+    ]
+    order_manager.close_position.return_value = {
+        "status": "success", "order_id": "o9",
+        "filled_price": None, "filled_qty": None,
+    }
+    order_manager.config.risk.commission_per_trade = 0.0
+
+    notifier = Mock()
+    main_module._run_exit_checks(
+        broker, market_data, {"AAPL": order_manager}, Mock(), Mock(dry_run=False),
+        notifier, main_module.GlobalRiskManager(), {"AAPL": Mock()},
+    )
+
+    kwargs = notifier.send_position_closed_notification.call_args.kwargs
+    assert kwargs["exit_price"] == 90.0

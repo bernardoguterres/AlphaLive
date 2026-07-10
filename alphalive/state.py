@@ -275,6 +275,22 @@ class BotState:
         """Return the persisted open-position ledger: {ticker: {qty, entry_price, opened_at}}."""
         return dict(self.state.get("open_positions", {}))
 
+    def set_morning_equity(self, today: str, equity: float):
+        """Persist the equity captured at market open for the given day.
+
+        Without this, a restart after 4 PM leaves morning_equity at 0.0 and
+        the EOD summary reports the entire account equity as the day's P&L.
+        """
+        self.state["morning_equity"] = {"date": today, "value": equity}
+        self.save()
+
+    def get_morning_equity(self, today: str) -> Optional[float]:
+        """Return the persisted morning equity for the given day, or None."""
+        entry = self.state.get("morning_equity")
+        if entry and entry.get("date") == today:
+            return entry.get("value")
+        return None
+
     def get_last_screener_month(self) -> Optional[str]:
         """Return the YYYY-MM month the monthly screener last ran, or None."""
         return self.state.get("last_screener_month")

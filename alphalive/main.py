@@ -66,24 +66,45 @@ def _compute_daily_stats(
     Returns:
         Dict with keys: pnl (float, dollars), win_rate (float, 0–100 %).
     """
-    pnl = end_equity - start_equity
+    # start_equity <= 0 means morning equity was never captured (restart
+    # after 4 PM with no persisted value) - reporting end_equity - 0 would
+    # claim the whole account as today's P&L.
+    pnl = end_equity - start_equity if start_equity > 0 else 0.0
 
-    # Win-rate: FIFO match BUYs to SELLs per ticker
-    buy_queues: dict[str, list] = {}
+    # Win-rate: qty-aware FIFO matching of BUYs to SELLs per ticker.
+    # Each SELL consumes shares from the buy queue oldest-first; the sell is
+    # a win if its price beats the weighted-average cost of the shares it
+    # matched. Matters with fractional sizing, where quantities rarely align
+    # one order to one order.
+    buy_queues: dict[str, list] = {}  # ticker -> list of [qty, price]
     wins = 0
     total_sells = 0
 
     for order in sorted(all_orders, key=lambda o: o["timestamp"]):
         ticker = order["ticker"]
         side = order.get("side", "").upper()
+        qty = float(order.get("qty", 1) or 1)
         if side == "BUY":
-            buy_queues.setdefault(ticker, []).append(order["price"])
+            buy_queues.setdefault(ticker, []).append([qty, order["price"]])
         elif side == "SELL":
             queue = buy_queues.get(ticker, [])
-            if queue:
-                buy_price = queue.pop(0)
+            matched_qty = 0.0
+            matched_cost = 0.0
+            remaining = qty
+            while queue and remaining > 0:
+                lot_qty, lot_price = queue[0]
+                take = min(lot_qty, remaining)
+                matched_qty += take
+                matched_cost += take * lot_price
+                remaining -= take
+                if take >= lot_qty:
+                    queue.pop(0)
+                else:
+                    queue[0][0] = lot_qty - take
+            if matched_qty > 0:
                 total_sells += 1
-                if order["price"] > buy_price:
+                avg_buy_price = matched_cost / matched_qty
+                if order["price"] > avg_buy_price:
                     wins += 1
 
     win_rate = (wins / total_sells * 100) if total_sells > 0 else 0.0
@@ -714,15 +735,19 @@ def _run_exit_checks(
                             commission = (
                                 order_manager_map[ticker].config.risk.commission_per_trade
                             )
+                            # Prefer the actual fill price from the close order;
+                            # fall back to the pre-order price if the fill
+                            # hasn't been reported yet (market order in flight).
+                            exit_price = (
+                                result.get("filled_price")
+                                or exit_signal["current_price"]
+                            )
+                            exit_qty = result.get("filled_qty") or closed_pos.qty
                             pnl = (
-                                exit_signal["current_price"]
-                                - closed_pos.avg_entry_price
-                            ) * closed_pos.qty - (2 * commission)
+                                exit_price - closed_pos.avg_entry_price
+                            ) * exit_qty - (2 * commission)
                             pnl_pct = (
-                                (
-                                    exit_signal["current_price"]
-                                    - closed_pos.avg_entry_price
-                                )
+                                (exit_price - closed_pos.avg_entry_price)
                                 / closed_pos.avg_entry_price
                             ) * 100
 
@@ -736,9 +761,9 @@ def _run_exit_checks(
 
                             notifier.send_position_closed_notification(
                                 ticker=exit_signal["ticker"],
-                                qty=closed_pos.qty,
+                                qty=exit_qty,
                                 entry_price=closed_pos.avg_entry_price,
-                                exit_price=exit_signal["current_price"],
+                                exit_price=exit_price,
                                 pnl=pnl,
                                 pnl_pct=pnl_pct,
                                 reason=exit_signal["reason"],
@@ -1192,7 +1217,14 @@ def main(
                 eod_summary_sent = False
                 eod_summary_retry = False
                 peak_equity_today = 0.0
-                morning_equity = 0.0
+                # Restore today's morning equity if this "new day" is really a
+                # mid-day/post-close restart - the market-open capture path
+                # never runs after 4 PM, and the EOD summary needs it.
+                morning_equity = bot_state.get_morning_equity(current_day) or 0.0
+                if morning_equity > 0:
+                    logger.info(
+                        f"Morning equity restored from state: ${morning_equity:,.2f}"
+                    )
                 drawdown_alert_sent = False
 
                 # Reset daily for all strategies
@@ -1267,11 +1299,22 @@ def main(
                 _record_broker_call(order_manager_map, success=True)
                 current_equity = account.equity
 
-                # Capture morning equity once per day (first time market is open)
+                # Capture morning equity once per day (first time market is open).
+                # Persisted so a mid-day restart restores it instead of
+                # re-capturing (or, after 4 PM, leaving it 0 and making the
+                # EOD summary report the whole account as today's P&L).
                 if morning_equity == 0.0 and current_equity > 0:
-                    morning_equity = current_equity
-                    peak_equity_today = current_equity
-                    logger.info(f"Morning equity captured: ${morning_equity:,.2f}")
+                    persisted = bot_state.get_morning_equity(current_day)
+                    if persisted is not None and persisted > 0:
+                        morning_equity = persisted
+                        logger.info(
+                            f"Morning equity restored from state: ${morning_equity:,.2f}"
+                        )
+                    else:
+                        morning_equity = current_equity
+                        bot_state.set_morning_equity(current_day, morning_equity)
+                        logger.info(f"Morning equity captured: ${morning_equity:,.2f}")
+                    peak_equity_today = max(peak_equity_today, current_equity)
 
                 # Update peak
                 if current_equity > peak_equity_today:
