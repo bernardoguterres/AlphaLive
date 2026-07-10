@@ -649,7 +649,21 @@ class OrderManager:
                 f"Reason: {reason}"
             )
 
-            return {"status": "success", "order_id": order.id, "reason": reason}
+            # Surface fill details when the broker already has them, so
+            # callers can compute P&L from the actual fill instead of the
+            # pre-order price. filled_price is None for not-yet-filled orders.
+            filled_price = (
+                float(order.filled_avg_price) if order.filled_avg_price else None
+            )
+            filled_qty = float(order.filled_qty) if order.filled_qty else None
+
+            return {
+                "status": "success",
+                "order_id": order.id,
+                "reason": reason,
+                "filled_price": filled_price,
+                "filled_qty": filled_qty,
+            }
 
         except Exception as e:
             logger.error(f"Failed to close position {ticker}: {e}", exc_info=True)

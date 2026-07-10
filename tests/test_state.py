@@ -490,3 +490,17 @@ def test_last_screener_month_roundtrip(temp_state_file):
 
     reloaded = BotState(temp_state_file)
     assert reloaded.get_last_screener_month() == "2026-07"
+
+
+def test_morning_equity_roundtrip_and_day_scoping(temp_state_file):
+    state = BotState(temp_state_file)
+    assert state.get_morning_equity("2026-07-10") is None
+
+    state.set_morning_equity("2026-07-10", 100500.0)
+    assert state.get_morning_equity("2026-07-10") == 100500.0
+    # A different day must not see yesterday's value
+    assert state.get_morning_equity("2026-07-11") is None
+
+    # Survives restart
+    reloaded = BotState(temp_state_file)
+    assert reloaded.get_morning_equity("2026-07-10") == 100500.0

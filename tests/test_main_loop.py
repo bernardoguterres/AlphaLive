@@ -72,6 +72,10 @@ def main_mocks(sample_strategy_config):
 
         m_state = m_state_cls.return_value
         m_state.check_dashboard_paused.return_value = False
+        m_state.get_morning_equity.return_value = None
+        m_state.get_open_positions.return_value = {}
+        m_state.get_engine_state.return_value = None
+        m_state.get_last_screener_month.return_value = None
 
         m_broker = m_broker_cls.return_value
         m_broker.connect.return_value = True
