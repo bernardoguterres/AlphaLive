@@ -15,7 +15,9 @@ Real API endpoint used: GET /sentiment/{ticker}
     latest_score float | None   # top-level convenience field
     latency_ms   int
 
-Auth: none required by AlphaSignal.
+Auth: X-API-Key header, sent when ALPHASIGNAL_API_KEY is set
+(required once AlphaSignal is deployed with auth enabled; same env var name
+on both services).
 """
 
 import asyncio
