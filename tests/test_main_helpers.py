@@ -1119,3 +1119,80 @@ def test_wire_min_hold_checkers_defaults_to_52_weeks(sample_strategy_config):
 
     assert engine.min_hold_checker() is True
     bot_state.is_min_hold_met.assert_called_once_with(gb_cfg.ticker, 52)
+
+
+# ---------------------------------------------------------------------------
+# _build_screener() / _run_monthly_screener()
+# ---------------------------------------------------------------------------
+
+
+def test_build_screener_disabled_without_universe(monkeypatch):
+    monkeypatch.delenv("SCREENER_UNIVERSE", raising=False)
+    assert main_module._build_screener() is None
+
+
+def test_build_screener_parses_universe(monkeypatch):
+    monkeypatch.setenv("SCREENER_UNIVERSE", "aapl, msft ,NVDA,")
+    monkeypatch.setenv("SCREENER_TOP_N", "7")
+    screener = main_module._build_screener()
+    assert screener.universe == ["AAPL", "MSFT", "NVDA"]
+    assert screener.top_n == 7
+
+
+def _screener_candidate(ticker="AAPL"):
+    c = Mock()
+    c.ticker = ticker
+    c.combined_rank = 3
+    c.earnings_yield = 0.05
+    c.return_on_equity = 0.30
+    return c
+
+
+def test_run_monthly_screener_runs_once_per_month():
+    screener = Mock()
+    screener.run.return_value = [_screener_candidate()]
+    bot_state = Mock()
+    bot_state.get_last_screener_month.return_value = None
+    notifier = Mock()
+    now_et = datetime(2026, 7, 15, 10, 0, tzinfo=ET)  # mid-month: still runs
+
+    main_module._run_monthly_screener(screener, bot_state, notifier, now_et)
+
+    screener.run.assert_called_once()
+    bot_state.set_last_screener_month.assert_called_once_with("2026-07")
+    notifier.send_message.assert_called_once()
+
+
+def test_run_monthly_screener_skips_same_month():
+    screener = Mock()
+    bot_state = Mock()
+    bot_state.get_last_screener_month.return_value = "2026-07"
+    now_et = datetime(2026, 7, 15, 10, 0, tzinfo=ET)
+
+    main_module._run_monthly_screener(screener, bot_state, Mock(), now_et)
+
+    screener.run.assert_not_called()
+
+
+def test_run_monthly_screener_none_is_noop():
+    # Disabled screener: must not raise or touch state
+    bot_state = Mock()
+    main_module._run_monthly_screener(None, bot_state, Mock(), datetime(2026, 7, 1, tzinfo=ET))
+    bot_state.set_last_screener_month.assert_not_called()
+
+
+def test_run_monthly_screener_failure_alerts_and_skips_month():
+    """A failed run must alert and NOT retry every 30s for the rest of the
+    month - the month is recorded before the attempt."""
+    screener = Mock()
+    screener.run.side_effect = RuntimeError("yfinance down")
+    bot_state = Mock()
+    bot_state.get_last_screener_month.return_value = None
+    notifier = Mock()
+    now_et = datetime(2026, 8, 1, 9, 0, tzinfo=ET)
+
+    main_module._run_monthly_screener(screener, bot_state, notifier, now_et)  # no raise
+
+    bot_state.set_last_screener_month.assert_called_once_with("2026-08")
+    notifier.send_error_alert.assert_called_once()
+    notifier.send_message.assert_not_called()
