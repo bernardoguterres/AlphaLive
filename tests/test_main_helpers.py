@@ -267,7 +267,7 @@ def test_check_signal_for_strategy_1day_skips_outside_window(sample_strategy_con
 
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, morning_checks_done, last_signal_check_map,
-        market_data, {}, {}, None, None, Mock(), Mock(), main_module.GlobalRiskManager(), Mock(),
+        market_data, {}, {}, None, Mock(), Mock(), main_module.GlobalRiskManager(), Mock(),
     )
 
     market_data.get_latest_bars.assert_not_called()
@@ -281,7 +281,7 @@ def test_check_signal_for_strategy_1day_skips_if_already_done(sample_strategy_co
 
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, morning_checks_done, {},
-        market_data, {}, {}, None, None, Mock(), Mock(), main_module.GlobalRiskManager(), Mock(),
+        market_data, {}, {}, None, Mock(), Mock(), main_module.GlobalRiskManager(), Mock(),
     )
 
     market_data.get_latest_bars.assert_not_called()
@@ -303,7 +303,7 @@ def test_check_signal_for_strategy_hold_signal_no_order(sample_strategy_config):
 
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, morning_checks_done, {},
-        market_data, signal_engine_map, order_manager_map, None, None, Mock(), Mock(),
+        market_data, signal_engine_map, order_manager_map, None, Mock(), Mock(),
         main_module.GlobalRiskManager(), Mock(),
     )
 
@@ -338,7 +338,7 @@ def test_check_signal_for_strategy_buy_signal_executes_order(sample_strategy_con
 
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, morning_checks_done, {},
-        market_data, signal_engine_map, order_manager_map, None, None, broker, notifier,
+        market_data, signal_engine_map, order_manager_map, None, broker, notifier,
         main_module.GlobalRiskManager(), Mock(),
     )
 
@@ -369,7 +369,7 @@ def test_check_signal_for_strategy_buy_signal_blocked(sample_strategy_config):
 
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, set(), {},
-        market_data, signal_engine_map, order_manager_map, None, None, broker, notifier,
+        market_data, signal_engine_map, order_manager_map, None, broker, notifier,
         main_module.GlobalRiskManager(), Mock(),
     )
 
@@ -400,7 +400,7 @@ def test_check_signal_for_strategy_buy_signal_error_status(sample_strategy_confi
     # Should not raise
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, set(), {},
-        market_data, signal_engine_map, order_manager_map, None, None, broker, notifier,
+        market_data, signal_engine_map, order_manager_map, None, broker, notifier,
         main_module.GlobalRiskManager(), Mock(),
     )
 
@@ -422,7 +422,7 @@ def test_check_signal_for_strategy_corporate_action_detected(sample_strategy_con
 
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, morning_checks_done, {},
-        market_data, signal_engine_map, {}, None, None, Mock(), notifier,
+        market_data, signal_engine_map, {}, None, Mock(), notifier,
         main_module.GlobalRiskManager(), Mock(),
     )
 
@@ -441,7 +441,7 @@ def test_check_signal_for_strategy_data_stale_error(sample_strategy_config):
 
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, morning_checks_done, {},
-        market_data, {}, {}, None, None, Mock(), notifier,
+        market_data, {}, {}, None, Mock(), notifier,
         main_module.GlobalRiskManager(), Mock(),
     )
 
@@ -458,7 +458,7 @@ def test_check_signal_for_strategy_generic_exception(sample_strategy_config):
 
     main_module._check_signal_for_strategy(
         sample_strategy_config, now_et, morning_checks_done, {},
-        market_data, {}, {}, None, None, Mock(), notifier,
+        market_data, {}, {}, None, Mock(), notifier,
         main_module.GlobalRiskManager(), Mock(),
     )
 
@@ -475,7 +475,7 @@ def test_check_signal_for_strategy_intraday_uses_should_run_check(sample_strateg
     with patch("alphalive.main.should_run_signal_check", return_value=False) as mock_should_run:
         main_module._check_signal_for_strategy(
             intraday_cfg, now_et, set(), {},
-            market_data, {}, {}, None, None, Mock(), Mock(),
+            market_data, {}, {}, None, Mock(), Mock(),
             main_module.GlobalRiskManager(), Mock(),
         )
         mock_should_run.assert_called_once()
@@ -483,7 +483,7 @@ def test_check_signal_for_strategy_intraday_uses_should_run_check(sample_strateg
 
 
 def test_check_signal_for_strategy_with_pre_execution_checks_blocked(sample_strategy_config):
-    """When DeepLOB/AlphaSignal clients are wired in and block execution, no order is placed."""
+    """When the sentiment filter blocks execution, no order is placed."""
     now_et = datetime(2024, 1, 2, 9, 40, tzinfo=ET)
     market_data = Mock()
     market_data.get_latest_bars.return_value = _make_ohlcv_df()
@@ -496,17 +496,16 @@ def test_check_signal_for_strategy_with_pre_execution_checks_blocked(sample_stra
     order_manager = Mock()
     order_manager_map = {sample_strategy_config.ticker: order_manager}
 
-    deeplob_client = Mock()
     alphasignal_client = Mock()
 
     with patch(
         "alphalive.main.run_pre_execution_checks",
-        return_value=(False, {"pred": 1}, True, {}),
+        return_value=(False, {"sentiment_score": -0.9}),
     ):
         main_module._check_signal_for_strategy(
             sample_strategy_config, now_et, set(), {},
             market_data, signal_engine_map, order_manager_map,
-            deeplob_client, alphasignal_client, Mock(), Mock(),
+            alphasignal_client, Mock(), Mock(),
             main_module.GlobalRiskManager(), Mock(),
         )
 
@@ -900,7 +899,7 @@ def _run_signal_check_with_result(sample_strategy_config, signal, exec_result, d
         market_data,
         {sample_strategy_config.ticker: signal_engine},
         {sample_strategy_config.ticker: order_manager},
-        None, None, broker, Mock(),
+        None, broker, Mock(),
         main_module.GlobalRiskManager(), bot_state,
     )
     return bot_state

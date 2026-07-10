@@ -149,54 +149,28 @@ async def test_timeout_fails_open():
 
 
 # ---------------------------------------------------------------------------
-# Test 7 - both filters run concurrently via asyncio.gather
+# Test 7 - the gate delegates to the sentiment filter and unpacks its result
 # ---------------------------------------------------------------------------
 
 
-async def test_both_filters_run_concurrently():
-    """asyncio.gather must be called with two coroutines - one per filter.
-
-    This verifies the concurrent execution gate: both DeepLOB and
-    AlphaSignal checks are submitted to the event loop together, not
-    awaited sequentially.
-    """
-    # Mock deeplob client with an is_execution_allowed that returns a coroutine.
-    mock_deeplob = MagicMock()
-    deeplob_coro_sentinel = object()  # Arbitrary sentinel - not a real coroutine
-    mock_deeplob.is_execution_allowed = MagicMock(return_value=deeplob_coro_sentinel)
-
-    # Mock alphasignal client similarly.
+async def test_gate_returns_sentiment_filter_result():
+    """run_pre_execution_checks must await the sentiment filter and return
+    its (allowed, prediction) result unchanged."""
     mock_alphasignal = MagicMock(spec=AlphaSignalClient)
-    mock_alphasignal.sentiment_threshold = DEFAULT_THRESHOLD
-    sentiment_coro_sentinel = object()
-    mock_alphasignal.is_execution_allowed = MagicMock(return_value=sentiment_coro_sentinel)
 
-    # Replace asyncio.gather in the client module with a spy that:
-    #   1. Records the positional args (the two coroutines).
-    #   2. Returns a pre-cooked result so the rest of run_pre_execution_checks
-    #      can unpack without needing real awaitables.
-    gathered_args: list = []
+    async def _allowed(*args, **kwargs):
+        return False, {"sentiment_score": -0.9}
 
-    async def spy_gather(*coros, **kwargs):  # noqa: ANN002, ANN003
-        gathered_args.extend(coros)
-        return [(True, {}), (True, {})]
-
-    with patch(
-        "alphalive.services.alphasignal_client.asyncio.gather",
-        new=spy_gather,
-    ):
-        await run_pre_execution_checks(
-            deeplob_client=mock_deeplob,
-            alphasignal_client=mock_alphasignal,
-            lob_snapshot=None,
-            ticker=TICKER,
-            signal_direction=2,
-        )
-
-    # asyncio.gather must have been called with exactly two coroutines.
-    assert len(gathered_args) == 2, (
-        f"Expected gather to be called with 2 coroutines, got {len(gathered_args)}"
+    mock_alphasignal.is_execution_allowed = MagicMock(
+        side_effect=lambda *a, **k: _allowed()
     )
-    # The first arg comes from deeplob, the second from alphasignal.
-    assert gathered_args[0] is deeplob_coro_sentinel
-    assert gathered_args[1] is sentiment_coro_sentinel
+
+    allowed, pred = await run_pre_execution_checks(
+        alphasignal_client=mock_alphasignal,
+        ticker=TICKER,
+        signal_direction=2,
+    )
+
+    assert allowed is False
+    assert pred == {"sentiment_score": -0.9}
+    mock_alphasignal.is_execution_allowed.assert_called_once_with(TICKER, 2)
