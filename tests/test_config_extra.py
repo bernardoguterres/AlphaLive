@@ -97,3 +97,36 @@ def test_validate_all_multi_strategy_prints_risk_scope_section(valid_strategy_di
     result = validate_all([cfg1, cfg2], app_config)
 
     assert result is True
+
+
+def test_validate_all_rejects_duplicate_tickers(valid_strategy_dict):
+    """Two strategies on the same ticker must fail validation - Alpaca merges
+    fills into one account-level position per symbol, so they can't be
+    attributed and would clobber each other's per-ticker managers in main.py."""
+    from alphalive.config import BrokerConfig, TelegramConfig
+
+    cfg1 = StrategySchema(**valid_strategy_dict)
+    cfg2 = StrategySchema(**valid_strategy_dict)  # same ticker
+
+    app_config = AppConfig(
+        broker=BrokerConfig(api_key="k", secret_key="s"),
+        telegram=TelegramConfig(),
+    )
+
+    assert validate_all([cfg1, cfg2], app_config) is False
+
+
+def test_validate_all_accepts_distinct_tickers(valid_strategy_dict):
+    from alphalive.config import BrokerConfig, TelegramConfig
+
+    cfg1 = StrategySchema(**valid_strategy_dict)
+    cfg2_dict = dict(valid_strategy_dict)
+    cfg2_dict["ticker"] = "MSFT"
+    cfg2 = StrategySchema(**cfg2_dict)
+
+    app_config = AppConfig(
+        broker=BrokerConfig(api_key="k", secret_key="s"),
+        telegram=TelegramConfig(),
+    )
+
+    assert validate_all([cfg1, cfg2], app_config) is True

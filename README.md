@@ -789,7 +789,7 @@ AlphaLive includes **5 production-ready strategy configs** in `configs/productio
 AlphaLive can run **multiple strategies simultaneously** by loading all JSONs from a directory:
 
 1. **Export multiple strategies** from AlphaLab
-2. **Place all JSONs** in `configs/` directory
+2. **Place the chosen JSONs** in a deploy directory - **max one strategy per ticker** (enforced at startup: Alpaca holds one merged position per symbol, so two strategies on the same ticker can't be attributed and one's SELL would liquidate the other's shares)
 3. **Set environment variable**:
    ```bash
    STRATEGY_CONFIG_DIR=configs/

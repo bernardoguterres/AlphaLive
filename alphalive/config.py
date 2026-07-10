@@ -544,6 +544,28 @@ def validate_all(strategies: List[StrategySchema], app_config: AppConfig) -> boo
             all_valid = False
             errors.append(f"Strategy {i}: {e}")
 
+    # Reject duplicate tickers across strategies. Alpaca merges all fills for
+    # a symbol into ONE account-level position (single qty, single avg entry),
+    # so two strategies on the same ticker cannot be attributed, exits from
+    # one would liquidate the other's shares, and the per-ticker engine/risk/
+    # order-manager maps in main.py would silently clobber each other.
+    seen_tickers: dict = {}
+    for strategy in strategies:
+        prior = seen_tickers.get(strategy.ticker)
+        if prior is not None:
+            msg = (
+                f"Duplicate ticker {strategy.ticker}: '{prior}' and "
+                f"'{strategy.strategy.name}' both trade it. Alpaca holds one "
+                f"merged position per symbol, so only ONE strategy per ticker "
+                f"per deployment is supported. Remove one config from the "
+                f"directory, or run it as a separate deployment/account."
+            )
+            logger.error(msg)
+            all_valid = False
+            errors.append(msg)
+        else:
+            seen_tickers[strategy.ticker] = strategy.strategy.name
+
     # Validate broker
     logger.info(f"\nBROKER:")
     try:
