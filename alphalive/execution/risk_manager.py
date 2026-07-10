@@ -397,7 +397,7 @@ class RiskManager:
 
         if hit_limit:
             logger.critical(
-                f"[{self.strategy_name}] 🛑 DAILY LOSS LIMIT HIT | "
+                f"[{self.strategy_name}] DAILY LOSS LIMIT HIT | "
                 f"P&L: ${self.daily_pnl:.2f} ({loss_pct:.2f}%) | "
                 f"Limit: ${max_daily_loss_dollars:.2f} ({self.risk_config.max_daily_loss_pct}%) | "
                 f"Equity: ${account_equity:.2f}"
@@ -518,14 +518,14 @@ class RiskManager:
         #    Not instant, but reliable
         paused = os.environ.get("TRADING_PAUSED", "false").lower()
         if paused in ("true", "1", "yes"):
-            reason = "🛑 Trading paused via TRADING_PAUSED env var (kill switch)"
+            reason = "Trading paused via TRADING_PAUSED env var (kill switch)"
             logger.warning(f"[{self.strategy_name}] {reason}")
             return (False, reason)
 
         # 2. Check manual pause flag (Telegram /pause command)
         #    Instant in-memory flag (no restart required)
         if getattr(self, "trading_paused_manual", False):
-            reason = "⏸ Trading paused via Telegram /pause command"
+            reason = "Trading paused via Telegram /pause command"
             logger.warning(f"[{self.strategy_name}] {reason}")
             return (False, reason)
 
@@ -578,7 +578,7 @@ class RiskManager:
         if self.check_daily_loss_limit(account_equity):
             loss_pct = (abs(self.daily_pnl) / account_equity) * 100
             reason = (
-                f"🛑 Daily loss limit hit: ${self.daily_pnl:.2f} / {loss_pct:.2f}% "
+                f"Daily loss limit hit: ${self.daily_pnl:.2f} / {loss_pct:.2f}% "
                 f"(limit: {self.risk_config.max_daily_loss_pct}%)"
             )
             logger.warning(f"[{self.strategy_name}] {reason}")
@@ -936,7 +936,7 @@ class GlobalRiskManager:
         # Check against limit
         if total_pnl_pct <= -max_daily_loss_pct:
             reason = (
-                f"🛑 GLOBAL daily loss limit exceeded: ${total_pnl:.2f} ({total_pnl_pct:.2f}%) - "
+                f"GLOBAL daily loss limit exceeded: ${total_pnl:.2f} ({total_pnl_pct:.2f}%) - "
                 f"ALL strategies halted for today"
             )
             self.global_daily_stats["strategies_halted"] = True
