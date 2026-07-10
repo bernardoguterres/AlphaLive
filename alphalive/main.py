@@ -166,6 +166,29 @@ def should_run_signal_check(timeframe: str, last_check_time: float) -> bool:
     return time_since_last >= (interval_minutes * 60 - 35)  # -35s for timing slop
 
 
+def _wire_min_hold_checkers(
+    all_strategy_configs: list, signal_engine_map: dict, bot_state
+) -> None:
+    """Connect greenblatt_weekly engines to timestamp-based min-hold checks.
+
+    Bar-counting (AlphaLab's approach) is unreliable live - restarts lose the
+    bar index - so AlphaLive enforces min hold from the entry timestamps that
+    main.py records in BotState on every real BUY fill.
+    """
+    for strategy_config in all_strategy_configs:
+        if strategy_config.strategy.name != "greenblatt_weekly":
+            continue
+        ticker = strategy_config.ticker
+        min_hold_weeks = strategy_config.strategy.parameters.get("min_hold_bars", 52)
+        signal_engine_map[ticker].min_hold_checker = (
+            lambda t=ticker, w=min_hold_weeks: bot_state.is_min_hold_met(t, w)
+        )
+        logger.info(
+            f"Min-hold gate wired for greenblatt_weekly ({ticker}): "
+            f"{min_hold_weeks} weeks"
+        )
+
+
 def _restore_engine_states(
     all_strategy_configs: list, signal_engine_map: dict, bot_state
 ) -> None:
@@ -971,6 +994,9 @@ def main(
     # Restore stateful signal-engine state (in_position/entry/peak) from the
     # state file, reconciled against the just-synced position ledger.
     _restore_engine_states(all_strategy_configs, signal_engine_map, bot_state)
+
+    # Gate greenblatt_weekly's opt-in exits on the minimum holding period.
+    _wire_min_hold_checkers(all_strategy_configs, signal_engine_map, bot_state)
 
     # 5. Initialize Telegram command listener
     # Polls for inbound commands (/status, /pause, /resume, etc.) on background thread

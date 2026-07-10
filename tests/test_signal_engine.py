@@ -677,3 +677,87 @@ def test_restored_peak_drives_trailing_stop(sample_strategy_dict):
 
     assert signal["signal"] == "SELL"
     assert "Trailing stop" in signal["reason"]
+
+
+# ---------------------------------------------------------------------------
+# greenblatt_weekly min-hold gate on optional exits
+# ---------------------------------------------------------------------------
+
+
+def _rising_weekly_df(n=60, start=100.0, step=2.0):
+    prices = [start + i * step for i in range(n)]
+    df = pd.DataFrame({
+        "open": prices, "high": [p + 1 for p in prices],
+        "low": [p - 1 for p in prices], "close": prices,
+        "volume": [1_000_000] * n,
+    })
+    df.index = pd.date_range(start="2024-01-05", periods=n, freq="W-FRI", tz="America/New_York")
+    return df
+
+
+def _greenblatt_engine_in_position(sample_strategy_dict, df):
+    """Engine holding a position entered near the current price (rising series
+    -> RSI is pinned high, trailing stop nowhere near firing)."""
+    engine = _make_engine(
+        sample_strategy_dict,
+        params={
+            "fast_sma": 10, "slow_sma": 50, "rsi_overbought": 65,
+            "trailing_stop_pct": 0.20, "exit_rsi_overbought": True,
+        },
+    )
+    last = float(df["close"].iloc[-1])
+    engine.restore_state(
+        {"in_position": True, "entry_price": last * 0.9, "peak_price": last * 0.95}
+    )
+    return engine
+
+
+def test_greenblatt_optional_exit_suppressed_before_min_hold(sample_strategy_dict):
+    df = _rising_weekly_df()
+    engine = _greenblatt_engine_in_position(sample_strategy_dict, df)
+    engine.min_hold_checker = lambda: False  # min hold NOT met
+
+    signal = engine.generate_signal(df)
+
+    assert signal["signal"] == "HOLD"
+    assert "minimum hold" in signal["reason"]
+    # Critical: suppressed exit must NOT flip engine state
+    assert engine._in_position is True
+
+
+def test_greenblatt_optional_exit_fires_after_min_hold(sample_strategy_dict):
+    df = _rising_weekly_df()
+    engine = _greenblatt_engine_in_position(sample_strategy_dict, df)
+    engine.min_hold_checker = lambda: True  # min hold met
+
+    signal = engine.generate_signal(df)
+
+    assert signal["signal"] == "SELL"
+    assert "RSI overbought" in signal["reason"]
+    assert engine._in_position is False
+
+
+def test_greenblatt_optional_exit_allowed_without_checker(sample_strategy_dict):
+    """No checker wired (tests, replay) -> exits behave as before."""
+    df = _rising_weekly_df()
+    engine = _greenblatt_engine_in_position(sample_strategy_dict, df)
+    assert engine.min_hold_checker is None
+
+    signal = engine.generate_signal(df)
+
+    assert signal["signal"] == "SELL"
+
+
+def test_greenblatt_trailing_stop_bypasses_min_hold(sample_strategy_dict):
+    """The trailing stop must fire immediately even when min hold is not met."""
+    df = _rising_weekly_df()
+    engine = _greenblatt_engine_in_position(sample_strategy_dict, df)
+    engine.min_hold_checker = lambda: False
+    # Force a peak far above the current price -> >20% drawdown from peak
+    last = float(df["close"].iloc[-1])
+    engine._peak_price = last * 1.5
+
+    signal = engine.generate_signal(df)
+
+    assert signal["signal"] == "SELL"
+    assert "Trailing stop" in signal["reason"]
