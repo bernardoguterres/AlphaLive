@@ -166,6 +166,78 @@ def should_run_signal_check(timeframe: str, last_check_time: float) -> bool:
     return time_since_last >= (interval_minutes * 60 - 35)  # -35s for timing slop
 
 
+def _build_screener():
+    """Build the monthly Greenblatt screener from env vars, or None if unset.
+
+    SCREENER_UNIVERSE: comma-separated tickers (required to enable)
+    SCREENER_OUTPUT_PATH: output JSON path (default screener_output.json,
+        same env var the dashboard reads)
+    SCREENER_TOP_N: candidates to keep (default 15)
+    """
+    universe_env = os.getenv("SCREENER_UNIVERSE", "").strip()
+    if not universe_env:
+        logger.info("Monthly screener disabled (SCREENER_UNIVERSE not set)")
+        return None
+    universe = [t.strip().upper() for t in universe_env.split(",") if t.strip()]
+    if not universe:
+        return None
+
+    from alphalive.screener.fundamental_screener import FundamentalScreener
+
+    screener = FundamentalScreener(
+        universe=universe,
+        output_path=os.getenv("SCREENER_OUTPUT_PATH", "screener_output.json"),
+        top_n=int(os.getenv("SCREENER_TOP_N", "15")),
+    )
+    logger.info(
+        f"Monthly screener enabled | universe: {len(universe)} tickers | "
+        f"top_n: {screener.top_n} | output: {screener.output_path}"
+    )
+    return screener
+
+
+def _run_monthly_screener(screener, bot_state, notifier, now_et: datetime) -> None:
+    """Run the Greenblatt screen once per calendar month.
+
+    Month-keyed via BotState rather than day-of-month: the 30s main loop
+    would otherwise re-run the full yfinance screen every iteration on the
+    1st, and skip the month entirely if the bot was down that day. The
+    screener output is informational (dashboard panel + candidate list for
+    AlphaLab backtesting) - a failure alerts and skips to next month rather
+    than retrying every 30 seconds.
+    """
+    if screener is None:
+        return
+    month_key = now_et.strftime("%Y-%m")
+    if bot_state.get_last_screener_month() == month_key:
+        return
+
+    logger.info(f"Running monthly Greenblatt screener for {month_key}...")
+    bot_state.set_last_screener_month(month_key)
+    try:
+        candidates = screener.run()
+    except Exception as e:
+        logger.error(f"Monthly screener failed: {e}", exc_info=True)
+        notifier.send_error_alert(
+            f"Monthly Greenblatt screener failed: {e}. "
+            f"Will retry next month; run screener.run() manually if needed."
+        )
+        return
+
+    top = candidates[:5]
+    lines = "\n".join(
+        f"  {i}. {c.ticker} (rank {c.combined_rank}, EY {c.earnings_yield:.1%}, "
+        f"ROE {c.return_on_equity:.1%})"
+        for i, c in enumerate(top, 1)
+    )
+    notifier.send_message(
+        f"📋 <b>Monthly Greenblatt Screen</b> ({month_key})\n\n"
+        f"{len(candidates)} candidates selected. Top {len(top)}:\n{lines}\n\n"
+        f"Backtest candidates in AlphaLab before deploying.",
+        parse_mode="HTML",
+    )
+
+
 def _wire_min_hold_checkers(
     all_strategy_configs: list, signal_engine_map: dict, bot_state
 ) -> None:
@@ -998,6 +1070,9 @@ def main(
     # Gate greenblatt_weekly's opt-in exits on the minimum holding period.
     _wire_min_hold_checkers(all_strategy_configs, signal_engine_map, bot_state)
 
+    # Monthly Greenblatt screener (None unless SCREENER_UNIVERSE is set).
+    screener = _build_screener()
+
     # 5. Initialize Telegram command listener
     # Polls for inbound commands (/status, /pause, /resume, etc.) on background thread
     # NOTE: For multi-strategy mode, uses first strategy's components
@@ -1161,6 +1236,11 @@ def main(
                 logger.info(
                     f"=== New trading day: {current_day} ({now_et.strftime('%A')}) ==="
                 )
+
+            # --- Monthly Greenblatt screener (no-op unless a new month) ---
+            # Runs even when trading is paused/market closed - it's
+            # informational (dashboard + AlphaLab candidate list), not execution.
+            _run_monthly_screener(screener, bot_state, notifier, now_et)
 
             # --- Dashboard kill switch (checked every loop iteration) ---
             if bot_state.check_dashboard_paused():

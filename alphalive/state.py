@@ -275,6 +275,15 @@ class BotState:
         """Return the persisted open-position ledger: {ticker: {qty, entry_price, opened_at}}."""
         return dict(self.state.get("open_positions", {}))
 
+    def get_last_screener_month(self) -> Optional[str]:
+        """Return the YYYY-MM month the monthly screener last ran, or None."""
+        return self.state.get("last_screener_month")
+
+    def set_last_screener_month(self, month: str):
+        """Record that the monthly screener ran for the given YYYY-MM month."""
+        self.state["last_screener_month"] = month
+        self.save()
+
     def save_engine_state(self, ticker: str, engine_state: dict):
         """Persist a SignalEngine's stateful fields (in_position/entry/peak).
 

@@ -479,3 +479,14 @@ def test_engine_state_missing_key_in_old_state_file(temp_state_file):
     assert state.get_engine_state("AAPL") is None
     state.save_engine_state("AAPL", {"in_position": False})
     assert state.get_engine_state("AAPL") == {"in_position": False}
+
+
+def test_last_screener_month_roundtrip(temp_state_file):
+    state = BotState(temp_state_file)
+    assert state.get_last_screener_month() is None
+
+    state.set_last_screener_month("2026-07")
+    assert state.get_last_screener_month() == "2026-07"
+
+    reloaded = BotState(temp_state_file)
+    assert reloaded.get_last_screener_month() == "2026-07"
