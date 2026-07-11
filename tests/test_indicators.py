@@ -155,29 +155,34 @@ def test_atr_calculation():
 
 
 def test_vwap_calculation():
-    """Test VWAP calculation."""
+    """VWAP is ROLLING over `period` bars, matching AlphaLab.
+
+    (Was cumulative-from-start until 2026-07-10 - a parity bug: a cumulative
+    VWAP drifts far below spot over long histories and starved vwap_reversion
+    of signals.)
+    """
     data = {
-        'high': [102.0, 104.0, 103.0],
-        'low': [98.0, 96.0, 97.0],
-        'close': [100.0, 100.0, 100.0],
-        'volume': [1000, 2000, 1500]
+        'high': [102.0, 104.0, 103.0, 105.0],
+        'low': [98.0, 96.0, 97.0, 99.0],
+        'close': [100.0, 100.0, 100.0, 102.0],
+        'volume': [1000, 2000, 1500, 1200]
     }
     df = pd.DataFrame(data)
 
-    df = add_vwap(df)
+    df = add_vwap(df, period=2)
 
-    # Should have VWAP column
     assert 'vwap' in df.columns
 
-    # First row should have VWAP
-    assert not pd.isna(df['vwap'].iloc[0])
+    # Rolling window: first period-1 rows are NaN
+    assert pd.isna(df['vwap'].iloc[0])
+    assert not pd.isna(df['vwap'].iloc[1])
 
-    # VWAP should be volume-weighted average of typical price
-    # Typical price = (high + low + close) / 3
+    # VWAP = rolling volume-weighted average of typical price
     typical_price = (df['high'] + df['low'] + df['close']) / 3
-    cumulative_tp_volume = (typical_price * df['volume']).cumsum()
-    cumulative_volume = df['volume'].cumsum()
-    expected_vwap = cumulative_tp_volume / cumulative_volume
+    expected_vwap = (
+        (typical_price * df['volume']).rolling(2).sum()
+        / df['volume'].rolling(2).sum()
+    )
 
     assert df['vwap'].iloc[-1] == pytest.approx(expected_vwap.iloc[-1], abs=0.01)
 

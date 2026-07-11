@@ -965,14 +965,39 @@ def _restore_setup(sample_strategy_config, ledger=None, saved=None, position_hig
 
 def test_restore_engine_states_no_ledger_position_forces_flat(sample_strategy_config):
     """Saved in-position state with no ledger position (closed while bot was
-    down) must be discarded, not restored."""
+    down) must be sanitized to flat - but position-free bookkeeping (vwap
+    cooldown counters) survives the restart."""
     engine, bot_state = _restore_setup(
         sample_strategy_config,
         ledger={},
-        saved={"in_position": True, "entry_price": 150.0, "peak_price": 160.0},
+        saved={"in_position": True, "entry_price": 150.0, "peak_price": 160.0,
+               "vwap_position": 0, "vwap_bars_since_signal": 2},
     )
-    engine.restore_state.assert_not_called()
-    bot_state.clear_engine_state.assert_called_once_with(sample_strategy_config.ticker)
+    restored = engine.restore_state.call_args[0][0]
+    assert restored["in_position"] is False
+    assert restored["entry_price"] == 0.0
+    assert restored["vwap_bars_since_signal"] == 2  # bookkeeping preserved
+    bot_state.save_engine_state.assert_called_once()
+
+
+def test_restore_engine_states_vwap_long_without_ledger_reset(sample_strategy_config):
+    """vwap_position=1 implies a long the broker doesn't have - reset it;
+    a short bookkeeping state (-1) implies no position and is kept."""
+    engine, bot_state = _restore_setup(
+        sample_strategy_config,
+        ledger={},
+        saved={"in_position": False, "vwap_position": 1, "vwap_bars_since_signal": 5},
+    )
+    restored = engine.restore_state.call_args[0][0]
+    assert restored["vwap_position"] == 0
+
+    engine2, _ = _restore_setup(
+        sample_strategy_config,
+        ledger={},
+        saved={"in_position": False, "vwap_position": -1, "vwap_bars_since_signal": 5},
+    )
+    restored2 = engine2.restore_state.call_args[0][0]
+    assert restored2["vwap_position"] == -1  # short bookkeeping survives
 
 
 def test_restore_engine_states_ledger_and_saved_state_restores(sample_strategy_config):

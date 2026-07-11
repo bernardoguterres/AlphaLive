@@ -615,6 +615,8 @@ def test_get_state_defaults_flat(sample_strategy_dict):
         "in_position": False,
         "entry_price": 0.0,
         "peak_price": 0.0,
+        "vwap_position": 0,
+        "vwap_bars_since_signal": 10**9,
     }
 
 

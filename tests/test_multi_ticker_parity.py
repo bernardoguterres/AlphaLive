@@ -21,6 +21,8 @@ from datetime import datetime
 import pandas as pd
 import pytest
 
+import os
+
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -110,8 +112,23 @@ def run_parity_check(ticker: str, strategy_name: str, params: dict) -> dict:
 # Parametrize over all ticker × strategy combinations
 @pytest.mark.parametrize("ticker", TICKERS)
 @pytest.mark.parametrize("strat", STRATEGIES, ids=[s["name"] for s in STRATEGIES])
-def test_signal_parity(ticker, strat):
-    """All strategies must produce identical signals on real SPY and MSFT data."""
+def test_signal_parity(ticker, strat, monkeypatch):
+    """All strategies must produce identical signals on real SPY and MSFT data.
+
+    Bear-market filter handling differs by oracle provenance:
+    - vwap_reversion's expected CSVs are generated from ALPHALAB (the true
+      oracle, regenerated 2026-07-10 after the rolling-VWAP + stateful
+      rewrite), which has no bear filter - so the filter is disabled.
+    - The other strategies' expected CSVs are historical snapshots taken
+      WITH AlphaLive's filter active (self-referential - they verify
+      no-regression, not true AlphaLab parity). Regenerating them from
+      AlphaLab is tracked as follow-up work; until then the filter stays
+      on to match how they were captured.
+    """
+    monkeypatch.setenv(
+        "ENABLE_BEAR_MARKET_FILTER",
+        "false" if strat["name"] == "vwap_reversion" else "true",
+    )
     result = run_parity_check(ticker, strat["name"], strat["params"])
     assert result["mismatches"] == 0, (
         f"{strat['name']} on {ticker}: {result['mismatches']} mismatches. "

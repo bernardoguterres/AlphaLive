@@ -139,16 +139,27 @@ def add_adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
         return df
 
 
-def add_vwap(df: pd.DataFrame) -> pd.DataFrame:
-    """Add cumulative vwap column. Cumulative from start of data; NaN on zero-volume rows."""
+def add_vwap(df: pd.DataFrame, period: int = 20) -> pd.DataFrame:
+    """Add ROLLING vwap column over `period` bars, matching AlphaLab.
+
+    Was cumulative-from-start-of-loaded-history until 2026-07-10 - a signal
+    parity bug: after years of uptrend a cumulative VWAP sits far below spot,
+    so vwap_reversion's `close < vwap - 2*std` entry almost never fired live
+    (4 candidate bars in 5y of SPY vs ~13 AlphaLab round trips), and the
+    value even depended on how many lookback bars were fetched. The C1
+    parity fixtures (500 bars, 2022-2023) produced ~no signals under either
+    definition, so zero-matched-zero and the divergence passed unnoticed.
+    """
     try:
         # Typical price
         typical_price = (df["high"] + df["low"] + df["close"]) / 3
 
-        # VWAP = cumulative(typical_price * volume) / cumulative(volume)
-        df["vwap"] = (typical_price * df["volume"]).cumsum() / df["volume"].cumsum()
+        # Rolling VWAP = sum(tp * volume, period) / sum(volume, period)
+        df["vwap"] = (typical_price * df["volume"]).rolling(period).sum() / df[
+            "volume"
+        ].rolling(period).sum()
 
-        logger.debug("Added VWAP")
+        logger.debug(f"Added rolling VWAP ({period} bars)")
         return df
     except Exception as e:
         logger.error(f"Failed to calculate VWAP: {e}")
@@ -229,10 +240,14 @@ def _indicators_bollinger_breakout(
 def _indicators_vwap_reversion(
     df: pd.DataFrame, params: Dict[str, Any]
 ) -> pd.DataFrame:
-    df = add_vwap(df)
+    # AlphaLab uses vwap_period for BOTH the rolling VWAP window and the
+    # deviation-std window - mirror that (vwap_std_period kept as an override
+    # for backward compatibility with existing configs).
+    vwap_period = params.get("vwap_period", 20)
+    df = add_vwap(df, period=vwap_period)
     rsi_period = params.get("rsi_period", 14)
     df = add_rsi(df, rsi_period)
-    vwap_std_period = params.get("vwap_std_period", 20)
+    vwap_std_period = params.get("vwap_std_period", vwap_period)
     df["vwap_std"] = (df["close"] - df["vwap"]).rolling(window=vwap_std_period).std()
     logger.debug(
         f"Added indicators for vwap_reversion: VWAP, RSI_{rsi_period}, vwap_std_{vwap_std_period}"
