@@ -300,15 +300,26 @@ def _restore_engine_states(
         ledger_entry = bot_state.get_open_positions().get(ticker)
 
         if ledger_entry is None:
-            if saved and saved.get("in_position"):
-                logger.warning(
-                    f"Engine state for {ticker} said in-position but the ledger "
-                    f"has no position - resetting engine to flat."
-                )
-                bot_state.clear_engine_state(ticker)
+            # No broker position. Long-implying state must be cleared, but
+            # position-free bookkeeping (vwap short/cooldown counters) is
+            # legitimate while flat and must survive the restart.
+            if saved:
+                sanitized = dict(saved)
+                if sanitized.get("in_position") or sanitized.get("vwap_position") == 1:
+                    logger.warning(
+                        f"Engine state for {ticker} implied a long position but "
+                        f"the ledger has none - resetting position fields."
+                    )
+                    sanitized.update(
+                        {"in_position": False, "entry_price": 0.0, "peak_price": 0.0}
+                    )
+                    if sanitized.get("vwap_position") == 1:
+                        sanitized["vwap_position"] = 0
+                engine.restore_state(sanitized)
+                bot_state.save_engine_state(ticker, engine.get_state())
             continue
 
-        if saved and saved.get("in_position"):
+        if saved and (saved.get("in_position") or saved.get("vwap_position") == 1):
             engine.restore_state(saved)
         else:
             entry_price = ledger_entry.get("entry_price", 0.0)
@@ -317,9 +328,14 @@ def _restore_engine_states(
                 f"Ledger holds {ticker} but no saved engine state - rebuilding "
                 f"from ledger (entry ${entry_price:.2f}, peak ${peak:.2f})."
             )
-            engine.restore_state(
-                {"in_position": True, "entry_price": entry_price, "peak_price": peak}
-            )
+            rebuilt = {
+                "in_position": True,
+                "entry_price": entry_price,
+                "peak_price": peak,
+            }
+            if strategy_config.strategy.name == "vwap_reversion":
+                rebuilt["vwap_position"] = 1
+            engine.restore_state(rebuilt)
         bot_state.save_engine_state(ticker, engine.get_state())
 
 

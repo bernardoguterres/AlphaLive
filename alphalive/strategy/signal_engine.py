@@ -12,6 +12,7 @@ Expected: <0.5s for 200 bars on Railway's shared vCPU
 """
 
 import logging
+import os
 import time
 from typing import Callable, Dict, Any, Optional
 
@@ -46,6 +47,13 @@ class SignalEngine:
         self._in_position = False
         self._entry_price: float = 0.0
         self._peak_price: float = 0.0  # for greenblatt_weekly trailing stop
+
+        # vwap_reversion state machine (mirrors AlphaLab's position/cooldown
+        # bookkeeping exactly; rewritten 2026-07-10 - was stateless, which
+        # re-emitted entries every bar and never emitted the VWAP-return exit)
+        self._vwap_position: int = 0  # 0=flat, 1=long, -1=short (bookkeeping)
+        self._vwap_bars_since_signal: int = 10**9  # large = no cooldown at start
+        self._is_new_bar: bool = True  # set per generate_signal() call
 
         # Minimum-hold gate for greenblatt_weekly's opt-in exits. Wired by
         # main.py to BotState.is_min_hold_met(); zero-arg, returns True when
@@ -89,6 +97,8 @@ class SignalEngine:
             "in_position": self._in_position,
             "entry_price": self._entry_price,
             "peak_price": self._peak_price,
+            "vwap_position": self._vwap_position,
+            "vwap_bars_since_signal": self._vwap_bars_since_signal,
         }
 
     def restore_state(self, state: Optional[Dict[str, Any]]) -> None:
@@ -98,6 +108,10 @@ class SignalEngine:
         self._in_position = bool(state.get("in_position", False))
         self._entry_price = float(state.get("entry_price", 0.0) or 0.0)
         self._peak_price = float(state.get("peak_price", 0.0) or 0.0)
+        self._vwap_position = int(state.get("vwap_position", 0) or 0)
+        self._vwap_bars_since_signal = int(
+            state.get("vwap_bars_since_signal", 10**9) or 10**9
+        )
         if self._in_position:
             logger.info(
                 f"Signal engine state restored | {self.strategy_name}: in position "
@@ -143,11 +157,15 @@ class SignalEngine:
 
         # Add indicators - skip if the last bar and row count are unchanged
         last_ts = df.index[-1] if len(df.index) else None
-        if (
+        cache_hit = (
             self._cached_df is not None
             and last_ts == self._cached_last_ts
             and len(df) == self._cached_df_len
-        ):
+        )
+        # New-bar flag for stateful bar counting (vwap_reversion cooldown):
+        # repeat checks on the same bar must not advance the count.
+        self._is_new_bar = not cache_hit
+        if cache_hit:
             df = self._cached_df
         else:
             try:
@@ -565,21 +583,36 @@ class SignalEngine:
 
     def _vwap_reversion_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
-        VWAP Mean Reversion Strategy.
+        VWAP Mean Reversion Strategy - stateful, mirroring AlphaLab exactly.
 
-        BUY: Price < VWAP - (deviation_threshold * std) AND RSI < oversold
-        SELL: Price > VWAP + (deviation_threshold * std) AND RSI > overbought
-        Confidence: Based on deviation magnitude
+        State machine (position bookkeeping, matches AlphaLab bar-for-bar):
+          flat:  BUY  when close < VWAP - dev*std AND RSI < oversold  -> long
+                 SELL when close > VWAP + dev*std AND RSI > overbought -> short*
+          long:  SELL when close >= VWAP (mean-reversion target reached)
+          short: BUY  when close <= VWAP
+        A cooldown of `cooldown_days` bars follows every signal.
 
-        AlphaLab Parity: VWAP and std calculation must match exactly.
+        *Short entries are signal bookkeeping only - live execution is
+        long-only (OrderManager blocks SELLs with no position) - but the
+        state machine must track them or every subsequent signal diverges
+        from the AlphaLab backtest.
+
+        Rewritten 2026-07-10: was a stateless band-crosser (re-emitted
+        entries every bar, no VWAP-return exit, no cooldown) on top of a
+        cumulative VWAP - a different strategy than AlphaLab backtests.
         """
         deviation_threshold = self.params.get("deviation_threshold", 2.0)
         rsi_period = self.params.get("rsi_period", 14)
         oversold = self.params.get("oversold", 30)
         overbought = self.params.get("overbought", 70)
-        vwap_std_period = self.params.get("vwap_std_period", 20)
+        cooldown = self.params.get("cooldown_days", 3)
 
         rsi_col = f"rsi_{rsi_period}"
+
+        # Advance the bar counter once per new bar (repeat same-bar checks
+        # must not consume cooldown).
+        if self._is_new_bar and self._vwap_bars_since_signal < 10**9:
+            self._vwap_bars_since_signal += 1
 
         # Check warmup
         vwap = df["vwap"].iloc[-1]
@@ -588,18 +621,14 @@ class SignalEngine:
 
         if pd.isna(vwap) or pd.isna(vwap_std) or pd.isna(rsi):
             return self._no_signal(
-                f"Warmup incomplete (need {max(vwap_std_period, rsi_period)} bars)",
+                "Warmup incomplete (VWAP/std/RSI not ready)",
                 time.time(),
                 warmup_complete=False,
             )
 
         current_price = df["close"].iloc[-1]
-
-        # Calculate deviation bands
         upper_band = vwap + (deviation_threshold * vwap_std)
         lower_band = vwap - (deviation_threshold * vwap_std)
-
-        # Calculate deviation in standard deviations
         deviation = (current_price - vwap) / vwap_std if vwap_std > 0 else 0
 
         indicators = {
@@ -610,55 +639,84 @@ class SignalEngine:
             "lower_band": lower_band,
             "deviation": deviation,
             rsi_col: rsi,
+            "position": self._vwap_position,
         }
 
-        # Oversold reversion (BUY)
-        if current_price < lower_band and rsi < oversold:
-            confidence = min(1.0, abs(deviation) / (deviation_threshold * 2))
-
-            return {
-                "signal": "BUY",
-                "confidence": confidence,
-                "reason": (
-                    f"VWAP oversold reversion: Price {current_price:.2f} < "
-                    f"VWAP-{deviation_threshold}σ={lower_band:.2f}, "
-                    f"RSI={rsi:.2f} < {oversold}, "
-                    f"Deviation={deviation:.2f}σ"
-                ),
-                "indicators": indicators,
-                "warmup_complete": True,
-            }
-
-        # Overbought reversion (SELL)
-        elif current_price > upper_band and rsi > overbought:
-            confidence = min(1.0, abs(deviation) / (deviation_threshold * 2))
-
-            return {
-                "signal": "SELL",
-                "confidence": confidence,
-                "reason": (
-                    f"VWAP overbought reversion: Price {current_price:.2f} > "
-                    f"VWAP+{deviation_threshold}σ={upper_band:.2f}, "
-                    f"RSI={rsi:.2f} > {overbought}, "
-                    f"Deviation={deviation:.2f}σ"
-                ),
-                "indicators": indicators,
-                "warmup_complete": True,
-            }
-
-        else:
-            # No reversion opportunity
+        def _hold(reason: str) -> Dict[str, Any]:
             return {
                 "signal": "HOLD",
                 "confidence": 0.0,
-                "reason": (
-                    f"No reversion: Price={current_price:.2f}, "
-                    f"VWAP±{deviation_threshold}σ=[{lower_band:.2f}, {upper_band:.2f}], "
-                    f"RSI={rsi:.2f}"
-                ),
+                "reason": reason,
                 "indicators": indicators,
                 "warmup_complete": True,
             }
+
+        def _emit(signal: str, confidence: float, reason: str) -> Dict[str, Any]:
+            self._vwap_bars_since_signal = 0
+            return {
+                "signal": signal,
+                "confidence": confidence,
+                "reason": reason,
+                "indicators": indicators,
+                "warmup_complete": True,
+            }
+
+        # Cooldown - mirrors AlphaLab's `i - last_signal_idx <= cooldown`
+        if self._vwap_bars_since_signal <= cooldown:
+            return _hold(
+                f"Cooldown: {self._vwap_bars_since_signal}/{cooldown} bars since last signal"
+            )
+
+        if self._vwap_position == 0:
+            if current_price < lower_band and rsi < oversold:
+                self._vwap_position = 1
+                return _emit(
+                    "BUY",
+                    min(1.0, (lower_band - current_price) / lower_band * 10),
+                    (
+                        f"VWAP oversold reversion: Price {current_price:.2f} < "
+                        f"VWAP-{deviation_threshold}σ={lower_band:.2f}, "
+                        f"RSI={rsi:.2f} < {oversold}"
+                    ),
+                )
+            if current_price > upper_band and rsi > overbought:
+                self._vwap_position = -1
+                return _emit(
+                    "SELL",
+                    min(1.0, (current_price - upper_band) / upper_band * 10),
+                    (
+                        f"VWAP overbought reversion: Price {current_price:.2f} > "
+                        f"VWAP+{deviation_threshold}σ={upper_band:.2f}, "
+                        f"RSI={rsi:.2f} > {overbought}"
+                    ),
+                )
+            return _hold(
+                f"No entry: deviation {deviation:.2f}σ, RSI {rsi:.1f} "
+                f"(need <{oversold} below -{deviation_threshold}σ or "
+                f">{overbought} above +{deviation_threshold}σ)"
+            )
+
+        if self._vwap_position == 1:
+            if current_price >= vwap:
+                self._vwap_position = 0
+                return _emit(
+                    "SELL",
+                    0.8,
+                    f"Exit long: price {current_price:.2f} returned to VWAP {vwap:.2f}",
+                )
+            return _hold(
+                f"Holding long: price {current_price:.2f} below VWAP {vwap:.2f}"
+            )
+
+        # self._vwap_position == -1
+        if current_price <= vwap:
+            self._vwap_position = 0
+            return _emit(
+                "BUY",
+                0.8,
+                f"Exit short: price {current_price:.2f} returned to VWAP {vwap:.2f}",
+            )
+        return _hold(f"Holding short: price {current_price:.2f} above VWAP {vwap:.2f}")
 
     def _bollinger_rsi_combo_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
@@ -1031,6 +1089,15 @@ class SignalEngine:
 
         Returns False if insufficient data so the filter never blocks during warmup.
         """
+        # Env toggle (default ON). MASTER_PLAN documented this toggle since
+        # 2026-05 but it was never implemented - the filter was always-on.
+        # Parity tests also need it off: the filter is a deliberate
+        # AlphaLive-only overlay, not part of the shared signal logic.
+        if os.environ.get("ENABLE_BEAR_MARKET_FILTER", "true").lower() in (
+            "false", "0", "no",
+        ):
+            return False
+
         # Weekly strategies use slow_sma as the trend filter equivalent of SMA_200
         if self.strategy_name == "greenblatt_weekly":
             slow = self.params.get("slow_sma", 50)
