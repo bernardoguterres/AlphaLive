@@ -1,0 +1,5 @@
+ticker,rank,target_weight,target_shares,price
+AAA,3,0.25,250,100.0
+BBB,1,0.25,500,50.0
+DDD,4,0.25,1000,25.0
+EEE,2,0.25,166,150.0

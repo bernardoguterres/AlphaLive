@@ -22,7 +22,11 @@ from alphalive.strategy_schema import StrategySchema
 @pytest.fixture
 def valid_strategy_dict():
     return json.loads(
-        (__import__("pathlib").Path(__file__).parent.parent / "configs" / "example_strategy.json").read_text()
+        (
+            __import__("pathlib").Path(__file__).parent.parent
+            / "configs"
+            / "example_strategy.json"
+        ).read_text()
     )
 
 
@@ -44,7 +48,9 @@ def test_load_strategy_schema_validation_error_reraises(tmp_path, valid_strategy
         load_strategy(str(bad_file))
 
 
-def test_load_strategies_directory_partial_failure_skips_bad_files(tmp_path, valid_strategy_dict):
+def test_load_strategies_directory_partial_failure_skips_bad_files(
+    tmp_path, valid_strategy_dict
+):
     good_file = tmp_path / "good.json"
     good_file.write_text(json.dumps(valid_strategy_dict))
     bad_file = tmp_path / "bad.json"
@@ -55,7 +61,9 @@ def test_load_strategies_directory_partial_failure_skips_bad_files(tmp_path, val
     assert len(strategies) == 1
 
 
-def test_load_strategies_directory_not_a_directory_raises(tmp_path, valid_strategy_dict):
+def test_load_strategies_directory_not_a_directory_raises(
+    tmp_path, valid_strategy_dict
+):
     file_path = tmp_path / "single.json"
     file_path.write_text(json.dumps(valid_strategy_dict))
 
@@ -81,7 +89,9 @@ def test_app_config_invalid_log_level_raises():
         )
 
 
-def test_validate_all_multi_strategy_prints_risk_scope_section(valid_strategy_dict, capsys):
+def test_validate_all_multi_strategy_prints_risk_scope_section(
+    valid_strategy_dict, capsys
+):
     from alphalive.config import BrokerConfig, TelegramConfig
 
     cfg1 = StrategySchema(**valid_strategy_dict)
@@ -130,3 +140,93 @@ def test_validate_all_accepts_distinct_tickers(valid_strategy_dict):
     )
 
     assert validate_all([cfg1, cfg2], app_config) is True
+
+
+def _portfolio_dict(valid_strategy_dict, tickers, top_n=2):
+    return {
+        "schema_version": "1.0",
+        "strategy": {
+            "name": "greenblatt_portfolio",
+            "top_n": top_n,
+            "rebalance_weeks": 52,
+            "weighting": "equal_weight",
+            "parameters": {},
+        },
+        "tickers": tickers,
+        "timeframe": "1Week",
+        "risk": valid_strategy_dict["risk"],
+        "execution": valid_strategy_dict["execution"],
+        "safety_limits": valid_strategy_dict["safety_limits"],
+        "metadata": valid_strategy_dict["metadata"],
+    }
+
+
+def test_validate_all_accepts_portfolio_strategy_with_no_overlap(valid_strategy_dict):
+    from alphalive.config import BrokerConfig, TelegramConfig
+    from alphalive.portfolio_schema import PortfolioStrategySchema
+
+    single = StrategySchema(**valid_strategy_dict)  # AAPL
+    portfolio = PortfolioStrategySchema(
+        **_portfolio_dict(valid_strategy_dict, ["MSFT", "GOOGL", "META"])
+    )
+
+    app_config = AppConfig(
+        broker=BrokerConfig(api_key="k", secret_key="s"),
+        telegram=TelegramConfig(),
+    )
+
+    assert validate_all([single], app_config, [portfolio]) is True
+
+
+def test_validate_all_rejects_single_ticker_overlap_with_portfolio(valid_strategy_dict):
+    """AAPL traded by both the single-ticker strategy AND inside a portfolio
+    strategy's universe must fail - Alpaca can't attribute fills to either."""
+    from alphalive.config import BrokerConfig, TelegramConfig
+    from alphalive.portfolio_schema import PortfolioStrategySchema
+
+    single = StrategySchema(**valid_strategy_dict)  # AAPL
+    portfolio = PortfolioStrategySchema(
+        **_portfolio_dict(valid_strategy_dict, ["AAPL", "GOOGL", "META"])
+    )
+
+    app_config = AppConfig(
+        broker=BrokerConfig(api_key="k", secret_key="s"),
+        telegram=TelegramConfig(),
+    )
+
+    assert validate_all([single], app_config, [portfolio]) is False
+
+
+def test_validate_all_rejects_overlap_between_two_portfolio_strategies(
+    valid_strategy_dict,
+):
+    from alphalive.config import BrokerConfig, TelegramConfig
+    from alphalive.portfolio_schema import PortfolioStrategySchema
+
+    portfolio1 = PortfolioStrategySchema(
+        **_portfolio_dict(valid_strategy_dict, ["MSFT", "GOOGL", "META"])
+    )
+    d2 = _portfolio_dict(valid_strategy_dict, ["META", "JNJ", "KO"])
+    d2["strategy"]["description"] = "second portfolio"
+    portfolio2 = PortfolioStrategySchema(**d2)
+
+    app_config = AppConfig(
+        broker=BrokerConfig(api_key="k", secret_key="s"),
+        telegram=TelegramConfig(),
+    )
+
+    assert validate_all([], app_config, [portfolio1, portfolio2]) is False
+
+
+def test_validate_all_with_no_portfolio_strategies_is_unaffected(valid_strategy_dict):
+    """Existing callers that don't pass portfolio_strategies at all must see
+    identical behavior to before this feature existed."""
+    from alphalive.config import BrokerConfig, TelegramConfig
+
+    cfg = StrategySchema(**valid_strategy_dict)
+    app_config = AppConfig(
+        broker=BrokerConfig(api_key="k", secret_key="s"),
+        telegram=TelegramConfig(),
+    )
+
+    assert validate_all([cfg], app_config) is True
