@@ -68,17 +68,20 @@ class SignalEngine:
         self._cached_last_ts: Optional[Any] = None
         self._cached_df_len: int = 0
 
-        # Dispatch table - adding a new strategy requires only a new method + one entry here
-        self._dispatch = {
-            "ma_crossover": self._ma_crossover_signal,
-            "rsi_mean_reversion": self._rsi_mean_reversion_signal,
-            "momentum_breakout": self._momentum_breakout_signal,
-            "bollinger_breakout": self._bollinger_breakout_signal,
-            "vwap_reversion": self._vwap_reversion_signal,
-            "bollinger_rsi_combo": self._bollinger_rsi_combo_signal,
-            "trend_adaptive_rsi": self._trend_adaptive_rsi_signal,
-            "greenblatt_weekly": self._greenblatt_weekly_signal,
-        }
+        # Dispatch table, derived from indicators.py's strategy registry rather
+        # than a second hardcoded name list - adding a new strategy means one
+        # @register_strategy_indicators-decorated function in indicators.py
+        # plus one `_{name}_signal` method here, with only one place (the
+        # indicator registry) declaring which strategies exist.
+        self._dispatch: Dict[str, Callable] = {}
+        for name in indicators.registered_strategy_names():
+            handler = getattr(self, f"_{name}_signal", None)
+            if handler is None:
+                raise ValueError(
+                    f"Strategy '{name}' is registered in indicators.py but has "
+                    f"no matching SignalEngine._{name}_signal method"
+                )
+            self._dispatch[name] = handler
 
         logger.info(
             f"Signal engine initialized | Strategy: {self.strategy_name} | "
