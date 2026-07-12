@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 
 from alphalive.migrations import migrate_schema
 from alphalive.strategy_schema import StrategySchema
+from alphalive.portfolio_schema import PortfolioStrategySchema, all_portfolio_tickers
 
 logger = logging.getLogger(__name__)
 
@@ -460,13 +461,20 @@ def load_env() -> AppConfig:
 # =============================================================================
 
 
-def validate_all(strategies: List[StrategySchema], app_config: AppConfig) -> bool:
+def validate_all(
+    strategies: List[StrategySchema],
+    app_config: AppConfig,
+    portfolio_strategies: Optional[List[PortfolioStrategySchema]] = None,
+) -> bool:
     """
     Validate all configurations and print summary.
 
     Args:
-        strategies: List of strategy configurations
+        strategies: List of single-ticker strategy configurations
         app_config: Application configuration
+        portfolio_strategies: Optional list of multi-ticker portfolio
+            strategy configurations (see portfolio_schema.py). Defaults to
+            none, so existing single-ticker-only deployments are unaffected.
 
     Returns:
         True if all valid, False otherwise
@@ -474,6 +482,7 @@ def validate_all(strategies: List[StrategySchema], app_config: AppConfig) -> boo
     Displays:
         Summary table with configuration status for each component
     """
+    portfolio_strategies = portfolio_strategies or []
     logger.info("=" * 80)
     logger.info("ALPHALIVE CONFIGURATION SUMMARY")
     logger.info("=" * 80)
@@ -496,11 +505,25 @@ def validate_all(strategies: List[StrategySchema], app_config: AppConfig) -> boo
             all_valid = False
             errors.append(f"Strategy {i}: {e}")
 
-    # Reject duplicate tickers across strategies. Alpaca merges all fills for
-    # a symbol into ONE account-level position (single qty, single avg entry),
-    # so two strategies on the same ticker cannot be attributed, exits from
+    # Validate portfolio (multi-ticker) strategies, if any.
+    if portfolio_strategies:
+        logger.info(f"\nPORTFOLIO STRATEGIES ({len(portfolio_strategies)} loaded):")
+        for i, ps in enumerate(portfolio_strategies, 1):
+            logger.info(
+                f"[{i}] {ps.strategy.name} | universe={len(ps.tickers)} tickers, "
+                f"top_n={ps.strategy.top_n}, rebalance={ps.strategy.rebalance_weeks}w"
+            )
+
+    # Reject duplicate tickers across strategies (single-ticker AND
+    # portfolio). Alpaca merges all fills for a symbol into ONE
+    # account-level position (single qty, single avg entry), so two
+    # strategies claiming the same ticker cannot be attributed, exits from
     # one would liquidate the other's shares, and the per-ticker engine/risk/
-    # order-manager maps in main.py would silently clobber each other.
+    # order-manager maps in main.py would silently clobber each other. A
+    # portfolio strategy's whole `tickers` universe is claimed, not just
+    # whichever names are in its current top_n ranking - the ranking can
+    # change at each rebalance, and an unranked-today name could be selected
+    # next time (see portfolio_schema.py's all_portfolio_tickers docstring).
     seen_tickers: dict = {}
     for strategy in strategies:
         prior = seen_tickers.get(strategy.ticker)
@@ -517,6 +540,44 @@ def validate_all(strategies: List[StrategySchema], app_config: AppConfig) -> boo
             errors.append(msg)
         else:
             seen_tickers[strategy.ticker] = strategy.strategy.name
+
+    portfolio_claims = all_portfolio_tickers(portfolio_strategies)
+    for ticker, owner in portfolio_claims.items():
+        prior = seen_tickers.get(ticker)
+        if prior is not None and prior != owner:
+            msg = (
+                f"Duplicate ticker {ticker}: single-ticker strategy '{prior}' and "
+                f"portfolio strategy '{owner}' both claim it. Alpaca holds one "
+                f"merged position per symbol - remove the overlap before deploying."
+            )
+            logger.error(msg)
+            all_valid = False
+            errors.append(msg)
+        else:
+            seen_tickers[ticker] = owner
+
+    # Also reject overlap between two portfolio strategies' universes.
+    # NOTE: PortfolioStrategyName is currently a single-value Literal
+    # ("greenblatt_portfolio"), so every portfolio strategy shares the same
+    # .strategy.name - comparing by name would silently treat two distinct
+    # portfolio strategies as "the same one" and miss real overlaps. Use
+    # each strategy's list position (a stable per-call identity) instead.
+    seen_by_portfolio: dict = {}
+    for i, ps in enumerate(portfolio_strategies):
+        label = ps.strategy.description or f"{ps.strategy.name} #{i + 1}"
+        for t in ps.tickers:
+            prior_i, prior_label = seen_by_portfolio.get(t, (None, None))
+            if prior_i is not None and prior_i != i:
+                msg = (
+                    f"Duplicate ticker {t}: portfolio strategies '{prior_label}' and "
+                    f"'{label}' both include it in their universe. "
+                    f"Remove the overlap before deploying."
+                )
+                logger.error(msg)
+                all_valid = False
+                errors.append(msg)
+            else:
+                seen_by_portfolio[t] = (i, label)
 
     # Validate broker
     logger.info(f"\nBROKER:")
@@ -550,14 +611,10 @@ def validate_all(strategies: List[StrategySchema], app_config: AppConfig) -> boo
         logger.info(f"Take Profit: {risk.take_profit_pct}%")
         logger.info(f"Max Position Size: {risk.max_position_size_pct}%")
         logger.info(
-        f"Max Daily Loss: {risk.max_daily_loss_pct}% (GLOBAL across all strategies)"
+            f"Max Daily Loss: {risk.max_daily_loss_pct}% (GLOBAL across all strategies)"
         )
-        logger.info(
-        f"Max Open Positions: {risk.max_open_positions} (PER STRATEGY)"
-        )
-        logger.info(
-        f"Portfolio Max Positions: {risk.portfolio_max_positions} (GLOBAL)"
-        )
+        logger.info(f"Max Open Positions: {risk.max_open_positions} (PER STRATEGY)")
+        logger.info(f"Portfolio Max Positions: {risk.portfolio_max_positions} (GLOBAL)")
 
     # AlphaSignal
     logger.info(f"\nALPHASIGNAL SENTIMENT FILTER:")
