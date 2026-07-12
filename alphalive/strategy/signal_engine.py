@@ -673,6 +673,7 @@ class SignalEngine:
         if self._vwap_position == 0:
             if current_price < lower_band and rsi < oversold:
                 self._vwap_position = 1
+                self._in_position = True
                 return _emit(
                     "BUY",
                     min(1.0, (lower_band - current_price) / lower_band * 10),
@@ -684,6 +685,7 @@ class SignalEngine:
                 )
             if current_price > upper_band and rsi > overbought:
                 self._vwap_position = -1
+                self._in_position = True
                 return _emit(
                     "SELL",
                     min(1.0, (current_price - upper_band) / upper_band * 10),
@@ -702,6 +704,7 @@ class SignalEngine:
         if self._vwap_position == 1:
             if current_price >= vwap:
                 self._vwap_position = 0
+                self._in_position = False
                 return _emit(
                     "SELL",
                     0.8,
@@ -714,6 +717,7 @@ class SignalEngine:
         # self._vwap_position == -1
         if current_price <= vwap:
             self._vwap_position = 0
+            self._in_position = False
             return _emit(
                 "BUY",
                 0.8,
