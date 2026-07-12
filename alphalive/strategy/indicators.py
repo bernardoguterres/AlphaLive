@@ -182,6 +182,35 @@ def add_obv(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
 
+# Single source of truth for which strategies exist. SignalEngine derives its
+# own dispatch table from these same keys (looking up a same-named
+# `_{name}_signal` method) instead of maintaining a second, separately-typed
+# strategy-name list that has to be kept in lockstep by hand - see
+# register_strategy_indicators() below.
+_STRATEGY_INDICATOR_REGISTRY: Dict[str, Any] = {}
+
+
+def register_strategy_indicators(name: str):
+    """Decorator: registers an indicator-computation function under a strategy name.
+
+    Adding a new strategy means adding one function here decorated with
+    this, plus one `_{name}_signal` method on SignalEngine - no separate
+    dispatch dict to keep in sync in either file.
+    """
+
+    def decorator(fn):
+        _STRATEGY_INDICATOR_REGISTRY[name] = fn
+        return fn
+
+    return decorator
+
+
+def registered_strategy_names() -> list:
+    """Strategy names with registered indicator functions, sorted."""
+    return sorted(_STRATEGY_INDICATOR_REGISTRY)
+
+
+@register_strategy_indicators("ma_crossover")
 def _indicators_ma_crossover(df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
     fast_period = params.get("fast_period", 10)
     slow_period = params.get("slow_period", 20)
@@ -193,6 +222,7 @@ def _indicators_ma_crossover(df: pd.DataFrame, params: Dict[str, Any]) -> pd.Dat
     return df
 
 
+@register_strategy_indicators("rsi_mean_reversion")
 def _indicators_rsi_mean_reversion(
     df: pd.DataFrame, params: Dict[str, Any]
 ) -> pd.DataFrame:
@@ -202,6 +232,7 @@ def _indicators_rsi_mean_reversion(
     return df
 
 
+@register_strategy_indicators("momentum_breakout")
 def _indicators_momentum_breakout(
     df: pd.DataFrame, params: Dict[str, Any]
 ) -> pd.DataFrame:
@@ -221,6 +252,7 @@ def _indicators_momentum_breakout(
     return df
 
 
+@register_strategy_indicators("bollinger_breakout")
 def _indicators_bollinger_breakout(
     df: pd.DataFrame, params: Dict[str, Any]
 ) -> pd.DataFrame:
@@ -237,6 +269,7 @@ def _indicators_bollinger_breakout(
     return df
 
 
+@register_strategy_indicators("vwap_reversion")
 def _indicators_vwap_reversion(
     df: pd.DataFrame, params: Dict[str, Any]
 ) -> pd.DataFrame:
@@ -255,6 +288,7 @@ def _indicators_vwap_reversion(
     return df
 
 
+@register_strategy_indicators("bollinger_rsi_combo")
 def _indicators_bollinger_rsi_combo(
     df: pd.DataFrame, params: Dict[str, Any]
 ) -> pd.DataFrame:
@@ -269,6 +303,7 @@ def _indicators_bollinger_rsi_combo(
     return df
 
 
+@register_strategy_indicators("trend_adaptive_rsi")
 def _indicators_trend_adaptive_rsi(
     df: pd.DataFrame, params: Dict[str, Any]
 ) -> pd.DataFrame:
@@ -282,6 +317,7 @@ def _indicators_trend_adaptive_rsi(
     return df
 
 
+@register_strategy_indicators("greenblatt_weekly")
 def _indicators_greenblatt_weekly(
     df: pd.DataFrame, params: Dict[str, Any]
 ) -> pd.DataFrame:
@@ -297,19 +333,6 @@ def _indicators_greenblatt_weekly(
         f"Added indicators for greenblatt_weekly: SMA_{fast_sma}, SMA_{slow_sma}, RSI_{rsi_period}"
     )
     return df
-
-
-# Dispatch table - adding a new strategy requires only a new _indicators_* function + one entry here
-_STRATEGY_INDICATOR_DISPATCH: Dict[str, Any] = {
-    "ma_crossover": _indicators_ma_crossover,
-    "rsi_mean_reversion": _indicators_rsi_mean_reversion,
-    "momentum_breakout": _indicators_momentum_breakout,
-    "bollinger_breakout": _indicators_bollinger_breakout,
-    "vwap_reversion": _indicators_vwap_reversion,
-    "bollinger_rsi_combo": _indicators_bollinger_rsi_combo,
-    "trend_adaptive_rsi": _indicators_trend_adaptive_rsi,
-    "greenblatt_weekly": _indicators_greenblatt_weekly,
-}
 
 
 def add_all_for_strategy(
@@ -336,11 +359,11 @@ def add_all_for_strategy(
     Performance:
         Expected <0.3s for 200 bars on Railway.
     """
-    handler = _STRATEGY_INDICATOR_DISPATCH.get(strategy_name)
+    handler = _STRATEGY_INDICATOR_REGISTRY.get(strategy_name)
     if handler is None:
         raise ValueError(
             f"Unknown strategy: {strategy_name}. "
-            f"Supported: {', '.join(sorted(_STRATEGY_INDICATOR_DISPATCH))}"
+            f"Supported: {', '.join(registered_strategy_names())}"
         )
 
     df = df.copy()
