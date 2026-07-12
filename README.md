@@ -355,7 +355,7 @@ AlphaLive is a production-grade trading bot with:
 
 ### Test Suite
 
-534 tests, 91% coverage.
+563 tests, 92% coverage.
 
 ```bash
 pytest tests/ -v --cov=alphalive
