@@ -4,7 +4,7 @@
     "name": "momentum_breakout",
     "parameters": {
       "lookback": 20,
-      "volume_surge_pct": 150,
+      "surge_pct": 1.5,
       "rsi_min": 50,
       "stop_loss_atr_mult": 2.0,
       "trailing_stop_atr_mult": 3.0,

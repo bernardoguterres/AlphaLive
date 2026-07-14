@@ -2,6 +2,7 @@
 Test Configuration Loading and Validation
 """
 
+import copy
 import json
 import os
 import tempfile
@@ -127,13 +128,15 @@ def test_backward_compatibility_safety_limits():
 def test_load_multiple_strategies_from_directory(sample_strategy_dict):
     """Test loading multiple strategy JSON files from a directory."""
     with tempfile.TemporaryDirectory() as temp_dir:
-        # Create two strategy files
-        strategy1 = sample_strategy_dict.copy()
+        # Create two strategy files (deepcopy - sample_strategy_dict's nested
+        # "strategy" dict must not be shared between the two copies)
+        strategy1 = copy.deepcopy(sample_strategy_dict)
         strategy1["ticker"] = "AAPL"
 
-        strategy2 = sample_strategy_dict.copy()
+        strategy2 = copy.deepcopy(sample_strategy_dict)
         strategy2["ticker"] = "TSLA"
         strategy2["strategy"]["name"] = "rsi_mean_reversion"
+        strategy2["strategy"]["parameters"] = {"period": 14, "oversold": 30, "overbought": 70}
 
         with open(Path(temp_dir) / "strategy1.json", 'w') as f:
             json.dump(strategy1, f)

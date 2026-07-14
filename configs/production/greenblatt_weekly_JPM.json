@@ -9,7 +9,7 @@
       "rsi_oversold": 35,
       "rsi_overbought": 65,
       "min_hold_bars": 52,
-      "trailing_stop_pct": 0.2,
+      "trailing_stop_fraction": 0.2,
       "exit_rsi_overbought": false,
       "exit_sma_cross": false
     },

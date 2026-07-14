@@ -657,7 +657,7 @@ def test_restored_peak_drives_trailing_stop(sample_strategy_dict):
     pre-restart peak, not off whatever price the bot sees post-restart."""
     engine = _make_engine(
         sample_strategy_dict,
-        params={"fast_sma": 10, "slow_sma": 50, "trailing_stop_pct": 0.20},
+        params={"fast_sma": 10, "slow_sma": 50, "trailing_stop_fraction": 0.20},
     )
     # Simulate restart mid-position: entry 100, peak 200 before the restart
     engine.restore_state(
@@ -704,7 +704,7 @@ def _greenblatt_engine_in_position(sample_strategy_dict, df):
         sample_strategy_dict,
         params={
             "fast_sma": 10, "slow_sma": 50, "rsi_overbought": 65,
-            "trailing_stop_pct": 0.20, "exit_rsi_overbought": True,
+            "trailing_stop_fraction": 0.20, "exit_rsi_overbought": True,
         },
     )
     last = float(df["close"].iloc[-1])

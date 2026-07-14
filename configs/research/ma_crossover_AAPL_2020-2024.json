@@ -3,8 +3,8 @@
   "strategy": {
     "name": "ma_crossover",
     "parameters": {
-      "short_window": 20,
-      "long_window": 50,
+      "fast_period": 20,
+      "slow_period": 50,
       "volume_confirmation": false,
       "volume_avg_period": 20,
       "min_separation_pct": 0.0,

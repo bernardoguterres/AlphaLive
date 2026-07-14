@@ -3,8 +3,8 @@
   "strategy": {
     "name": "bollinger_breakout",
     "parameters": {
-      "bb_period": 20,
-      "bb_std_dev": 2.0,
+      "period": 20,
+      "std_dev": 2.0,
       "confirmation_bars": 2,
       "volume_filter": true,
       "volume_threshold": 1.5,
