@@ -40,7 +40,7 @@ STRATEGY_PARAMS = {
     "rsi_oversold": 35,
     "rsi_overbought": 65,
     "min_hold_bars": 52,
-    "trailing_stop_pct": 0.20,
+    "trailing_stop_fraction": 0.20,
     "exit_rsi_overbought": False,
     "exit_sma_cross": False,
 }

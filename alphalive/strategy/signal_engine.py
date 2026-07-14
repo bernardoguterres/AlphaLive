@@ -953,7 +953,7 @@ class SignalEngine:
         slow_sma = p.get("slow_sma", 50)
         rsi_oversold = p.get("rsi_oversold", 35)
         rsi_overbought = p.get("rsi_overbought", 65)
-        trailing_stop_pct = p.get("trailing_stop_pct", 0.20)
+        trailing_stop_fraction = p.get("trailing_stop_fraction", 0.20)
         exit_rsi = p.get("exit_rsi_overbought", False)
         exit_sma = p.get("exit_sma_cross", False)
 
@@ -993,7 +993,7 @@ class SignalEngine:
 
         # --- EXIT logic ---
         if self._in_position:
-            trailing_stop_level = self._peak_price * (1 - trailing_stop_pct)
+            trailing_stop_level = self._peak_price * (1 - trailing_stop_fraction)
             if price_now <= trailing_stop_level:
                 self._in_position = False
                 self._entry_price = 0.0
@@ -1003,7 +1003,7 @@ class SignalEngine:
                     "confidence": 0.95,
                     "reason": (
                         f"Trailing stop: {price_now:.2f} ≤ {trailing_stop_level:.2f} "
-                        f"({trailing_stop_pct:.0%} below peak {self._peak_price:.2f})"
+                        f"({trailing_stop_fraction:.0%} below peak {self._peak_price:.2f})"
                     ),
                     "indicators": indicators_out,
                     "warmup_complete": True,
@@ -1076,7 +1076,7 @@ class SignalEngine:
             "confidence": 0.0,
             "reason": (
                 f"Holding: RSI={rsi_now:.1f}, peak={self._peak_price:.2f}, "
-                f"stop={self._peak_price*(1-trailing_stop_pct):.2f}"
+                f"stop={self._peak_price*(1-trailing_stop_fraction):.2f}"
                 if self._in_position
                 else f"No entry: RSI={rsi_now:.1f}, SMA{fast_sma}={fast_now:.2f} vs SMA{slow_sma}={slow_now:.2f}"
             ),

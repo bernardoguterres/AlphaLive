@@ -5,6 +5,7 @@ Test full workflows with multiple components working together.
 All external dependencies (broker, telegram, market data) are mocked.
 """
 
+import copy
 import os
 import pytest
 from unittest.mock import Mock, patch
@@ -189,14 +190,17 @@ def test_multiple_strategies_loaded_and_processed(sample_strategy_dict, mock_bro
     """Test multiple strategies loaded and processed."""
     from alphalive.strategy_schema import StrategySchema
 
-    # Create two strategies
-    strategy1_dict = sample_strategy_dict.copy()
+    # Create two strategies (deepcopy - sample_strategy_dict's nested "strategy"
+    # dict must not be shared, or mutating one copy's name/parameters mutates
+    # the other's too)
+    strategy1_dict = copy.deepcopy(sample_strategy_dict)
     strategy1_dict["ticker"] = "AAPL"
     strategy1_dict["strategy"]["name"] = "ma_crossover"
 
-    strategy2_dict = sample_strategy_dict.copy()
+    strategy2_dict = copy.deepcopy(sample_strategy_dict)
     strategy2_dict["ticker"] = "TSLA"
     strategy2_dict["strategy"]["name"] = "rsi_mean_reversion"
+    strategy2_dict["strategy"]["parameters"] = {"period": 14, "oversold": 30, "overbought": 70}
 
     strategy1 = StrategySchema(**strategy1_dict)
     strategy2 = StrategySchema(**strategy2_dict)
