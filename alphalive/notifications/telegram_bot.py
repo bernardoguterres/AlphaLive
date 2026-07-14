@@ -16,7 +16,20 @@ from typing import Optional, Dict, Any
 
 import httpx
 
+from alphalive.utils.retry import RetryDecision, RetryOutcome, retry_with_backoff
+
 logger = logging.getLogger(__name__)
+
+
+class _TelegramAPIError(Exception):
+    """Internal: raised by _post_once() when Telegram returns a non-200
+    status, so the shared retry_with_backoff() loop can drive retries.
+    Never escapes _send_now() - callers only see the True/False return."""
+
+    def __init__(self, status_code: int, body: str):
+        self.status_code = status_code
+        self.body = body
+        super().__init__(f"{status_code} - {body}")
 
 
 class TelegramNotifier:
@@ -172,66 +185,51 @@ class TelegramNotifier:
                 logger.info("Attempting background Telegram retry (10min elapsed)")
                 self.last_retry_attempt = current_time
 
-        # Try sending with retries
-        max_retries = 3
-        backoff = 1  # Start with 1 second
+        def _post_once() -> httpx.Response:
+            payload = {
+                "chat_id": self.chat_id,
+                "text": text,
+                "parse_mode": parse_mode
+            }
+            response = httpx.post(self.api_url, json=payload, timeout=10.0)
+            if response.status_code != 200:
+                # Not a raise-for-status HTTP client error - raise our own
+                # exception so the shared retry loop treats a non-200
+                # response as retryable, same as a transport exception.
+                raise _TelegramAPIError(response.status_code, response.text[:100])
+            return response
 
-        for attempt in range(1, max_retries + 1):
-            try:
-                payload = {
-                    "chat_id": self.chat_id,
-                    "text": text,
-                    "parse_mode": parse_mode
-                }
-
-                response = httpx.post(
-                    self.api_url,
-                    json=payload,
-                    timeout=10.0
+        def _classify(e: Exception) -> RetryOutcome:
+            if isinstance(e, _TelegramAPIError):
+                return RetryOutcome(
+                    RetryDecision.RETRY,
+                    log_message=f"Telegram API error: {e.status_code} - {e.body}",
                 )
+            return RetryOutcome(RetryDecision.RETRY, log_message=f"Telegram send failed: {e}")
 
-                if response.status_code == 200:
-                    # Success
-                    if self.telegram_offline:
-                        logger.info("✅ Telegram connection restored")
-                        self.telegram_offline = False
-
-                    self.consecutive_failures = 0
-                    logger.debug("Telegram message sent successfully")
-                    return True
-                else:
-                    logger.warning(
-                        f"Telegram API error (attempt {attempt}/{max_retries}): "
-                        f"{response.status_code} - {response.text[:100]}"
-                    )
-
-                    if attempt < max_retries:
-                        time.sleep(backoff)
-                        backoff *= 2  # Exponential backoff: 1s, 2s, 4s
-                    else:
-                        # All retries exhausted
-                        self.consecutive_failures += 1
-
-            except Exception as e:
-                logger.error(
-                    f"Telegram send failed (attempt {attempt}/{max_retries}): {e}"
-                )
-
-                if attempt < max_retries:
-                    time.sleep(backoff)
-                    backoff *= 2
-                else:
-                    # All retries exhausted
-                    self.consecutive_failures += 1
-
-        # All retries failed
-        if self.consecutive_failures >= 3 and not self.telegram_offline:
-            self.telegram_offline = True
-            logger.critical(
-                "🚨 Telegram offline - trading continues but alerts lost"
+        try:
+            # Max 3 retries with exponential backoff (1s, 2s, 4s).
+            retry_with_backoff(
+                _post_once, classify=_classify, max_retries=3, base_delay=1.0
             )
+        except Exception:
+            # All retries failed
+            self.consecutive_failures += 1
+            if self.consecutive_failures >= 3 and not self.telegram_offline:
+                self.telegram_offline = True
+                logger.critical(
+                    "🚨 Telegram offline - trading continues but alerts lost"
+                )
+            return False
 
-        return False
+        # Success
+        if self.telegram_offline:
+            logger.info("✅ Telegram connection restored")
+            self.telegram_offline = False
+
+        self.consecutive_failures = 0
+        logger.debug("Telegram message sent successfully")
+        return True
 
     def send_startup_notification(self, strategy_name: str, ticker: str, config: Dict[str, Any]):
         """

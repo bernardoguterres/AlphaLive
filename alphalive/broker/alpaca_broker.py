@@ -30,6 +30,7 @@ from alphalive.broker.base_broker import (
     RateLimitError,
     OrderError,
 )
+from alphalive.utils.retry import RetryDecision, RetryOutcome, retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -665,6 +666,53 @@ class AlpacaBroker(BaseBroker):
             logger.error(f"{error_context}: {e}", exc_info=True)
             raise error_cls(f"{error_context}: {e}") from e
 
+    @staticmethod
+    def _classify_retry_error(e: Exception) -> RetryOutcome:
+        """Classify an exception raised during an Alpaca SDK call.
+
+        Loop mechanics (attempt counting, sleeping, backoff doubling) live
+        in the shared `retry_with_backoff()` helper; only the domain-specific
+        routing decision - which errors are retryable vs. fatal - lives here.
+        Exception *translation* (APIError -> RateLimitError/BrokerError/etc.)
+        happens in `_retry_with_backoff()` below, since that needs to
+        distinguish "fatal on first sight" from "fatal after exhausting
+        retries" while raising the same translated type either way.
+        """
+        if isinstance(e, APIError):
+            if e.status_code in (401, 403):
+                # Fatal - raising here (instead of returning FATAL) skips
+                # straight past the APIError translation in the caller,
+                # since AuthenticationError isn't an APIError subclass.
+                logger.error(f"Authentication error (fatal): {e}")
+                raise AuthenticationError(f"Authentication failed: {e}")
+
+            if e.status_code == 429:
+                return RetryOutcome(
+                    RetryDecision.RETRY,
+                    log_message=f"Alpaca rate limited (429). Retrying: {e}",
+                )
+
+            if e.status_code >= 500:
+                return RetryOutcome(
+                    RetryDecision.RETRY,
+                    log_message=f"Alpaca server error ({e.status_code}). Retrying: {e}",
+                )
+
+            # Other API errors (e.g. 404) - don't retry, re-raise the
+            # original APIError so callers can branch on status_code
+            # (e.g. get_position()/cancel_order() handling "not found").
+            return RetryOutcome(RetryDecision.FATAL)
+
+        if isinstance(
+            e,
+            (ConnectionError, TimeoutError, requests.exceptions.ConnectionError, requests.exceptions.Timeout),
+        ):
+            return RetryOutcome(RetryDecision.RETRY, log_message=f"Connection error. Retrying: {e}")
+
+        # Unexpected errors - don't retry
+        logger.error(f"Unexpected error: {e}", exc_info=True)
+        return RetryOutcome(RetryDecision.FATAL)
+
     def _retry_with_backoff(self, func, *args, **kwargs):
         """
         Retry a function with exponential backoff.
@@ -688,73 +736,34 @@ class AlpacaBroker(BaseBroker):
             AuthenticationError: If authentication fails (401/403)
             BrokerError: If other error occurs after all retries
         """
-        delay = self.INITIAL_RETRY_DELAY
-
-        for attempt in range(1, self.MAX_RETRIES + 1):
-            try:
-                return func(*args, **kwargs)
-
-            except APIError as e:
-                # Fatal errors - don't retry
-                if e.status_code in (401, 403):
-                    logger.error(f"Authentication error (fatal): {e}")
-                    raise AuthenticationError(f"Authentication failed: {e}")
-
-                # Retryable errors
-                if e.status_code == 429:
-                    if attempt == self.MAX_RETRIES:
-                        logger.error(f"Rate limited after {self.MAX_RETRIES} retries")
-                        raise RateLimitError(f"Alpaca rate limit exceeded: {e}")
-
-                    logger.warning(
-                        f"Alpaca rate limited (429). Retry {attempt}/{self.MAX_RETRIES} "
-                        f"in {delay:.1f}s..."
-                    )
-                    time.sleep(delay)
-                    delay *= 2  # Exponential backoff
-
-                elif e.status_code >= 500:
-                    if attempt == self.MAX_RETRIES:
-                        logger.error(
-                            f"Server error after {self.MAX_RETRIES} retries: {e}"
-                        )
-                        raise BrokerError(f"Alpaca server error: {e}")
-
-                    logger.warning(
-                        f"Alpaca server error ({e.status_code}). Retry {attempt}/{self.MAX_RETRIES} "
-                        f"in {delay:.1f}s..."
-                    )
-                    time.sleep(delay)
-                    delay *= 2
-
-                else:
-                    # Other API errors (e.g. 404) - don't retry, re-raise the
-                    # original APIError so callers can branch on status_code
-                    # (e.g. get_position()/cancel_order() handling "not found").
-                    raise
-
-            except (
-                ConnectionError,
-                TimeoutError,
-                requests.exceptions.ConnectionError,
-                requests.exceptions.Timeout,
-            ) as e:
-                if attempt == self.MAX_RETRIES:
-                    logger.error(
-                        f"Connection error after {self.MAX_RETRIES} retries: {e}"
-                    )
-                    raise BrokerError(f"Connection to Alpaca failed: {e}")
-
-                logger.warning(
-                    f"Connection error. Retry {attempt}/{self.MAX_RETRIES} in {delay:.1f}s..."
-                )
-                time.sleep(delay)
-                delay *= 2
-
-            except Exception as e:
-                # Unexpected errors - don't retry
-                logger.error(f"Unexpected error: {e}", exc_info=True)
-                raise BrokerError(f"Unexpected error: {e}")
+        try:
+            return retry_with_backoff(
+                lambda: func(*args, **kwargs),
+                classify=self._classify_retry_error,
+                max_retries=self.MAX_RETRIES,
+                base_delay=self.INITIAL_RETRY_DELAY,
+            )
+        except APIError as e:
+            if e.status_code == 429:
+                logger.error(f"Rate limited after {self.MAX_RETRIES} retries")
+                raise RateLimitError(f"Alpaca rate limit exceeded: {e}")
+            if e.status_code >= 500:
+                logger.error(f"Server error after {self.MAX_RETRIES} retries: {e}")
+                raise BrokerError(f"Alpaca server error: {e}")
+            # Other API errors (e.g. 404) - re-raise unchanged.
+            raise
+        except (
+            ConnectionError,
+            TimeoutError,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+        ) as e:
+            logger.error(f"Connection error after {self.MAX_RETRIES} retries: {e}")
+            raise BrokerError(f"Connection to Alpaca failed: {e}")
+        except (AuthenticationError, BrokerError):
+            raise
+        except Exception as e:
+            raise BrokerError(f"Unexpected error: {e}")
 
     def _convert_position(self, alpaca_position) -> Position:
         """Convert Alpaca position to our Position dataclass."""
