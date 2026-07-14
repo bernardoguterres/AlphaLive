@@ -331,6 +331,71 @@ def test_can_trade_daily_loss_limit(risk_manager):
     assert "daily loss limit" in reason.lower()
 
 
+def test_can_trade_sell_exempt_from_daily_loss_limit(risk_manager):
+    """Audit bug 2.6 regression: a strategy-driven SELL must still execute
+    once the daily loss limit has tripped - blocking the exit would leave
+    the position stuck instead of letting the strategy reduce exposure."""
+    risk_manager.daily_pnl = -3000.0  # 3% of $100k, matches the configured limit
+
+    can_trade, reason = risk_manager.can_trade(
+        ticker="AAPL",
+        signal="SELL",
+        account_equity=100000.0,
+        current_positions_count=2,
+        total_portfolio_positions=5,
+    )
+
+    assert can_trade is True
+
+
+def test_can_trade_sell_exempt_from_manual_pause(risk_manager):
+    """Audit bug 2.6 regression: a Telegram /pause should not block a
+    strategy-driven exit either, for the same reason as the env-var kill
+    switch and the daily loss limit."""
+    risk_manager.trading_paused_manual = True
+
+    can_trade, reason = risk_manager.can_trade(
+        ticker="AAPL",
+        signal="SELL",
+        account_equity=100000.0,
+        current_positions_count=1,
+        total_portfolio_positions=1,
+    )
+
+    assert can_trade is True
+
+
+def test_can_trade_buy_still_blocked_by_manual_pause(risk_manager):
+    risk_manager.trading_paused_manual = True
+
+    can_trade, reason = risk_manager.can_trade(
+        ticker="AAPL",
+        signal="BUY",
+        account_equity=100000.0,
+        current_positions_count=0,
+        total_portfolio_positions=0,
+    )
+
+    assert can_trade is False
+
+
+def test_can_trade_sell_still_blocked_by_degraded_mode(risk_manager):
+    """Bug 2.6's exemption is deliberately narrow - degraded mode (broker
+    connection unstable) is a hard limit that should block everything,
+    including exits, since we can't safely place ANY order right now."""
+    risk_manager.degraded_mode = True
+
+    can_trade, reason = risk_manager.can_trade(
+        ticker="AAPL",
+        signal="SELL",
+        account_equity=100000.0,
+        current_positions_count=1,
+        total_portfolio_positions=1,
+    )
+
+    assert can_trade is False
+
+
 def test_can_trade_circuit_breaker(risk_manager):
     """Test can_trade with circuit breaker triggered."""
     risk_manager.trading_paused_by_circuit_breaker = True
@@ -555,8 +620,14 @@ def test_can_trade_sell_bypasses_max_positions(risk_manager):
     assert can_trade is True
 
 
-def test_can_trade_sell_still_blocked_by_kill_switch(risk_manager, monkeypatch):
-    """The kill switch applies to everything, including SELLs."""
+def test_can_trade_sell_exempt_from_kill_switch(risk_manager, monkeypatch):
+    """Audit bug 2.6 (2026-07-14): SELLs are exposure-reducing, so the
+    TRADING_PAUSED kill switch no longer blocks them - blocking a
+    strategy-driven exit while paused just traps the position. Hard
+    stop-loss/take-profit/trailing-stop exits already bypassed can_trade()
+    entirely via OrderManager.check_exits(); this closes the gap for
+    signal-driven exits too. (Previously this test asserted the opposite -
+    the bug this fix closes.)"""
     monkeypatch.setenv("TRADING_PAUSED", "true")
 
     can_trade, reason = risk_manager.can_trade(
@@ -567,4 +638,20 @@ def test_can_trade_sell_still_blocked_by_kill_switch(risk_manager, monkeypatch):
         total_portfolio_positions=1,
     )
 
+    assert can_trade is True
+
+
+def test_can_trade_buy_still_blocked_by_kill_switch(risk_manager, monkeypatch):
+    """The kill switch still blocks new entries (BUYs)."""
+    monkeypatch.setenv("TRADING_PAUSED", "true")
+
+    can_trade, reason = risk_manager.can_trade(
+        ticker="AAPL",
+        signal="BUY",
+        account_equity=100000.0,
+        current_positions_count=0,
+        total_portfolio_positions=0,
+    )
+
     assert can_trade is False
+    assert "TRADING_PAUSED" in reason

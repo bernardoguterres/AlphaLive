@@ -13,6 +13,8 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from alphalive.utils.env_bool import read_bool_env
+
 logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
@@ -203,10 +205,18 @@ def create_health_server(config, dry_run: bool = False, paper: bool = True) -> H
     # the local-dev fallback since this worker has no other HTTP listener.
     port = int(os.environ.get("PORT", os.environ.get("HEALTH_PORT", "8080")))
 
+    try:
+        trading_paused_display = read_bool_env("TRADING_PAUSED", default=False)
+    except ValueError:
+        # Same fail-safe direction as risk_manager.py's enforcement check -
+        # a malformed value blocks trading, so the health display must
+        # never claim "not paused" in that state.
+        trading_paused_display = True
+
     health_data = {
         "warmup_complete": True,  # Updated after first signal check
         "bars_loaded": 0,         # Updated after market data fetch
-        "trading_paused": os.environ.get("TRADING_PAUSED", "false").lower() == "true",
+        "trading_paused": trading_paused_display,
         "dry_run": dry_run,
         "paper": paper,
         "strategy": config.strategy.name,

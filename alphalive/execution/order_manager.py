@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 from alpaca.common.exceptions import APIError as AlpacaAPIError
 
-from alphalive.broker.base_broker import BaseBroker
+from alphalive.broker.base_broker import BaseBroker, OrderError
 from alphalive.execution.risk_manager import RiskManager
 from alphalive.strategy_schema import StrategySchema
 
@@ -322,7 +322,9 @@ class OrderManager:
         """
         Place order with exponential backoff retry.
 
-        Routes on HTTP status code (AlpacaAPIError.status_code), not error strings:
+        Routes on HTTP status code (AlpacaAPIError.status_code, or
+        OrderError.status_code when the broker has wrapped the original
+        APIError - see AlpacaBroker._execute()), not error strings:
         - 403 Forbidden          → no retry (insufficient buying power)
         - 409 Conflict           → duplicate client_order_id: a previous attempt
                                    already placed this order. Recover it via
@@ -351,8 +353,28 @@ class OrderManager:
             try:
                 return order_func()
 
-            except AlpacaAPIError as e:
+            except (AlpacaAPIError, OrderError) as e:
                 status = e.status_code
+                if status is None:
+                    # OrderError with no status_code (e.g. a non-APIError
+                    # failure the broker wrapped, like a network error) -
+                    # not one of the routable HTTP-status cases below, so
+                    # treat it like any other non-API exception: retry with
+                    # backoff rather than falling into the 403/409/422/429
+                    # branches with a None status.
+                    if attempt < max_retries:
+                        wait_time = 2**attempt
+                        logger.warning(
+                            f"Non-API broker error on {ticker} "
+                            f"(attempt {attempt}/{max_retries}): {e}. "
+                            f"Retrying in {wait_time}s..."
+                        )
+                        time.sleep(wait_time)
+                        continue
+                    logger.error(
+                        f"All {max_retries} retry attempts exhausted for {ticker}"
+                    )
+                    raise
 
                 if status == 403:
                     logger.error(

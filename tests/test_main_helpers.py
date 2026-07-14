@@ -405,6 +405,61 @@ def test_check_signal_for_strategy_buy_signal_error_status(sample_strategy_confi
     )
 
 
+def test_check_signal_for_strategy_timeout_bounds_wall_clock_time(sample_strategy_config):
+    """Regression test for audit bug 2.7: the signal-generation timeout
+    previously didn't bound wall-clock time at all, because the
+    ThreadPoolExecutor was used as a `with ... as executor:` context
+    manager - exiting that block calls shutdown(wait=True) by default,
+    which blocks until the hung worker thread actually finishes regardless
+    of the configured timeout (measured by the audit: 1.01s timeout, actual
+    resume at 3.00s). This drives a signal check whose generate_signal()
+    hangs well past the configured timeout and asserts the call returns
+    close to the timeout, not anywhere near how long the hang actually
+    lasts.
+    """
+    import time as time_module
+
+    now_et = datetime(2024, 1, 2, 9, 40, tzinfo=ET)
+    market_data = Mock()
+    market_data.get_latest_bars.return_value = _make_ohlcv_df()
+
+    timeout_seconds = 0.3
+    hang_seconds = 3.0  # much longer than the configured timeout
+
+    def _hang(df):
+        time_module.sleep(hang_seconds)
+        return {"signal": "HOLD", "confidence": 0.0, "reason": "should never get here"}
+
+    signal_engine = Mock()
+    signal_engine.generate_signal.side_effect = _hang
+    signal_engine_map = {sample_strategy_config.ticker: signal_engine}
+
+    order_manager = Mock()
+    order_manager.risk.signal_timeout_seconds = timeout_seconds
+    order_manager_map = {sample_strategy_config.ticker: order_manager}
+
+    notifier = Mock()
+
+    start = time_module.monotonic()
+    main_module._check_signal_for_strategy(
+        sample_strategy_config, now_et, set(), {},
+        market_data, signal_engine_map, order_manager_map, None, Mock(), notifier,
+        main_module.GlobalRiskManager(), Mock(),
+    )
+    elapsed = time_module.monotonic() - start
+
+    # Must resume close to the configured timeout (generous margin for test
+    # scheduling jitter), and nowhere near the 3s hang duration - the old
+    # bug's own measurement was a 3x overrun (1.01s configured -> 3.00s
+    # actual), so anything under ~2x the timeout proves the fix.
+    assert elapsed < timeout_seconds * 2 + 0.5, (
+        f"Signal check took {elapsed:.2f}s, expected close to the "
+        f"{timeout_seconds}s timeout, not anywhere near the {hang_seconds}s hang"
+    )
+    order_manager.execute_signal.assert_not_called()
+    notifier.send_error_alert.assert_called_once()
+
+
 def test_check_signal_for_strategy_corporate_action_detected(sample_strategy_config):
     now_et = datetime(2024, 1, 2, 9, 40, tzinfo=ET)
     df = pd.DataFrame({
@@ -430,6 +485,57 @@ def test_check_signal_for_strategy_corporate_action_detected(sample_strategy_con
     assert "CORPORATE ACTION" in notifier.send_alert.call_args[0][0]
     assert sample_strategy_config.ticker in morning_checks_done
     signal_engine_map[sample_strategy_config.ticker].generate_signal.assert_not_called()
+
+
+def test_check_signal_for_strategy_not_delayed_by_hanging_telegram(sample_strategy_config):
+    """Regression test for audit bug 2.8: TelegramNotifier.send_message()
+    used to make the actual blocking HTTP call inline on the caller's
+    thread (up to ~37s worst case with retries/backoff), and was called
+    directly from this code path (the corporate-action alert below). A
+    slow/down Telegram measurably blocked the trading loop (measured: up
+    to ~33s with a hanging fake server). Uses a REAL TelegramNotifier (not
+    a Mock) with httpx.post patched to hang, to prove the actual queue ->
+    background-worker mechanism keeps this call path fast end-to-end, not
+    just that send_message() itself returns quickly in isolation.
+    """
+    import time as time_module
+    from unittest.mock import patch as mock_patch
+
+    from alphalive.notifications.telegram_bot import TelegramNotifier
+
+    now_et = datetime(2024, 1, 2, 9, 40, tzinfo=ET)
+    df = pd.DataFrame({
+        "open": [100.0, 130.0],
+        "high": [101.0, 131.0],
+        "low": [99.0, 129.0],
+        "close": [100.5, 130.5],
+        "volume": [1000, 1000],
+    })
+    market_data = Mock()
+    market_data.get_latest_bars.return_value = df
+    signal_engine_map = {sample_strategy_config.ticker: Mock()}
+    notifier = TelegramNotifier(bot_token="test_token", chat_id="123456")
+    morning_checks_done = set()
+
+    def _hanging_post(*args, **kwargs):
+        time_module.sleep(5.0)  # simulate a hung/unreachable Telegram server
+        raise RuntimeError("should never actually complete in this test")
+
+    with mock_patch("httpx.post", side_effect=_hanging_post):
+        start = time_module.monotonic()
+        main_module._check_signal_for_strategy(
+            sample_strategy_config, now_et, morning_checks_done, {},
+            market_data, signal_engine_map, {}, None, Mock(), notifier,
+            main_module.GlobalRiskManager(), Mock(),
+        )
+        elapsed = time_module.monotonic() - start
+
+    assert elapsed < 1.0, (
+        f"_check_signal_for_strategy took {elapsed:.2f}s - a hanging "
+        f"Telegram send must not delay the calling code at all now that "
+        f"sends are backgrounded"
+    )
+    assert sample_strategy_config.ticker in morning_checks_done
 
 
 def test_check_signal_for_strategy_data_stale_error(sample_strategy_config):

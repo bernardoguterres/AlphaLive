@@ -654,7 +654,12 @@ class AlpacaBroker(BaseBroker):
             if on_404 is not None and e.status_code == 404:
                 return on_404()
             logger.error(f"{error_context}: {e}")
-            raise error_cls(f"{error_context}: {e}") from e
+            # Preserve the original HTTP status code on the wrapped
+            # exception (see BrokerError.status_code) so callers like
+            # OrderManager._place_with_retry() can still route on it - that
+            # routing (esp. 409 duplicate-order recovery) is otherwise dead
+            # code once the real APIError is hidden behind error_cls.
+            raise error_cls(f"{error_context}: {e}", status_code=e.status_code) from e
 
         except Exception as e:
             logger.error(f"{error_context}: {e}", exc_info=True)

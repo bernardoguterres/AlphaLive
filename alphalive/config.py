@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 from alphalive.migrations import migrate_schema
 from alphalive.strategy_schema import StrategySchema
 from alphalive.portfolio_schema import PortfolioStrategySchema, all_portfolio_tickers
+from alphalive.utils.env_bool import read_bool_env
 
 logger = logging.getLogger(__name__)
 
@@ -397,15 +398,11 @@ def load_env() -> AppConfig:
             f"Set these in Railway dashboard or .env file for local dev."
         )
 
-    # Parse boolean values
-    def parse_bool(value: str) -> bool:
-        return value.lower() in ("true", "1", "yes", "on")
-
     # Build broker config
     broker_config = BrokerConfig(
         api_key=os.getenv("ALPACA_API_KEY"),
         secret_key=os.getenv("ALPACA_SECRET_KEY"),
-        paper=parse_bool(os.getenv("ALPACA_PAPER", "true")),
+        paper=read_bool_env("ALPACA_PAPER", default=True),
         base_url=os.getenv("ALPACA_BASE_URL"),  # None if not set
     )
 
@@ -420,7 +417,7 @@ def load_env() -> AppConfig:
         api_key=os.getenv("ALPHASIGNAL_API_KEY", ""),
         timeout_seconds=float(os.getenv("ALPHASIGNAL_TIMEOUT_SECONDS", "3.0")),
         sentiment_threshold=float(os.getenv("ALPHASIGNAL_SENTIMENT_THRESHOLD", "-0.3")),
-        enabled=parse_bool(os.getenv("ALPHASIGNAL_ENABLED", "true")),
+        enabled=read_bool_env("ALPHASIGNAL_ENABLED", default=True),
     )
 
     # Build app config
@@ -429,12 +426,12 @@ def load_env() -> AppConfig:
         telegram=telegram_config,
         alphasignal=alphasignal_config,
         log_level=os.getenv("LOG_LEVEL", "INFO"),
-        dry_run=parse_bool(os.getenv("DRY_RUN", "false")),
-        trading_paused=parse_bool(os.getenv("TRADING_PAUSED", "false")),
+        dry_run=read_bool_env("DRY_RUN", default=False),
+        trading_paused=read_bool_env("TRADING_PAUSED", default=False),
         state_file=os.getenv("STATE_FILE", "/tmp/alphalive_state.json"),
         health_port=int(os.getenv("HEALTH_PORT", "8080")),
         health_secret=os.getenv("HEALTH_SECRET", ""),
-        persistent_storage=parse_bool(os.getenv("PERSISTENT_STORAGE", "false")),
+        persistent_storage=read_bool_env("PERSISTENT_STORAGE", default=False),
     )
 
     # Log configuration (with masked API keys)

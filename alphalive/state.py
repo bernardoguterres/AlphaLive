@@ -19,9 +19,19 @@ from datetime import datetime
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+from alphalive.utils.env_bool import read_bool_env
+
 logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
+
+
+def _pause_file_path(state_file: str) -> str:
+    """Derive the dashboard kill switch's dedicated pause-file path from the
+    main state file path. The dashboard is the only writer of this file;
+    the bot only ever reads it (see BotState.set_dashboard_pause /
+    check_dashboard_paused, audit bug 2.5)."""
+    return f"{state_file}.pause.json"
 
 
 class BotState:
@@ -96,8 +106,11 @@ class BotState:
             "open_positions": {},  # {ticker: {qty, entry_price, opened_at}} - persisted ledger
             "engine_state": {},  # {ticker: {in_position, entry_price, peak_price}} - SignalEngine state
             "last_startup": None,
-            "dashboard_paused": False,
             "version": "1.0",
+            # dashboard_paused deliberately does NOT live in this dict (see
+            # audit bug 2.5 / _pause_file_path below) - it has its own
+            # single-writer file so the bot's own save() of this dict can
+            # never clobber a pause the dashboard just wrote.
         }
 
     def save(self):
@@ -323,18 +336,56 @@ class BotState:
             self.save()
 
     def set_dashboard_pause(self, paused: bool):
-        """Set dashboard kill switch. Persisted to state file immediately."""
-        self.state["dashboard_paused"] = paused
-        self.save()
-        logger.info(f"Dashboard kill switch {'activated' if paused else 'cleared'}")
+        """Set the dashboard kill switch.
+
+        Writes ONLY to the dedicated pause file (see _pause_file_path) -
+        never touches self.state or the main state file. Audit bug 2.5: the
+        pause flag used to live in self.state["dashboard_paused"], so the
+        bot's own next unrelated save() (e.g. a trailing-stop position_high
+        update) would write its own stale in-memory copy of the whole state
+        dict back to disk, silently overwriting a pause the dashboard had
+        just written - the bot process never refreshed dashboard_paused
+        from disk except via the separate check_dashboard_paused() call.
+        Giving the pause flag its own single-writer file (the dashboard is
+        the only writer; the bot only ever reads it) eliminates that
+        shared-mutable-state race entirely rather than papering over it.
+        """
+        pause_file = _pause_file_path(self.state_file)
+        try:
+            payload = {"dashboard_paused": bool(paused), "updated_at": datetime.now(ET).isoformat()}
+            temp_file = f"{pause_file}.tmp"
+            with open(temp_file, "w") as f:
+                json.dump(payload, f, indent=2)
+            os.replace(temp_file, pause_file)
+            logger.info(f"Dashboard kill switch {'activated' if paused else 'cleared'}")
+        except Exception as e:
+            logger.error(f"Failed to write dashboard pause file {pause_file}: {e}")
 
     def is_dashboard_paused(self) -> bool:
-        """Return current dashboard_paused flag from in-memory state."""
-        return bool(self.state.get("dashboard_paused", False))
+        """Return the dashboard kill switch state. Always a fresh read from
+        the dedicated pause file - there is no in-memory cache to go stale,
+        which is the whole point of this flag having its own file (see
+        set_dashboard_pause). Alias of check_dashboard_paused()."""
+        return self.check_dashboard_paused()
 
     def check_dashboard_paused(self) -> bool:
-        """Re-read state file and return dashboard_paused. Used by main loop for fresh checks."""
-        return bool(self._load().get("dashboard_paused", False))
+        """Read the dashboard kill switch fresh from its dedicated pause
+        file. Used by the main loop for its ~30s poll."""
+        pause_file = _pause_file_path(self.state_file)
+        try:
+            with open(pause_file, "r") as f:
+                return bool(json.load(f).get("dashboard_paused", False))
+        except FileNotFoundError:
+            # No pause file yet = dashboard has never paused - the correct,
+            # safe interpretation of "never configured" for this flag.
+            return False
+        except Exception as e:
+            # Any other read failure (corrupted JSON, permission error) is
+            # NOT the same as "never configured" - we genuinely don't know
+            # the real state, so fail toward the safe direction (paused)
+            # rather than silently letting trading continue.
+            logger.error(f"Failed to read dashboard pause file {pause_file}: {e}. Failing safe (paused).")
+            return True
 
     def mark_startup(self):
         """Mark bot startup time."""
@@ -383,9 +434,15 @@ def check_trailing_stop_requirements(strategy_config, notifier=None):
         SystemExit: If trailing stops enabled without persistent storage
     """
     if strategy_config.risk.trailing_stop_enabled:
-        persistent_storage = os.environ.get("PERSISTENT_STORAGE", "false").lower()
+        try:
+            persistent_storage = read_bool_env("PERSISTENT_STORAGE", default=False)
+        except ValueError:
+            # Malformed value is exactly as unsafe as "not set" here - this
+            # guard's whole purpose is to fail closed unless persistent
+            # storage is unambiguously enabled.
+            persistent_storage = False
 
-        if persistent_storage != "true":
+        if not persistent_storage:
             error_msg = (
                 "STARTUP ABORTED: trailing_stop_enabled=true requires persistent "
                 "storage, but PERSISTENT_STORAGE is not set to true. A Railway "

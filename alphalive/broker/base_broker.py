@@ -56,8 +56,21 @@ class Account:
 
 
 class BrokerError(Exception):
-    """Base exception for broker errors."""
-    pass
+    """Base exception for broker errors.
+
+    status_code carries through the original Alpaca APIError's HTTP status
+    when this wraps one (see AlpacaBroker._execute()), so callers that need
+    to route on status code (e.g. OrderManager._place_with_retry()'s 409
+    duplicate-order recovery) can do so without needing the wrapped
+    exception to literally be an alpaca.common.exceptions.APIError instance
+    - audit bug 2.3: OrderError previously carried no status_code at all,
+    so _place_with_retry()'s `except AlpacaAPIError` never matched it and
+    the 409 recovery path was unreachable dead code.
+    """
+
+    def __init__(self, message: str, status_code: Optional[int] = None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class AuthenticationError(BrokerError):

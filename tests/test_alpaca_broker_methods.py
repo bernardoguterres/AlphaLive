@@ -106,6 +106,33 @@ def test_execute_non_404_api_error_wraps_as_custom_error_cls():
         broker._execute(func, error_cls=OrderError, error_context="ctx")
 
 
+def test_execute_api_error_status_code_propagates_to_wrapped_error_cls():
+    """Bug 2.3 regression: OrderManager._place_with_retry() needs to route
+    on the original HTTP status code even when the broker has wrapped the
+    APIError into OrderError - without this, the wrapped exception carried
+    no status_code at all and the 409 duplicate-order recovery path in
+    _place_with_retry() was unreachable dead code."""
+    broker = _connected_broker()
+    func = Mock(side_effect=_api_error("dup client_order_id", 409))
+
+    with pytest.raises(OrderError) as exc_info:
+        broker._execute(func, error_cls=OrderError, error_context="ctx")
+
+    assert exc_info.value.status_code == 409
+
+
+def test_execute_non_api_exception_wraps_with_no_status_code():
+    """A non-APIError failure (network error, etc.) has no HTTP status to
+    propagate - status_code must default to None, not crash."""
+    broker = _connected_broker()
+    func = Mock(side_effect=ConnectionError("connection reset"))
+
+    with pytest.raises(OrderError) as exc_info:
+        broker._execute(func, error_cls=OrderError, error_context="ctx")
+
+    assert exc_info.value.status_code is None
+
+
 def test_execute_unexpected_exception_wraps_as_error_cls():
     broker = _connected_broker()
     func = Mock(side_effect=RuntimeError("boom"))

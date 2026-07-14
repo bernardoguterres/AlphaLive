@@ -25,10 +25,11 @@ def temp_state_file():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         temp_path = f.name
     yield temp_path
-    try:
-        os.unlink(temp_path)
-    except FileNotFoundError:
-        pass
+    for path in (temp_path, f"{temp_path}.pause.json"):
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +100,39 @@ def test_check_dashboard_paused_reads_from_disk(temp_state_file):
     # A second BotState instance re-reading the file should see the flag
     reader = BotState(temp_state_file)
     assert reader.check_dashboard_paused() is True
+
+
+def test_dashboard_pause_survives_unrelated_bot_side_save(temp_state_file):
+    """Regression test for audit bug 2.5: the bot's own next unrelated
+    state.save() (e.g. triggered by a trailing-stop position_high update)
+    used to silently overwrite the dashboard's paused=True back to False on
+    disk, because save() wrote the bot's own stale in-memory copy of the
+    whole state dict (which never refreshed dashboard_paused after the
+    bot's own BotState was constructed). The pause flag now lives in its
+    own dedicated file that only set_dashboard_pause() writes - an
+    unrelated save() on the bot's own state dict must never touch it.
+    """
+    # The dashboard's own BotState instance pauses trading.
+    dashboard_state = BotState(temp_state_file)
+    dashboard_state.set_dashboard_pause(True)
+
+    # The bot has a SEPARATE, already-constructed BotState instance (as it
+    # would in the real process - loaded once at startup, long before this
+    # pause happened) that knows nothing about the pause.
+    bot_state = BotState(temp_state_file)
+    assert bot_state.check_dashboard_paused() is True  # sanity: bot sees it too
+
+    # Bot does something totally unrelated that triggers its own save() -
+    # this must NOT clobber the pause.
+    bot_state.set_position_high("AAPL", 155.0)
+
+    # The dashboard's pause must have survived the bot's save().
+    assert bot_state.check_dashboard_paused() is True
+    assert dashboard_state.check_dashboard_paused() is True
+
+    # And resuming still works normally afterward.
+    dashboard_state.set_dashboard_pause(False)
+    assert bot_state.check_dashboard_paused() is False
 
 
 # ---------------------------------------------------------------------------
