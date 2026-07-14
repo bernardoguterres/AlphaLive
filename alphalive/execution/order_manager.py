@@ -21,6 +21,7 @@ from alpaca.common.exceptions import APIError as AlpacaAPIError
 from alphalive.broker.base_broker import BaseBroker, OrderError
 from alphalive.execution.risk_manager import RiskManager
 from alphalive.strategy_schema import StrategySchema
+from alphalive.utils.retry import RetryDecision, RetryOutcome, retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -349,12 +350,23 @@ class OrderManager:
         Raises:
             Exception if all retries exhausted or a fatal (non-retryable) error occurs.
         """
-        for attempt in range(1, max_retries + 1):
-            try:
-                return order_func()
+        # Independent attempt counter, incremented once per classify() call.
+        # classify() is invoked exactly once per failed attempt inside
+        # retry_with_backoff's loop, in order, so this stays in lockstep
+        # with that loop's own attempt number - needed here (unlike the
+        # other three retry call sites) because the 429 and generic-backoff
+        # delays are computed from the attempt number itself, not just a
+        # running "delay *= multiplier" state.
+        attempt_state = {"n": 0}
 
-            except (AlpacaAPIError, OrderError) as e:
+        def _classify(e: Exception) -> RetryOutcome:
+            attempt_state["n"] += 1
+            attempt = attempt_state["n"]
+            is_last = attempt >= max_retries
+
+            if isinstance(e, (AlpacaAPIError, OrderError)):
                 status = e.status_code
+
                 if status is None:
                     # OrderError with no status_code (e.g. a non-APIError
                     # failure the broker wrapped, like a network error) -
@@ -362,19 +374,21 @@ class OrderManager:
                     # treat it like any other non-API exception: retry with
                     # backoff rather than falling into the 403/409/422/429
                     # branches with a None status.
-                    if attempt < max_retries:
-                        wait_time = 2**attempt
-                        logger.warning(
+                    if is_last:
+                        logger.error(
+                            f"All {max_retries} retry attempts exhausted for {ticker}"
+                        )
+                        return RetryOutcome(RetryDecision.RETRY)
+                    wait_time = 2**attempt
+                    return RetryOutcome(
+                        RetryDecision.RETRY,
+                        delay_override=wait_time,
+                        log_message=(
                             f"Non-API broker error on {ticker} "
                             f"(attempt {attempt}/{max_retries}): {e}. "
                             f"Retrying in {wait_time}s..."
-                        )
-                        time.sleep(wait_time)
-                        continue
-                    logger.error(
-                        f"All {max_retries} retry attempts exhausted for {ticker}"
+                        ),
                     )
-                    raise
 
                 if status == 403:
                     logger.error(
@@ -389,17 +403,12 @@ class OrderManager:
                     raise ValueError("Insufficient buying power")
 
                 if status == 409:
-                    logger.info(
-                        f"Idempotency: duplicate client_order_id for {ticker}. "
-                        f"Order was already placed by a previous attempt - "
-                        f"recovering the existing order."
-                    )
-                    if client_order_id is not None:
-                        existing = self.broker.get_order_by_client_id(client_order_id)
-                        if existing is not None:
-                            return existing
-                    # Couldn't recover the original order - surface the 409
-                    raise
+                    # Idempotency recovery needs to *return* the existing
+                    # order rather than raise, which classify() can't do -
+                    # mark FATAL so retry_with_backoff re-raises the
+                    # original exception immediately (no retry), and the
+                    # outer except block below performs the recovery.
+                    return RetryOutcome(RetryDecision.FATAL)
 
                 if status == 422:
                     # Two distinct 422 sub-cases share this status code; minimal string
@@ -433,48 +442,76 @@ class OrderManager:
                         raise ValueError(f"Invalid symbol: {ticker}")
                     # Other 422 (invalid quantity, bad params) - no retry
                     logger.error(f"ORDER REJECTED (422): {ticker} - {e}")
-                    raise
+                    return RetryOutcome(RetryDecision.FATAL)
 
                 if status == 429:
+                    if is_last:
+                        logger.error(f"Rate limit retries exhausted for {ticker}")
+                        return RetryOutcome(RetryDecision.RETRY)
                     wait_time = (2**attempt) * 2  # 4s, 8s, 16s
-                    logger.warning(
-                        f"Rate limited on order for {ticker}. "
-                        f"Retrying in {wait_time}s..."
+                    return RetryOutcome(
+                        RetryDecision.RETRY,
+                        delay_override=wait_time,
+                        log_message=(
+                            f"Rate limited on order for {ticker}. "
+                            f"Retrying in {wait_time}s..."
+                        ),
                     )
-                    if attempt < max_retries:
-                        time.sleep(wait_time)
-                        continue
-                    logger.error(f"Rate limit retries exhausted for {ticker}")
-                    raise
 
                 # Any other API error (5xx, unknown 4xx) - retry with backoff
-                if attempt < max_retries:
-                    wait_time = 2**attempt  # 2s, 4s, 8s
-                    logger.warning(
+                if is_last:
+                    logger.error(
+                        f"All {max_retries} retry attempts exhausted for {ticker}"
+                    )
+                    return RetryOutcome(RetryDecision.RETRY)
+                wait_time = 2**attempt  # 2s, 4s, 8s
+                return RetryOutcome(
+                    RetryDecision.RETRY,
+                    delay_override=wait_time,
+                    log_message=(
                         f"API error on {ticker} (attempt {attempt}/{max_retries}, "
                         f"HTTP {status}): {e}. Retrying in {wait_time}s..."
-                    )
-                    time.sleep(wait_time)
-                else:
-                    logger.error(
-                        f"All {max_retries} retry attempts exhausted for {ticker}"
-                    )
-                    raise
+                    ),
+                )
 
-            except Exception as e:
-                # Non-API errors: network timeout, connection reset, etc.
-                if attempt < max_retries:
-                    wait_time = 2**attempt  # 2s, 4s, 8s
-                    logger.warning(
-                        f"Order placement failed (attempt {attempt}/{max_retries}): {e}. "
-                        f"Retrying in {wait_time}s..."
-                    )
-                    time.sleep(wait_time)
-                else:
-                    logger.error(
-                        f"All {max_retries} retry attempts exhausted for {ticker}"
-                    )
-                    raise
+            # Non-API errors: network timeout, connection reset, etc.
+            if is_last:
+                logger.error(
+                    f"All {max_retries} retry attempts exhausted for {ticker}"
+                )
+                return RetryOutcome(RetryDecision.RETRY)
+            wait_time = 2**attempt  # 2s, 4s, 8s
+            return RetryOutcome(
+                RetryDecision.RETRY,
+                delay_override=wait_time,
+                log_message=(
+                    f"Order placement failed (attempt {attempt}/{max_retries}): {e}. "
+                    f"Retrying in {wait_time}s..."
+                ),
+            )
+
+        try:
+            return retry_with_backoff(
+                order_func,
+                classify=_classify,
+                max_retries=max_retries,
+                base_delay=2.0,
+                multiplier=2.0,
+            )
+        except (AlpacaAPIError, OrderError) as e:
+            if e.status_code == 409:
+                logger.info(
+                    f"Idempotency: duplicate client_order_id for {ticker}. "
+                    f"Order was already placed by a previous attempt - "
+                    f"recovering the existing order."
+                )
+                if client_order_id is not None:
+                    existing = self.broker.get_order_by_client_id(client_order_id)
+                    if existing is not None:
+                        return existing
+                # Couldn't recover the original order - surface the 409
+                raise
+            raise
 
     def _check_recent_order(self, ticker: str, side: str) -> Optional[Dict[str, Any]]:
         """

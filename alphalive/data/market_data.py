@@ -17,6 +17,8 @@ from alpaca.data.requests import StockBarsRequest, StockLatestTradeRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.common.exceptions import APIError as AlpacaAPIError
 
+from alphalive.utils.retry import RetryDecision, RetryOutcome, retry_with_backoff
+
 logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
@@ -393,6 +395,36 @@ class MarketDataFetcher:
         logger.debug(f"Resampled {len(df)} daily bars → {len(weekly)} weekly bars")
         return weekly
 
+    @staticmethod
+    def _classify_fetch_retry_error(e: Exception) -> RetryOutcome:
+        """Classify an exception raised while fetching market data.
+
+        Loop mechanics live in the shared `retry_with_backoff()` helper;
+        this only decides retryability and, for 429s, the Retry-After delay.
+        """
+        if isinstance(e, AlpacaAPIError):
+            if e.status_code == 429:
+                retry_after = 5  # Default
+                if hasattr(e, "response") and e.response is not None:
+                    retry_after = int(e.response.headers.get("Retry-After", 5))
+                return RetryOutcome(
+                    RetryDecision.RETRY,
+                    delay_override=retry_after,
+                    log_message=f"Alpaca rate limited (429). Retrying after {retry_after}s...",
+                )
+
+            if e.status_code >= 500:
+                return RetryOutcome(
+                    RetryDecision.RETRY,
+                    log_message=f"Alpaca server error ({e.status_code}). Retrying...",
+                )
+
+            # Other 4xx errors are not retryable
+            logger.error(f"Alpaca API error ({e.status_code}): {e}. Not retryable.")
+            return RetryOutcome(RetryDecision.FATAL)
+
+        return RetryOutcome(RetryDecision.RETRY, log_message=f"Data fetch failed: {e}. Retrying...")
+
     def _fetch_with_retry(
         self, fetch_func: Callable[[], Any], max_retries: int = 3
     ) -> Any:
@@ -412,56 +444,13 @@ class MarketDataFetcher:
             AlpacaAPIError: If non-retryable error (4xx other than 429)
             Exception: If all retries exhausted
         """
-        for attempt in range(1, max_retries + 1):
-            try:
-                return fetch_func()
-
-            except AlpacaAPIError as e:
-                if e.status_code == 429:
-                    # Rate limited
-                    # Try to get Retry-After header from response
-                    retry_after = 5  # Default
-                    if hasattr(e, "response") and e.response is not None:
-                        retry_after = int(e.response.headers.get("Retry-After", 5))
-                    logger.warning(
-                        f"Alpaca rate limited (429). Retry {attempt}/{max_retries} "
-                        f"after {retry_after}s..."
-                    )
-                    if attempt < max_retries:
-                        time.sleep(retry_after)
-                    else:
-                        raise
-
-                elif e.status_code >= 500:
-                    # Server error - exponential backoff
-                    wait_time = 2**attempt
-                    logger.warning(
-                        f"Alpaca server error ({e.status_code}). Retry {attempt}/{max_retries} "
-                        f"after {wait_time}s..."
-                    )
-                    if attempt < max_retries:
-                        time.sleep(wait_time)
-                    else:
-                        raise
-
-                else:
-                    # Other 4xx errors are not retryable
-                    logger.error(
-                        f"Alpaca API error ({e.status_code}): {e}. Not retryable."
-                    )
-                    raise
-
-            except Exception as e:
-                if attempt < max_retries:
-                    wait_time = 2**attempt
-                    logger.warning(
-                        f"Data fetch failed (attempt {attempt}/{max_retries}): {e}. "
-                        f"Retrying in {wait_time}s..."
-                    )
-                    time.sleep(wait_time)
-                else:
-                    logger.error(f"Data fetch failed after {max_retries} attempts: {e}")
-                    raise
+        return retry_with_backoff(
+            fetch_func,
+            classify=self._classify_fetch_retry_error,
+            max_retries=max_retries,
+            base_delay=2.0,
+            multiplier=2.0,
+        )
 
     def clear_cache(self, ticker: Optional[str] = None):
         """
