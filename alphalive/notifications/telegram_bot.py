@@ -8,6 +8,8 @@ IMPORTANT: Does NOT use python-telegram-bot (any version).
 Calls Telegram Bot API directly via HTTPS POST.
 """
 
+import queue
+import threading
 import time
 import logging
 from typing import Optional, Dict, Any
@@ -29,6 +31,10 @@ class TelegramNotifier:
     - Graceful degradation if Telegram offline
     - Background retry every 10 minutes
     - Never crashes trading loop
+    - send_message() never blocks the calling thread (fixed 2026-07-14,
+      audit bug 2.8) - it enqueues onto a dedicated background worker
+      thread, which does the actual HTTP call/retries/backoff. A slow or
+      down Telegram can no longer delay signal checks or order execution.
     """
 
     def __init__(
@@ -67,9 +73,72 @@ class TelegramNotifier:
         else:
             self.api_url = None
 
+        # Audit bug 2.8: send_message() used to make the actual blocking
+        # HTTP call (up to 3 retries x 10s timeout + 1s/2s/4s backoff =
+        # ~37s worst case) directly on the caller's thread - and it was
+        # called inline from the main trading loop, so a slow/down
+        # Telegram measurably blocked trading (measured: up to ~33s with a
+        # hanging fake server). The real send now happens on a dedicated
+        # background worker thread; send_message() just enqueues the
+        # message and returns immediately. All existing retry/backoff/
+        # graceful-degradation behavior is unchanged - it just runs off the
+        # trading loop's thread now (see _send_now / _worker_loop below).
+        self._queue: "queue.Queue[tuple[str, str]]" = queue.Queue(maxsize=100)
+        self._worker_thread = threading.Thread(
+            target=self._worker_loop, name="telegram-notifier", daemon=True
+        )
+        self._worker_thread.start()
+
+    def _worker_loop(self):
+        """Background thread: pulls queued messages and sends them via
+        _send_now(), one at a time, off the caller's thread."""
+        while True:
+            text, parse_mode = self._queue.get()
+            try:
+                self._send_now(text, parse_mode)
+            except Exception:
+                logger.exception("Unexpected error in Telegram background worker")
+            finally:
+                self._queue.task_done()
+
     def send_message(self, text: str, parse_mode: str = "HTML") -> bool:
         """
-        Send a message via Telegram Bot API.
+        Queue a message to be sent via the Telegram Bot API in the
+        background - never blocks the calling thread on the actual HTTP
+        call, retries, or backoff (see _send_now for that logic, which now
+        runs on a dedicated worker thread).
+
+        Args:
+            text: Message text
+            parse_mode: "HTML" or "Markdown" (default HTML)
+
+        Returns:
+            True if the message was queued (NOT a delivery guarantee -
+            actual send/retry/failure happens asynchronously; no caller in
+            this codebase inspects this return value for delivery status).
+            False if disabled, or the queue is full (Telegram has been down
+            long enough that a backlog of retries hasn't drained - the
+            message is dropped rather than blocking the caller further).
+        """
+        if not self.enabled:
+            logger.debug("Telegram disabled, skipping message")
+            return False
+
+        try:
+            self._queue.put_nowait((text, parse_mode))
+            return True
+        except queue.Full:
+            logger.error(
+                "Telegram message queue full (Telegram likely down for a "
+                "while) - dropping message rather than blocking the caller"
+            )
+            return False
+
+    def _send_now(self, text: str, parse_mode: str = "HTML") -> bool:
+        """
+        Actually send a message via the Telegram Bot API (blocking - only
+        ever called from the background worker thread, never directly by
+        trading-loop code).
 
         Max 3 retries with exponential backoff (1s, 2s, 4s).
         If all retries fail, log error but DON'T crash.
@@ -92,10 +161,6 @@ class TelegramNotifier:
         Returns:
             True if sent successfully, False otherwise
         """
-        if not self.enabled:
-            logger.debug("Telegram disabled, skipping message")
-            return False
-
         # Check if we should attempt a background retry
         if self.telegram_offline:
             current_time = time.time()

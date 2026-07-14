@@ -42,6 +42,7 @@ except ImportError:
     pass
 
 from alphalive.broker.alpaca_broker import AlpacaBroker
+from alphalive.utils.env_bool import read_bool_env
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s  %(message)s")
 logger = logging.getLogger(__name__)
@@ -50,33 +51,48 @@ app = FastAPI(title="AlphaLive Dashboard", version="2.0.0")
 DASHBOARD_DIR = Path(__file__).parent
 
 # ---------------------------------------------------------------------------
-# HTTP Basic Auth middleware
-# Applied to every request (HTTP and WebSocket upgrade) when DASHBOARD_PASSWORD
-# is set.  Browsers that have authenticated for the page will include the
-# Authorization header in the WebSocket upgrade, so auth "just works".
+# HTTP Basic Auth
+# Applied to every plain HTTP request via the middleware below when
+# DASHBOARD_PASSWORD is set. Starlette's `@app.middleware("http")` ONLY
+# wraps the ASGI "http" scope - it structurally does not run for the
+# "websocket" scope used by @app.websocket("/ws") below, regardless of what
+# a browser's Authorization header happens to contain during the upgrade
+# handshake (audit 2026-07-13 bug 2.2: a code comment here previously
+# claimed this middleware covered "HTTP and WebSocket upgrade" - it never
+# did, and an unauthenticated client could stream full account/position/P&L
+# data from /ws even with DASHBOARD_PASSWORD set). The websocket handler
+# below now checks auth explicitly, before accepting the connection.
 # ---------------------------------------------------------------------------
 
 _PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 
 
+def _basic_auth_ok(headers) -> bool:
+    """Shared Basic Auth check for both plain HTTP requests and the
+    websocket handshake. `headers` is any mapping with a case-insensitive
+    .get() - both Starlette's Request.headers and WebSocket.headers satisfy
+    this. Returns True when no password is configured (auth disabled)."""
+    if not _PASSWORD:
+        return True
+    auth = headers.get("authorization", "")
+    if not auth.startswith("Basic "):
+        return False
+    try:
+        decoded = base64.b64decode(auth[6:]).decode("utf-8", errors="replace")
+        _, _, given = decoded.partition(":")
+        return secrets.compare_digest(given.encode(), _PASSWORD.encode())
+    except Exception:
+        return False
+
+
 @app.middleware("http")
 async def _basic_auth(request: Request, call_next):
-    if _PASSWORD:
-        auth = request.headers.get("authorization", "")
-        ok = False
-        if auth.startswith("Basic "):
-            try:
-                decoded = base64.b64decode(auth[6:]).decode("utf-8", errors="replace")
-                _, _, given = decoded.partition(":")
-                ok = secrets.compare_digest(given.encode(), _PASSWORD.encode())
-            except Exception:
-                pass
-        if not ok:
-            return Response(
-                content="Authentication required",
-                status_code=401,
-                headers={"WWW-Authenticate": 'Basic realm="AlphaLive Dashboard"'},
-            )
+    if not _basic_auth_ok(request.headers):
+        return Response(
+            content="Authentication required",
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="AlphaLive Dashboard"'},
+        )
     return await call_next(request)
 
 
@@ -106,7 +122,17 @@ def _get_broker() -> AlpacaBroker:
         _broker_error = "ALPACA_API_KEY or ALPACA_SECRET_KEY not set"
         raise _BrokerUnavailable(_broker_error)
 
-    paper = os.getenv("ALPACA_PAPER", "true").lower() in ("true", "1", "yes")
+    # Same shared parser as the bot's own ALPACA_PAPER read (audit bug 2.1) -
+    # this dashboard-side read was a 4th ad-hoc implementation the audit's
+    # location list missed; a malformed value here would only mislabel the
+    # dashboard's own broker connection (paper vs live display), not flip
+    # real trading, but it deserves the same fail-loud-on-garbage treatment
+    # for consistency and to avoid ever silently misreporting live as paper.
+    try:
+        paper = read_bool_env("ALPACA_PAPER", default=True)
+    except ValueError as exc:
+        _broker_error = str(exc)
+        raise _BrokerUnavailable(_broker_error) from exc
 
     try:
         broker = AlpacaBroker(api_key=api_key, secret_key=secret_key, paper=paper)
@@ -234,7 +260,7 @@ def _build_payload() -> Dict[str, Any]:
             "daytrade_count": a.daytrade_count,
             "pattern_day_trader": a.pattern_day_trader,
             "account_status": _enum_val(a.account_status),
-            "paper": os.getenv("ALPACA_PAPER", "true").lower() in ("true", "1", "yes"),
+            "paper": read_bool_env("ALPACA_PAPER", default=True),
         }
     except Exception as exc:
         out["account"] = None
@@ -312,14 +338,21 @@ def _build_payload() -> Dict[str, Any]:
                 if daily_pnl < 0 and loss_limit_dollars > 0
                 else 0.0
             )
-        env_paused = os.getenv("TRADING_PAUSED", "false").lower() in ("true", "1", "yes")
-        dash_paused = bool(state.get("dashboard_paused", False))
+        env_paused = read_bool_env("TRADING_PAUSED", default=False)
+        # dashboard_paused has its own dedicated pause file (audit bug 2.5) -
+        # no longer read from the main state dict, which is only ever
+        # written by the bot and would otherwise show a stale value here.
+        from alphalive.state import BotState
+
+        dash_paused = BotState(
+            os.getenv("STATE_FILE", "/tmp/alphalive_state.json")
+        ).check_dashboard_paused()
         out["risk"] = {
             "daily_pnl": daily_pnl,
             "trading_paused": env_paused or dash_paused,
             "trading_paused_env": env_paused,
             "trading_paused_dashboard": dash_paused,
-            "dry_run": os.getenv("DRY_RUN", "false").lower() in ("true", "1", "yes"),
+            "dry_run": read_bool_env("DRY_RUN", default=False),
             "equity": equity,
             "daily_loss_limit_pct": loss_limit_pct,
             "daily_loss_limit_dollars": loss_limit_dollars,
@@ -372,6 +405,14 @@ def _build_payload() -> Dict[str, Any]:
 
 @app.websocket("/ws")
 async def ws_endpoint(websocket: WebSocket):
+    if not _basic_auth_ok(websocket.headers):
+        # Reject before accept() - the connection is never upgraded, so no
+        # data is ever streamed to an unauthenticated client. Code 1008
+        # (Policy Violation) is the standard WebSocket close code for this.
+        await websocket.close(code=1008)
+        logger.warning(f"WebSocket connection rejected (auth failed): {websocket.client}")
+        return
+
     await websocket.accept()
     logger.info(f"WebSocket client connected: {websocket.client}")
     loop = asyncio.get_event_loop()
@@ -410,7 +451,7 @@ async def api_account():
             "daytrade_count": a.daytrade_count,
             "pattern_day_trader": a.pattern_day_trader,
             "account_status": _enum_val(a.account_status),
-            "paper": os.getenv("ALPACA_PAPER", "true").lower() in ("true", "1", "yes"),
+            "paper": read_bool_env("ALPACA_PAPER", default=True),
         }
     except HTTPException:
         raise

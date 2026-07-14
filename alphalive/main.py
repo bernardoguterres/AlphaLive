@@ -23,7 +23,7 @@ from alphalive.services.alphasignal_client import (
     AlphaSignalClient,
     run_pre_execution_checks,
 )
-from alphalive.state import BotState
+from alphalive.state import BotState, check_trailing_stop_requirements
 from alphalive.broker.alpaca_broker import AlpacaBroker
 from alphalive.data.market_data import MarketDataFetcher, DataStaleError
 from alphalive.strategy.signal_engine import SignalEngine
@@ -497,23 +497,34 @@ def _check_signal_for_strategy(
                 return
 
         timeout = order_manager_map[strat_cfg.ticker].risk.signal_timeout_seconds
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(
-                signal_engine_map[strat_cfg.ticker].generate_signal, df
+        # Deliberately NOT a `with ThreadPoolExecutor(...) as executor:` block
+        # (audit bug 2.7): exiting that block calls shutdown(wait=True) by
+        # default, which blocks until the hung worker thread actually
+        # finishes - completely defeating future.result(timeout=...) below.
+        # Measured: 1.01s configured timeout, actual resume at 3.00s.
+        # shutdown(wait=False) here lets this function return as soon as the
+        # timeout fires, regardless of whether the underlying call ever
+        # returns - the abandoned worker thread is not forcibly killed (not
+        # possible in pure Python), but it no longer blocks the caller.
+        executor = ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(
+            signal_engine_map[strat_cfg.ticker].generate_signal, df
+        )
+        try:
+            signal_result = future.result(timeout=timeout)
+        except FutureTimeoutError:
+            logger.critical(
+                f"Signal generation timed out after {timeout}s for "
+                f"{strat_cfg.strategy.name}/{strat_cfg.ticker} - skipping this check"
             )
-            try:
-                signal_result = future.result(timeout=timeout)
-            except FutureTimeoutError:
-                logger.critical(
-                    f"Signal generation timed out after {timeout}s for "
-                    f"{strat_cfg.strategy.name}/{strat_cfg.ticker} - skipping this check"
-                )
-                notifier.send_error_alert(
-                    f"⏱️ Signal generation timeout: {strat_cfg.ticker} "
-                    f"(exceeded {timeout}s)"
-                )
-                morning_checks_done.add(strat_cfg.ticker)
-                return
+            notifier.send_error_alert(
+                f"⏱️ Signal generation timeout: {strat_cfg.ticker} "
+                f"(exceeded {timeout}s)"
+            )
+            morning_checks_done.add(strat_cfg.ticker)
+            executor.shutdown(wait=False)
+            return
+        executor.shutdown(wait=False)
 
         logger.info(
             f"Signal: {signal_result['signal']} | "
@@ -978,6 +989,20 @@ def main(
     if not validate_all(all_strategy_configs, app_config):
         logger.critical("Configuration validation failed. Exiting.")
         sys.exit(1)
+
+    # Refuse to start any strategy with trailing_stop_enabled=true unless
+    # persistent storage is configured - a Railway redeploy mid-day would
+    # otherwise silently reset position_highs and miscalculate trailing
+    # stops (real money risk). This was previously defined but never
+    # called anywhere (audit bug 2.4) - wired in here, immediately after
+    # config validation and before any broker connection or notifier setup,
+    # so it's checked as early as every other startup gate. No notifier is
+    # available yet at this point in startup, so the Telegram alert this
+    # function sends on failure is skipped (its exit + log message alone
+    # are sufficient to block startup); it still exits before the bot ever
+    # reaches the trading loop.
+    for strategy_config in all_strategy_configs:
+        check_trailing_stop_requirements(strategy_config)
 
     # Start the Railway healthcheck server (daemon thread; safe no-op locally
     # if HEALTH_SECRET isn't set).

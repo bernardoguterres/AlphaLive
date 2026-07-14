@@ -14,6 +14,7 @@ from typing import Dict, List, Tuple, Optional
 from zoneinfo import ZoneInfo
 
 from alphalive.strategy_schema import Risk, Execution, SafetyLimits
+from alphalive.utils.env_bool import read_bool_env
 
 logger = logging.getLogger(__name__)
 
@@ -486,16 +487,30 @@ class RiskManager:
         Main gatekeeper - checks ALL limits before allowing a trade.
 
         Check order:
-        1. TRADING_PAUSED env var (kill switch - checked first, always)
-        2. Manual pause via Telegram /pause command (in-memory flag)
+        1. TRADING_PAUSED env var (kill switch - checked first, always) - SELL-exempt
+        2. Manual pause via Telegram /pause command (in-memory flag) - SELL-exempt
         3. Trade frequency limit (max trades per day)
         4. API call budget limit (max calls per hour)
         5. Degraded mode (broker connection unstable)
-        6. Daily loss limit (global across all strategies)
+        6. Daily loss limit (global across all strategies) - SELL-exempt
         7. Consecutive loss circuit breaker (3 stop-outs in a row = pause for the day)
-        8. Max positions limit (per-strategy)
-        9. Portfolio max positions limit (across ALL strategies)
-        10. Cooldown period (if current_bar provided)
+        8. Max positions limit (per-strategy) - SELL-exempt
+        9. Portfolio max positions limit (across ALL strategies) - SELL-exempt
+        10. Cooldown period (if current_bar provided) - SELL-exempt
+
+        SELL exemption (audit bug 2.6, 2026-07-14): a SELL is exposure-reducing -
+        it closes/reduces a position the strategy itself wants out of. Checks
+        1, 2, and 6 (kill switch, manual pause, daily loss limit) now also
+        exempt SELLs, alongside the pre-existing 8/9/10 exemption - blocking a
+        strategy-driven exit once the daily loss limit trips or the bot is
+        paused just traps the position in a worse state; the strategy already
+        decided to get out. Checks 3/4/5/7 (trade-frequency, API-budget,
+        degraded-mode, consecutive-loss circuit breaker) still block SELLs -
+        these guard against cost/rate-limit blowouts and broker unreliability
+        that apply regardless of trade direction, not risk-limit trips that
+        exiting positions would actually help with. Hard stop-loss/take-profit/
+        trailing-stop exits bypass can_trade() entirely (OrderManager.check_exits())
+        and were never affected by any of this - only signal-driven SELLs are.
 
         Kill switch: Railway restarts the process when TRADING_PAUSED env var changes.
         Takes ~15-30 seconds, not instant, but reliable.
@@ -513,21 +528,31 @@ class RiskManager:
             (True, "OK") if trade is allowed
             (False, "reason") if trade is blocked
         """
-        # 1. Check kill switch (TRADING_PAUSED env var)
+        # 1. Check kill switch (TRADING_PAUSED env var) - exempt SELLs (bug 2.6)
         #    Railway restarts the process when env vars change (~15-30s)
         #    Not instant, but reliable
-        paused = os.environ.get("TRADING_PAUSED", "false").lower()
-        if paused in ("true", "1", "yes"):
-            reason = "Trading paused via TRADING_PAUSED env var (kill switch)"
-            logger.warning(f"[{self.strategy_name}] {reason}")
-            return (False, reason)
+        if signal != "SELL":
+            try:
+                trading_paused_env = read_bool_env("TRADING_PAUSED", default=False)
+            except ValueError as e:
+                # A malformed TRADING_PAUSED value is genuinely ambiguous - block
+                # trading rather than raise out of can_trade() (which callers
+                # expect to always return a decision, not throw) or silently
+                # falling through to "not paused".
+                reason = f"Trading blocked: TRADING_PAUSED env var is malformed ({e})"
+                logger.error(f"[{self.strategy_name}] {reason}")
+                return (False, reason)
+            if trading_paused_env:
+                reason = "Trading paused via TRADING_PAUSED env var (kill switch)"
+                logger.warning(f"[{self.strategy_name}] {reason}")
+                return (False, reason)
 
-        # 2. Check manual pause flag (Telegram /pause command)
-        #    Instant in-memory flag (no restart required)
-        if getattr(self, "trading_paused_manual", False):
-            reason = "Trading paused via Telegram /pause command"
-            logger.warning(f"[{self.strategy_name}] {reason}")
-            return (False, reason)
+            # 2. Check manual pause flag (Telegram /pause command) - exempt SELLs
+            #    Instant in-memory flag (no restart required)
+            if getattr(self, "trading_paused_manual", False):
+                reason = "Trading paused via Telegram /pause command"
+                logger.warning(f"[{self.strategy_name}] {reason}")
+                return (False, reason)
 
         # 3. NEW: Trade frequency limit
         if self.trades_today >= self.max_trades_per_day:
@@ -574,8 +599,9 @@ class RiskManager:
         if self.degraded_mode:
             return (False, "Degraded mode - broker connection unstable")
 
-        # 6. Check daily loss limit
-        if self.check_daily_loss_limit(account_equity):
+        # 6. Check daily loss limit - exempt SELLs (bug 2.6): blocking an
+        #    exit once the daily loss limit trips just traps the position.
+        if signal != "SELL" and self.check_daily_loss_limit(account_equity):
             loss_pct = (abs(self.daily_pnl) / account_equity) * 100
             reason = (
                 f"Daily loss limit hit: ${self.daily_pnl:.2f} / {loss_pct:.2f}% "

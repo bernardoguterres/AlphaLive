@@ -9,6 +9,8 @@ import argparse
 import os
 import sys
 
+from alphalive.utils.env_bool import read_bool_env
+
 
 def print_banner(args, paper):
     """Print startup banner with configuration info."""
@@ -30,6 +32,18 @@ def print_banner(args, paper):
 
     print(f"  Platform: {'Railway' if os.environ.get('RAILWAY_ENVIRONMENT') else 'Local'}")
     print("=" * 80)
+
+
+def _read_bool_env_or_exit(var_name: str, default: bool) -> bool:
+    """read_bool_env(), but exits with a clear message instead of a raw
+    traceback if the env var is set to something unparseable - this runs
+    before logging is configured, so a bare exception here would otherwise
+    just print a Python traceback with no context."""
+    try:
+        return read_bool_env(var_name, default=default)
+    except ValueError as e:
+        print(f"Configuration error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def main():
@@ -74,7 +88,7 @@ Environment Variables:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        default=os.environ.get("DRY_RUN", "false").lower() == "true",
+        default=_read_bool_env_or_exit("DRY_RUN", default=False),
         help="Log all actions but don't place real orders"
     )
 
@@ -116,7 +130,7 @@ Environment Variables:
 
     # Paper/live is controlled by ALPACA_PAPER env var, not CLI flag
     # (safer for Railway - can't accidentally pass --live flag)
-    paper = os.environ.get("ALPACA_PAPER", "true").lower() == "true"
+    paper = _read_bool_env_or_exit("ALPACA_PAPER", default=True)
 
     # --- validate-only branch ---
     if args.validate_only:
@@ -139,7 +153,16 @@ Environment Variables:
                 print("Configuration validation failed")
                 sys.exit(1)
 
-                print("Configuration valid")
+            # Refuse to validate-pass a trailing-stop strategy without
+            # persistent storage - same gate main.py's real startup path
+            # enforces (audit bug 2.4). check_trailing_stop_requirements()
+            # exits(1) itself with a clear message on failure.
+            from alphalive.state import check_trailing_stop_requirements
+
+            for strategy_config in strategy_configs:
+                check_trailing_stop_requirements(strategy_config)
+
+            print("Configuration valid")
             print()
 
             # Test broker connection

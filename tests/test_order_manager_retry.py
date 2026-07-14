@@ -14,7 +14,7 @@ import pytest
 from alpaca.common.exceptions import APIError
 
 from alphalive.execution.order_manager import OrderManager
-from alphalive.broker.base_broker import Order
+from alphalive.broker.base_broker import Order, OrderError
 from alphalive.strategy_schema import StrategySchema
 
 ET = ZoneInfo("America/New_York")
@@ -134,6 +134,72 @@ def test_place_with_retry_409_reraises_without_client_order_id(om):
         om._place_with_retry(lambda: om.broker.place_market_order(), ticker="AAPL")
 
     assert om.broker.place_market_order.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Bug 2.3 regression: the 409-recovery path is only reachable in production
+# through AlpacaBroker._execute(), which wraps every real APIError into
+# OrderError before OrderManager ever sees it. The tests above use a mocked
+# broker that raises the raw APIError directly, which never actually
+# exercised _place_with_retry()'s `except AlpacaAPIError` clause the way
+# the real broker does - OrderError has no status_code at all in the old
+# code, so `except AlpacaAPIError` never matched it and this whole 409
+# recovery path was dead code (blind retries / duplicate orders instead).
+# These tests raise OrderError (with status_code, as AlpacaBroker._execute()
+# now sets it) to match what the mocked broker in the tests above does not.
+# ---------------------------------------------------------------------------
+
+
+def test_place_with_retry_recovers_via_wrapped_order_error_on_409(om):
+    """Simulates a client-side timeout on an order that Alpaca actually
+    filled: the retried placement gets back a 409 (duplicate
+    client_order_id) from Alpaca, wrapped into OrderError by the real
+    broker - the bot must recover the real fill via get_order_by_client_id,
+    not blindly retry or double-submit."""
+    om.broker.place_market_order.side_effect = OrderError(
+        "Failed to place order: dup client_order_id", status_code=409
+    )
+    existing = _order()
+    om.broker.get_order_by_client_id.return_value = existing
+
+    result = om._place_with_retry(
+        lambda: om.broker.place_market_order(),
+        ticker="AAPL",
+        client_order_id="AAPL_buy_20260714_093500",
+    )
+
+    assert result is existing
+    om.broker.get_order_by_client_id.assert_called_once_with("AAPL_buy_20260714_093500")
+    assert om.broker.place_market_order.call_count == 1  # no blind retry, no duplicate order
+
+
+def test_place_with_retry_wrapped_order_error_403_no_retry(om):
+    om.broker.place_market_order.side_effect = OrderError(
+        "Failed to place order: no buying power", status_code=403
+    )
+
+    with pytest.raises(ValueError, match="Insufficient buying power"):
+        om._place_with_retry(lambda: om.broker.place_market_order(), ticker="AAPL")
+
+    assert om.broker.place_market_order.call_count == 1
+
+
+def test_place_with_retry_order_error_without_status_code_retries_then_succeeds(om):
+    """OrderError wrapping a non-APIError failure (e.g. a network error the
+    broker still routes through error_cls) has no status_code - must fall
+    back to backoff retry, not crash on a None status comparison."""
+    om.broker.place_market_order.side_effect = [
+        OrderError("Failed to place order: connection reset"),
+        _order(),
+    ]
+
+    with patch("time.sleep"):
+        result = om._place_with_retry(
+            lambda: om.broker.place_market_order(), ticker="AAPL"
+        )
+
+    assert result.id == "order_123"
+    assert om.broker.place_market_order.call_count == 2
 
 
 def test_execute_signal_passes_idempotency_key_to_broker(om):
