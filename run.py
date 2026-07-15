@@ -8,6 +8,9 @@ Simple entry point for both local development and Railway deployment.
 import argparse
 import os
 import sys
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 from alphalive.utils.env_bool import read_bool_env
 
@@ -48,6 +51,16 @@ def _read_bool_env_or_exit(var_name: str, default: bool) -> bool:
 
 def main():
     """Main entry point."""
+    # Load .env before argparse builds its defaults below - --config and
+    # --dry-run read os.environ at add_argument() time, which runs before
+    # alphalive.config.load_env()'s own load_dotenv() call later in this
+    # function. Without this, a .env-only setup (no shell export) silently
+    # falls back to STRATEGY_CONFIG_DIR/STRATEGY_CONFIG's hardcoded default
+    # and crashes with FileNotFoundError. Mirrors load_env()'s own logic.
+    dotenv_path = Path(".env")
+    if dotenv_path.exists():
+        load_dotenv(dotenv_path)
+
     parser = argparse.ArgumentParser(
         description="AlphaLive: Execute trading strategies live via Alpaca",
         formatter_class=argparse.RawDescriptionHelpFormatter,
