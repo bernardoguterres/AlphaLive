@@ -1357,9 +1357,14 @@ document.addEventListener('alpine:init', () => {
         _charts.pnl = new Chart(pnlCanvas.getContext('2d'), {
           type: 'line',
           data: {
-            labels: this.pnlSeries.labels,
+            // Spread into plain arrays - pnlSeries is Alpine-reactive (a
+            // Proxy), and handing that Proxy directly to Chart.js causes
+            // its internal object-walking to collide with Alpine's own
+            // get/set traps on the same array, producing a recursive
+            // "Maximum call stack size exceeded" on every WS push.
+            labels: [...this.pnlSeries.labels],
             datasets: [{
-              data: this.pnlSeries.data,
+              data: [...this.pnlSeries.data],
               borderColor: pnl >= 0 ? '#10b981' : '#ef4444',
               backgroundColor: pnl >= 0 ? 'rgba(16,185,129,0.07)' : 'rgba(239,68,68,0.07)',
               borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.35,
@@ -1411,8 +1416,9 @@ document.addEventListener('alpine:init', () => {
     updateCharts() {
       if (_charts.pnl) {
         const pnl = this.risk?.daily_pnl ?? 0;
-        _charts.pnl.data.labels                      = this.pnlSeries.labels;
-        _charts.pnl.data.datasets[0].data            = this.pnlSeries.data;
+        // Same Proxy-cloning as initCharts() above - must stay plain arrays.
+        _charts.pnl.data.labels                      = [...this.pnlSeries.labels];
+        _charts.pnl.data.datasets[0].data            = [...this.pnlSeries.data];
         _charts.pnl.data.datasets[0].borderColor     = pnl >= 0 ? '#10b981' : '#ef4444';
         _charts.pnl.data.datasets[0].backgroundColor = pnl >= 0 ? 'rgba(16,185,129,0.07)' : 'rgba(239,68,68,0.07)';
         _charts.pnl.update('none');
