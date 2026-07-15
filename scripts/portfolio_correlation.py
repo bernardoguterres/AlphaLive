@@ -38,10 +38,10 @@ logging.basicConfig(level=logging.WARNING)
 # Constants
 # ---------------------------------------------------------------------------
 CONFIGS_DIR = PROJECT_ROOT / "configs" / "production"
-DATA_START = "2021-01-01"   # extra lead-in for indicator warm-up
-DATA_END   = "2023-12-31"
-SIGNAL_START = "2022-01-01" # correlation window we actually care about
-SIGNAL_END   = "2023-12-31"
+DATA_START = "2021-01-01"  # extra lead-in for indicator warm-up
+DATA_END = "2023-12-31"
+SIGNAL_START = "2022-01-01"  # correlation window we actually care about
+SIGNAL_END = "2023-12-31"
 HIGH_CORR_THRESHOLD = 0.7
 LABEL_MAX_LEN = 25
 
@@ -53,7 +53,10 @@ SIGNAL_MAP = {"BUY": 1, "SELL": -1, "HOLD": 0}
 # Step 1 - load configs
 # ---------------------------------------------------------------------------
 
-def load_configs(configs_dir: Path) -> Tuple[List[Tuple[str, StrategySchema]], List[Tuple[str, str]]]:
+
+def load_configs(
+    configs_dir: Path,
+) -> Tuple[List[Tuple[str, StrategySchema]], List[Tuple[str, str]]]:
     """
     Returns:
         daily_configs  : list of (filename, StrategySchema) for 1Day configs
@@ -86,6 +89,7 @@ def load_configs(configs_dir: Path) -> Tuple[List[Tuple[str, StrategySchema]], L
 # Step 2 - download price data (once per unique ticker)
 # ---------------------------------------------------------------------------
 
+
 def download_price_data(tickers: List[str]) -> Dict[str, pd.DataFrame]:
     """
     Download 2 years of daily OHLCV from yfinance for the given tickers.
@@ -93,14 +97,20 @@ def download_price_data(tickers: List[str]) -> Dict[str, pd.DataFrame]:
 
     Returns a dict: ticker -> DataFrame with lowercase OHLCV columns.
     """
-    print(f"\nDownloading daily price data for {len(tickers)} ticker(s): {', '.join(sorted(tickers))}")
-    print(f"  Period : {DATA_START} to {DATA_END}  (extra lead-in for indicator warm-up)")
+    print(
+        f"\nDownloading daily price data for {len(tickers)} ticker(s): {', '.join(sorted(tickers))}"
+    )
+    print(
+        f"  Period : {DATA_START} to {DATA_END}  (extra lead-in for indicator warm-up)"
+    )
 
     price_data: Dict[str, pd.DataFrame] = {}
 
     for ticker in sorted(tickers):
         print(f"  Fetching {ticker} ...", end=" ", flush=True)
-        raw = yf.download(ticker, start=DATA_START, end=DATA_END, auto_adjust=True, progress=False)
+        raw = yf.download(
+            ticker, start=DATA_START, end=DATA_END, auto_adjust=True, progress=False
+        )
 
         if raw.empty:
             print(f"WARNING: no data returned for {ticker} - skipping")
@@ -132,6 +142,7 @@ def download_price_data(tickers: List[str]) -> Dict[str, pd.DataFrame]:
 # ---------------------------------------------------------------------------
 # Step 3 - run signal engine bar-by-bar for one config
 # ---------------------------------------------------------------------------
+
 
 def generate_signal_series(
     fname: str,
@@ -179,6 +190,7 @@ def generate_signal_series(
 # Step 4 - build aligned signal DataFrame
 # ---------------------------------------------------------------------------
 
+
 def build_signal_matrix(
     daily_configs: List[Tuple[str, StrategySchema]],
     price_data: Dict[str, pd.DataFrame],
@@ -191,7 +203,9 @@ def build_signal_matrix(
     all_series: List[pd.Series] = []
     failed: List[str] = []
 
-    print(f"\nGenerating bar-by-bar signals for {len(daily_configs)} 1Day config(s) ...")
+    print(
+        f"\nGenerating bar-by-bar signals for {len(daily_configs)} 1Day config(s) ..."
+    )
 
     for fname, schema in daily_configs:
         ticker = schema.ticker
@@ -207,7 +221,7 @@ def build_signal_matrix(
             series = generate_signal_series(fname, schema, price_data[ticker])
             series.name = label
             all_series.append(series)
-            buy_count  = (series == 1).sum()
+            buy_count = (series == 1).sum()
             sell_count = (series == -1).sum()
             print(f"done  [{len(series)} dates | BUY={buy_count} SELL={sell_count}]")
         except Exception as exc:
@@ -228,6 +242,7 @@ def build_signal_matrix(
 # Step 5 - compute and print correlation matrix
 # ---------------------------------------------------------------------------
 
+
 def print_correlation_matrix(corr: pd.DataFrame) -> None:
     pd.options.display.float_format = "{:+.3f}".format
     pd.options.display.max_columns = None
@@ -243,6 +258,7 @@ def print_correlation_matrix(corr: pd.DataFrame) -> None:
 # ---------------------------------------------------------------------------
 # Step 6 - flag high-correlation pairs
 # ---------------------------------------------------------------------------
+
 
 def flag_high_correlation_pairs(corr: pd.DataFrame) -> List[Tuple[str, str, float]]:
     """Return list of (label_a, label_b, correlation) where |corr| > threshold."""
@@ -261,9 +277,7 @@ def flag_high_correlation_pairs(corr: pd.DataFrame) -> List[Tuple[str, str, floa
     return high_pairs
 
 
-def print_high_correlation_warnings(
-    high_pairs: List[Tuple[str, str, float]]
-) -> None:
+def print_high_correlation_warnings(high_pairs: List[Tuple[str, str, float]]) -> None:
     print("\n" + "=" * 80)
     print(f"HIGH CORRELATION RISK  (|correlation| > {HIGH_CORR_THRESHOLD})")
     print("=" * 80)
@@ -291,6 +305,7 @@ def print_high_correlation_warnings(
 # ---------------------------------------------------------------------------
 # Step 7 - summary
 # ---------------------------------------------------------------------------
+
 
 def print_summary(
     total_configs: int,
@@ -320,6 +335,7 @@ def print_summary(
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     print("=" * 80)
     print("ALPHALIVE - PORTFOLIO CORRELATION ANALYSIS")
@@ -333,7 +349,9 @@ def main() -> None:
     daily_configs, skipped_configs = load_configs(CONFIGS_DIR)
     total_configs = len(daily_configs) + len(skipped_configs)
 
-    print(f"\nLoaded {total_configs} config(s): {len(daily_configs)} daily, {len(skipped_configs)} non-daily")
+    print(
+        f"\nLoaded {total_configs} config(s): {len(daily_configs)} daily, {len(skipped_configs)} non-daily"
+    )
 
     if not daily_configs:
         print("ERROR: No 1Day configs found - nothing to correlate.")
@@ -350,7 +368,9 @@ def main() -> None:
     # 3 + 4. Generate signals and build aligned matrix
     signal_matrix = build_signal_matrix(daily_configs, price_data)
 
-    print(f"\nSignal matrix: {signal_matrix.shape[0]} dates x {signal_matrix.shape[1]} strategies")
+    print(
+        f"\nSignal matrix: {signal_matrix.shape[0]} dates x {signal_matrix.shape[1]} strategies"
+    )
 
     # 5. Compute Pearson correlation
     corr = signal_matrix.corr(method="pearson")

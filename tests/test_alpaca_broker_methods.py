@@ -809,7 +809,10 @@ def test_place_limit_order_sends_client_order_id():
     broker = _connected_broker()
     with patch.object(broker, "_convert_order", return_value=Mock()):
         broker.place_limit_order(
-            "AAPL", 10, "buy", limit_price=150.0,
+            "AAPL",
+            10,
+            "buy",
+            limit_price=150.0,
             client_order_id="AAPL_buy_20260710_093500",
         )
     request = broker.trading_client.submit_order.call_args[0][0]

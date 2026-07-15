@@ -36,6 +36,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 
 try:
     from dotenv import load_dotenv
+
     if Path(".env").exists():
         load_dotenv()
 except ImportError:
@@ -201,6 +202,7 @@ def _load_strategies() -> List:
         return _strategies
     try:
         from alphalive.config import load_config_path
+
         _strategies = load_config_path(config_path)
         logger.info(f"Loaded {len(_strategies)} strategies for dashboard")
     except Exception as exc:
@@ -225,6 +227,7 @@ def _max_daily_loss_pct() -> Optional[float]:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _dt_str(val) -> Optional[str]:
     if val is None:
         return None
@@ -238,6 +241,7 @@ def _enum_val(val) -> str:
 # ---------------------------------------------------------------------------
 # Payload builder (synchronous - called via run_in_executor from WS handler)
 # ---------------------------------------------------------------------------
+
 
 def _build_payload() -> Dict[str, Any]:
     """
@@ -276,20 +280,22 @@ def _build_payload() -> Dict[str, Any]:
             ts_pct = _trailing_stop_pct(p.symbol)
             peak = position_highs.get(p.symbol)
             trail_level = (peak * (1 - ts_pct / 100)) if (ts_pct and peak) else None
-            positions.append({
-                "symbol": p.symbol,
-                "qty": p.qty,
-                "side": p.side,
-                "avg_entry_price": p.avg_entry_price,
-                "current_price": p.current_price,
-                "unrealized_pl": p.unrealized_pl,
-                "unrealized_plpc": p.unrealized_plpc,
-                "market_value": p.market_value,
-                "peak_price": peak,
-                "trailing_stop_pct": ts_pct,
-                "trailing_stop_level": trail_level,
-                "entry_timestamp": entry_timestamps.get(p.symbol),
-            })
+            positions.append(
+                {
+                    "symbol": p.symbol,
+                    "qty": p.qty,
+                    "side": p.side,
+                    "avg_entry_price": p.avg_entry_price,
+                    "current_price": p.current_price,
+                    "unrealized_pl": p.unrealized_pl,
+                    "unrealized_plpc": p.unrealized_plpc,
+                    "market_value": p.market_value,
+                    "peak_price": peak,
+                    "trailing_stop_pct": ts_pct,
+                    "trailing_stop_level": trail_level,
+                    "entry_timestamp": entry_timestamps.get(p.symbol),
+                }
+            )
         out["positions"] = positions
     except Exception as exc:
         out["positions"] = []
@@ -308,18 +314,22 @@ def _build_payload() -> Dict[str, Any]:
         )
         orders = []
         for o in raw_orders:
-            orders.append({
-                "id": str(o.id),
-                "symbol": o.symbol,
-                "side": _enum_val(o.side),
-                "qty": float(o.qty) if o.qty else 0.0,
-                "filled_qty": float(o.filled_qty) if o.filled_qty else 0.0,
-                "filled_avg_price": float(o.filled_avg_price) if o.filled_avg_price else None,
-                "order_type": _enum_val(o.order_type),
-                "status": _enum_val(o.status),
-                "submitted_at": _dt_str(o.submitted_at),
-                "filled_at": _dt_str(o.filled_at),
-            })
+            orders.append(
+                {
+                    "id": str(o.id),
+                    "symbol": o.symbol,
+                    "side": _enum_val(o.side),
+                    "qty": float(o.qty) if o.qty else 0.0,
+                    "filled_qty": float(o.filled_qty) if o.filled_qty else 0.0,
+                    "filled_avg_price": (
+                        float(o.filled_avg_price) if o.filled_avg_price else None
+                    ),
+                    "order_type": _enum_val(o.order_type),
+                    "status": _enum_val(o.status),
+                    "submitted_at": _dt_str(o.submitted_at),
+                    "filled_at": _dt_str(o.filled_at),
+                }
+            )
         out["orders"] = orders
     except Exception as exc:
         out["orders"] = []
@@ -386,13 +396,14 @@ def _build_payload() -> Dict[str, Any]:
         "market": market,
         "broker_connected": broker_ok,
         "broker_error": broker_err,
-        "paper_trading": os.getenv("ALPACA_PAPER", "true").lower() in ("true", "1", "yes"),
+        "paper_trading": os.getenv("ALPACA_PAPER", "true").lower()
+        in ("true", "1", "yes"),
         "server_time": datetime.now().isoformat(),
         "state_file": os.getenv("STATE_FILE", "/tmp/alphalive_state.json"),
         "railway_configured": bool(
-            os.getenv("RAILWAY_API_TOKEN") and
-            os.getenv("RAILWAY_SERVICE_ID") and
-            os.getenv("RAILWAY_ENVIRONMENT_ID")
+            os.getenv("RAILWAY_API_TOKEN")
+            and os.getenv("RAILWAY_SERVICE_ID")
+            and os.getenv("RAILWAY_ENVIRONMENT_ID")
         ),
     }
 
@@ -403,6 +414,7 @@ def _build_payload() -> Dict[str, Any]:
 # WebSocket endpoint - pushes full payload every 5 seconds
 # ---------------------------------------------------------------------------
 
+
 @app.websocket("/ws")
 async def ws_endpoint(websocket: WebSocket):
     if not _basic_auth_ok(websocket.headers):
@@ -410,7 +422,9 @@ async def ws_endpoint(websocket: WebSocket):
         # data is ever streamed to an unauthenticated client. Code 1008
         # (Policy Violation) is the standard WebSocket close code for this.
         await websocket.close(code=1008)
-        logger.warning(f"WebSocket connection rejected (auth failed): {websocket.client}")
+        logger.warning(
+            f"WebSocket connection rejected (auth failed): {websocket.client}"
+        )
         return
 
     await websocket.accept()
@@ -434,6 +448,7 @@ async def ws_endpoint(websocket: WebSocket):
 # ---------------------------------------------------------------------------
 # REST endpoints (kept for direct API use / backward compat)
 # ---------------------------------------------------------------------------
+
 
 @app.get("/api/account")
 async def api_account():
@@ -476,14 +491,22 @@ async def api_positions():
         ts_pct = _trailing_stop_pct(p.symbol)
         peak = position_highs.get(p.symbol)
         trail_level = (peak * (1 - ts_pct / 100)) if (ts_pct and peak) else None
-        result.append({
-            "symbol": p.symbol, "qty": p.qty, "side": p.side,
-            "avg_entry_price": p.avg_entry_price, "current_price": p.current_price,
-            "unrealized_pl": p.unrealized_pl, "unrealized_plpc": p.unrealized_plpc,
-            "market_value": p.market_value, "peak_price": peak,
-            "trailing_stop_pct": ts_pct, "trailing_stop_level": trail_level,
-            "entry_timestamp": entry_timestamps.get(p.symbol),
-        })
+        result.append(
+            {
+                "symbol": p.symbol,
+                "qty": p.qty,
+                "side": p.side,
+                "avg_entry_price": p.avg_entry_price,
+                "current_price": p.current_price,
+                "unrealized_pl": p.unrealized_pl,
+                "unrealized_plpc": p.unrealized_plpc,
+                "market_value": p.market_value,
+                "peak_price": peak,
+                "trailing_stop_pct": ts_pct,
+                "trailing_stop_level": trail_level,
+                "entry_timestamp": entry_timestamps.get(p.symbol),
+            }
+        )
     return {"positions": result, "count": len(result)}
 
 
@@ -501,23 +524,33 @@ async def api_trades():
         req = GetOrdersRequest(status=QueryOrderStatus.ALL, after=since, limit=50)
         raw_orders = broker._retry_with_backoff(broker.trading_client.get_orders, req)
         for o in raw_orders:
-            orders.append({
-                "id": str(o.id), "symbol": o.symbol,
-                "side": _enum_val(o.side),
-                "qty": float(o.qty) if o.qty else 0.0,
-                "filled_qty": float(o.filled_qty) if o.filled_qty else 0.0,
-                "filled_avg_price": float(o.filled_avg_price) if o.filled_avg_price else None,
-                "order_type": _enum_val(o.order_type), "status": _enum_val(o.status),
-                "submitted_at": _dt_str(o.submitted_at), "filled_at": _dt_str(o.filled_at),
-            })
+            orders.append(
+                {
+                    "id": str(o.id),
+                    "symbol": o.symbol,
+                    "side": _enum_val(o.side),
+                    "qty": float(o.qty) if o.qty else 0.0,
+                    "filled_qty": float(o.filled_qty) if o.filled_qty else 0.0,
+                    "filled_avg_price": (
+                        float(o.filled_avg_price) if o.filled_avg_price else None
+                    ),
+                    "order_type": _enum_val(o.order_type),
+                    "status": _enum_val(o.status),
+                    "submitted_at": _dt_str(o.submitted_at),
+                    "filled_at": _dt_str(o.filled_at),
+                }
+            )
     except HTTPException:
         raise
     except Exception as exc:
         logger.warning(f"Order fetch failed: {exc}")
 
     state = _read_state()
-    return {"orders": orders, "total": len(orders),
-            "state_trades_today": state.get("trades_today", [])}
+    return {
+        "orders": orders,
+        "total": len(orders),
+        "state_trades_today": state.get("trades_today", []),
+    }
 
 
 @app.get("/api/risk")
@@ -536,13 +569,27 @@ async def api_risk():
         loss_limit_dollars = equity * (loss_limit_pct / 100)
         loss_used_pct = (
             min(abs(daily_pnl) / loss_limit_dollars * 100, 100.0)
-            if daily_pnl < 0 and loss_limit_dollars > 0 else 0.0
+            if daily_pnl < 0 and loss_limit_dollars > 0
+            else 0.0
         )
+    env_paused = read_bool_env("TRADING_PAUSED", default=False)
+    # dashboard_paused has its own dedicated pause file (audit bug 2.5) - same
+    # source _build_payload()'s WS risk block reads; this REST endpoint
+    # previously only checked the env var and ignored it entirely, so a
+    # dashboard-kill-switch pause was invisible to any client polling here.
+    from alphalive.state import BotState
+
+    dash_paused = BotState(
+        os.getenv("STATE_FILE", "/tmp/alphalive_state.json")
+    ).check_dashboard_paused()
     return {
         "daily_pnl": daily_pnl,
-        "trading_paused": os.getenv("TRADING_PAUSED", "false").lower() in ("true", "1", "yes"),
-        "dry_run": os.getenv("DRY_RUN", "false").lower() in ("true", "1", "yes"),
-        "equity": equity, "daily_loss_limit_pct": loss_limit_pct,
+        "trading_paused": env_paused or dash_paused,
+        "trading_paused_env": env_paused,
+        "trading_paused_dashboard": dash_paused,
+        "dry_run": read_bool_env("DRY_RUN", default=False),
+        "equity": equity,
+        "daily_loss_limit_pct": loss_limit_pct,
         "daily_loss_limit_dollars": loss_limit_dollars,
         "daily_loss_used_pct": loss_used_pct,
     }
@@ -571,14 +618,17 @@ async def api_health():
         "last_morning_check_date": state.get("last_morning_check_date"),
         "last_eod_summary_date": state.get("last_eod_summary_date"),
         "last_saved": state.get("last_saved"),
-        "market": market, "broker_connected": broker_ok, "broker_error": broker_err,
-        "paper_trading": os.getenv("ALPACA_PAPER", "true").lower() in ("true", "1", "yes"),
+        "market": market,
+        "broker_connected": broker_ok,
+        "broker_error": broker_err,
+        "paper_trading": os.getenv("ALPACA_PAPER", "true").lower()
+        in ("true", "1", "yes"),
         "server_time": datetime.now().isoformat(),
         "state_file": os.getenv("STATE_FILE", "/tmp/alphalive_state.json"),
         "railway_configured": bool(
-            os.getenv("RAILWAY_API_TOKEN") and
-            os.getenv("RAILWAY_SERVICE_ID") and
-            os.getenv("RAILWAY_ENVIRONMENT_ID")
+            os.getenv("RAILWAY_API_TOKEN")
+            and os.getenv("RAILWAY_SERVICE_ID")
+            and os.getenv("RAILWAY_ENVIRONMENT_ID")
         ),
     }
 
@@ -590,8 +640,14 @@ async def api_bars(ticker: str, n: int = 20):
     try:
         raw = broker.get_bars(symbol=ticker.upper(), timeframe="1Day", limit=n)
         bars = [
-            {"t": _dt_str(b["timestamp"]), "o": b["open"], "h": b["high"],
-             "l": b["low"], "c": b["close"], "v": b["volume"]}
+            {
+                "t": _dt_str(b["timestamp"]),
+                "o": b["open"],
+                "h": b["high"],
+                "l": b["low"],
+                "c": b["close"],
+                "v": b["volume"],
+            }
             for b in raw
         ]
         return {"ticker": ticker.upper(), "bars": bars, "count": len(bars)}
@@ -605,6 +661,7 @@ async def api_bars(ticker: str, n: int = 20):
 # Kill switch control endpoints
 # ---------------------------------------------------------------------------
 
+
 @app.post("/api/deploy")
 async def api_deploy():
     """
@@ -615,9 +672,9 @@ async def api_deploy():
         RAILWAY_SERVICE_ID - Service ID (Railway dashboard → service → Settings → General)
         RAILWAY_ENVIRONMENT_ID - Environment ID (Railway dashboard → environment → Settings)
     """
-    token   = os.getenv("RAILWAY_API_TOKEN", "")
-    svc_id  = os.getenv("RAILWAY_SERVICE_ID", "")
-    env_id  = os.getenv("RAILWAY_ENVIRONMENT_ID", "")
+    token = os.getenv("RAILWAY_API_TOKEN", "")
+    svc_id = os.getenv("RAILWAY_SERVICE_ID", "")
+    env_id = os.getenv("RAILWAY_ENVIRONMENT_ID", "")
 
     if not token or not svc_id or not env_id:
         raise HTTPException(
@@ -625,7 +682,7 @@ async def api_deploy():
             detail=(
                 "Railway redeploy not configured. Set RAILWAY_API_TOKEN, "
                 "RAILWAY_SERVICE_ID, and RAILWAY_ENVIRONMENT_ID."
-            )
+            ),
         )
 
     import httpx
@@ -643,11 +700,16 @@ async def api_deploy():
                     "Authorization": f"Bearer {token}",
                     "Content-Type": "application/json",
                 },
-                json={"query": mutation, "variables": {"serviceId": svc_id, "environmentId": env_id}},
+                json={
+                    "query": mutation,
+                    "variables": {"serviceId": svc_id, "environmentId": env_id},
+                },
             )
 
         if resp.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"Railway API returned HTTP {resp.status_code}")
+            raise HTTPException(
+                status_code=502, detail=f"Railway API returned HTTP {resp.status_code}"
+            )
 
         data = resp.json()
         if "errors" in data:
@@ -655,7 +717,10 @@ async def api_deploy():
             raise HTTPException(status_code=502, detail=f"Railway error: {msgs}")
 
         logger.info("Railway redeploy triggered successfully")
-        return {"ok": True, "message": "Redeploy triggered - Railway will restart in ~30s"}
+        return {
+            "ok": True,
+            "message": "Redeploy triggered - Railway will restart in ~30s",
+        }
 
     except HTTPException:
         raise
@@ -673,7 +738,7 @@ async def api_screener():
     except FileNotFoundError:
         raise HTTPException(
             status_code=404,
-            detail="Screener output not found - runs on 1st of each month"
+            detail="Screener output not found - runs on 1st of each month",
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -683,9 +748,14 @@ async def api_screener():
 async def api_pause():
     """Activate dashboard kill switch - bot stops taking new signals within 30s."""
     loop = asyncio.get_event_loop()
+
     def _do():
         from alphalive.state import BotState
-        BotState(os.getenv("STATE_FILE", "/tmp/alphalive_state.json")).set_dashboard_pause(True)
+
+        BotState(
+            os.getenv("STATE_FILE", "/tmp/alphalive_state.json")
+        ).set_dashboard_pause(True)
+
     await loop.run_in_executor(None, _do)
     logger.info("Dashboard kill switch ACTIVATED via POST /api/control/pause")
     return {"ok": True, "dashboard_paused": True}
@@ -695,9 +765,14 @@ async def api_pause():
 async def api_resume():
     """Deactivate dashboard kill switch - bot resumes normal operation."""
     loop = asyncio.get_event_loop()
+
     def _do():
         from alphalive.state import BotState
-        BotState(os.getenv("STATE_FILE", "/tmp/alphalive_state.json")).set_dashboard_pause(False)
+
+        BotState(
+            os.getenv("STATE_FILE", "/tmp/alphalive_state.json")
+        ).set_dashboard_pause(False)
+
     await loop.run_in_executor(None, _do)
     logger.info("Dashboard kill switch CLEARED via POST /api/control/resume")
     return {"ok": True, "dashboard_paused": False}
@@ -746,12 +821,20 @@ def _serve_html_with_optional_reload(html_path: Path) -> Response:
 async def _maybe_start_dev_reload_watcher():
     if not DEV_RELOAD:
         return
-    logger.info("DASHBOARD_DEV_RELOAD enabled - watching dashboard/*.html for browser auto-refresh")
+    logger.info(
+        "DASHBOARD_DEV_RELOAD enabled - watching dashboard/*.html for browser auto-refresh"
+    )
 
     async def _watch():
         from watchfiles import awatch
-        async for _changes in awatch(DASHBOARD_DIR, watch_filter=lambda change, path: path.endswith(".html")):
-            logger.info("Dashboard HTML changed - notifying %d connected browser(s)", len(_reload_clients))
+
+        async for _changes in awatch(
+            DASHBOARD_DIR, watch_filter=lambda change, path: path.endswith(".html")
+        ):
+            logger.info(
+                "Dashboard HTML changed - notifying %d connected browser(s)",
+                len(_reload_clients),
+            )
             for ws in list(_reload_clients):
                 try:
                     await ws.send_text("reload")
@@ -781,6 +864,7 @@ async def dev_reload_ws(websocket: WebSocket):
 # Static file
 # ---------------------------------------------------------------------------
 
+
 @app.get("/")
 async def serve_index():
     html_path = DASHBOARD_DIR / "index.html"
@@ -803,5 +887,7 @@ async def serve_design_preview():
     broker/API/state logic - see dashboard/design-preview.html."""
     html_path = DASHBOARD_DIR / "design-preview.html"
     if not html_path.exists():
-        raise HTTPException(status_code=404, detail="dashboard/design-preview.html not found")
+        raise HTTPException(
+            status_code=404, detail="dashboard/design-preview.html not found"
+        )
     return _serve_html_with_optional_reload(html_path)

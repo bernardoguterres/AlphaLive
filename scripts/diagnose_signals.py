@@ -12,7 +12,7 @@ import json
 from datetime import datetime, timedelta
 
 # Add parent directory to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from alphalive.config import load_config_path, load_env
 from alphalive.data.market_data import MarketDataFetcher
@@ -49,15 +49,14 @@ def diagnose_strategy(config_path: str):
     # Fetch market data
     print("Fetching market data...")
     market_data = MarketDataFetcher(
-        api_key=app_config.broker.api_key,
-        secret_key=app_config.broker.secret_key
+        api_key=app_config.broker.api_key, secret_key=app_config.broker.secret_key
     )
 
     try:
         df = market_data.get_latest_bars(
             strategy_config.ticker,
             strategy_config.timeframe,
-            lookback_bars=200  # Get plenty of history
+            lookback_bars=200,  # Get plenty of history
         )
         print(f"Fetched {len(df)} bars")
         print(f"   Latest bar: {df.index[-1]}")
@@ -71,9 +70,7 @@ def diagnose_strategy(config_path: str):
     print("Calculating indicators...")
     try:
         df = indicators.add_all_for_strategy(
-            df,
-            strategy_config.strategy.name,
-            strategy_config.strategy.parameters
+            df, strategy_config.strategy.name, strategy_config.strategy.parameters
         )
         print("Indicators calculated")
         print()
@@ -121,7 +118,7 @@ def diagnose_strategy(config_path: str):
     print("=" * 80)
 
     # Generate recommendations
-    if signal['signal'] == 'HOLD':
+    if signal["signal"] == "HOLD":
         print("Currently no signal - here's why and how to fix it:")
         print()
 
@@ -134,26 +131,38 @@ def diagnose_strategy(config_path: str):
             overbought = params.get("overbought", 70)
 
             if current_rsi > oversold and current_rsi < 50:
-                print(f"RSI is {current_rsi:.1f} - above oversold threshold ({oversold})")
-                print(f"   To get more BUY signals, increase oversold from {oversold} to 40 or 45")
+                print(
+                    f"RSI is {current_rsi:.1f} - above oversold threshold ({oversold})"
+                )
+                print(
+                    f"   To get more BUY signals, increase oversold from {oversold} to 40 or 45"
+                )
                 print()
                 print(f"   Edit your config file and change:")
-                print(f"   \"oversold\": {oversold}  →  \"oversold\": 40")
+                print(f'   "oversold": {oversold}  →  "oversold": 40')
 
             elif current_rsi < overbought and current_rsi > 50:
-                print(f"RSI is {current_rsi:.1f} - below overbought threshold ({overbought})")
-                print(f"   To get more SELL signals, decrease overbought from {overbought} to 60 or 55")
+                print(
+                    f"RSI is {current_rsi:.1f} - below overbought threshold ({overbought})"
+                )
+                print(
+                    f"   To get more SELL signals, decrease overbought from {overbought} to 60 or 55"
+                )
                 print()
                 print(f"   Edit your config file and change:")
-                print(f"   \"overbought\": {overbought}  →  \"overbought\": 60")
+                print(f'   "overbought": {overbought}  →  "overbought": 60')
 
             # Show recent history
             print()
             print("Recent RSI values (last 10 days):")
             for i in range(-10, 0):
                 rsi_val = df[rsi_col].iloc[i]
-                date = df.index[i].strftime('%Y-%m-%d')
-                marker = "BUY" if rsi_val < oversold else ("SELL" if rsi_val > overbought else "")
+                date = df.index[i].strftime("%Y-%m-%d")
+                marker = (
+                    "BUY"
+                    if rsi_val < oversold
+                    else ("SELL" if rsi_val > overbought else "")
+                )
                 print(f"   {date}: RSI={rsi_val:.1f} {marker}")
 
         elif strategy_config.strategy.name == "ma_crossover":
@@ -168,32 +177,34 @@ def diagnose_strategy(config_path: str):
 
             if fast_curr > slow_curr:
                 print(f"Fast SMA ({fast_curr:.2f}) is above Slow SMA ({slow_curr:.2f})")
-                print(f"   Already in uptrend - waiting for crossover down to generate SELL")
+                print(
+                    f"   Already in uptrend - waiting for crossover down to generate SELL"
+                )
             else:
                 print(f"Fast SMA ({fast_curr:.2f}) is below Slow SMA ({slow_curr:.2f})")
                 print(f"   In downtrend - waiting for crossover up to generate BUY")
 
             print()
             print(f"   To get more crossovers, use faster periods:")
-            print(f"   \"fast_period\": {fast_period}  →  \"fast_period\": 5")
-            print(f"   \"slow_period\": {slow_period}  →  \"slow_period\": 15")
+            print(f'   "fast_period": {fast_period}  →  "fast_period": 5')
+            print(f'   "slow_period": {slow_period}  →  "slow_period": 15')
 
             # Show recent crossovers
             print()
             print("Recent crossover history:")
             crossovers = 0
             for i in range(-20, 0):
-                fast_prev = df[fast_col].iloc[i-1]
+                fast_prev = df[fast_col].iloc[i - 1]
                 fast_curr = df[fast_col].iloc[i]
-                slow_prev = df[slow_col].iloc[i-1]
+                slow_prev = df[slow_col].iloc[i - 1]
                 slow_curr = df[slow_col].iloc[i]
 
                 if fast_prev <= slow_prev and fast_curr > slow_curr:
-                    date = df.index[i].strftime('%Y-%m-%d')
+                    date = df.index[i].strftime("%Y-%m-%d")
                     print(f"{date}: BULLISH CROSSOVER")
                     crossovers += 1
                 elif fast_prev >= slow_prev and fast_curr < slow_curr:
-                    date = df.index[i].strftime('%Y-%m-%d')
+                    date = df.index[i].strftime("%Y-%m-%d")
                     print(f"{date}: BEARISH CROSSOVER")
                     crossovers += 1
 
@@ -238,8 +249,12 @@ def diagnose_rsi(df, params, signal):
         print(f"   Distance to oversold: {distance_to_oversold:.1f} points")
         print(f"   Distance to overbought: {distance_to_overbought:.1f} points")
         print()
-        print(f"RSI needs to move {distance_to_oversold:.1f} points DOWN to trigger BUY")
-        print(f"RSI needs to move {distance_to_overbought:.1f} points UP to trigger SELL")
+        print(
+            f"RSI needs to move {distance_to_oversold:.1f} points DOWN to trigger BUY"
+        )
+        print(
+            f"RSI needs to move {distance_to_overbought:.1f} points UP to trigger SELL"
+        )
 
 
 def diagnose_ma_crossover(df, params, signal):
@@ -273,7 +288,7 @@ def diagnose_ma_crossover(df, params, signal):
         print(f"   Waiting for bullish crossover (Fast crosses above Slow) to BUY")
 
     # Check if we're close to a crossover
-    if abs(fast_curr - slow_curr) / df['close'].iloc[-1] < 0.01:  # Within 1%
+    if abs(fast_curr - slow_curr) / df["close"].iloc[-1] < 0.01:  # Within 1%
         print(f"Very close to crossover! (within 1% of price)")
 
 
@@ -283,10 +298,10 @@ def diagnose_momentum(df, params, signal):
     surge_pct = params.get("surge_pct", 1.5)
     volume_ma_period = params.get("volume_ma_period", 20)
 
-    rolling_high = df['rolling_high'].iloc[-1]
-    current_price = df['close'].iloc[-1]
-    current_volume = df['volume'].iloc[-1]
-    volume_ma = df[f'volume_ma_{volume_ma_period}'].iloc[-1]
+    rolling_high = df["rolling_high"].iloc[-1]
+    current_price = df["close"].iloc[-1]
+    current_volume = df["volume"].iloc[-1]
+    volume_ma = df[f"volume_ma_{volume_ma_period}"].iloc[-1]
 
     volume_surge = current_volume / volume_ma if volume_ma > 0 else 0
 
@@ -320,12 +335,12 @@ def diagnose_bollinger(df, params, signal):
     confirmation_bars = params.get("confirmation_bars", 2)
     volume_ma_period = params.get("volume_ma_period", 20)
 
-    current_price = df['close'].iloc[-1]
-    bb_upper = df['bb_upper'].iloc[-1]
-    bb_lower = df['bb_lower'].iloc[-1]
-    bb_middle = df['bb_middle'].iloc[-1]
-    current_volume = df['volume'].iloc[-1]
-    volume_ma = df[f'volume_ma_{volume_ma_period}'].iloc[-1]
+    current_price = df["close"].iloc[-1]
+    bb_upper = df["bb_upper"].iloc[-1]
+    bb_lower = df["bb_lower"].iloc[-1]
+    bb_middle = df["bb_middle"].iloc[-1]
+    current_volume = df["volume"].iloc[-1]
+    volume_ma = df[f"volume_ma_{volume_ma_period}"].iloc[-1]
 
     volume_surge = current_volume / volume_ma if volume_ma > 0 else 0
 
@@ -340,7 +355,7 @@ def diagnose_bollinger(df, params, signal):
 
     # Check confirmation
     upper_confirmed = all(
-        df['close'].iloc[-i] > df['bb_upper'].iloc[-i]
+        df["close"].iloc[-i] > df["bb_upper"].iloc[-i]
         for i in range(1, min(confirmation_bars + 1, len(df)))
     )
 
@@ -356,10 +371,10 @@ def diagnose_vwap(df, params, signal):
     oversold = params.get("oversold", 30)
     overbought = params.get("overbought", 70)
 
-    current_price = df['close'].iloc[-1]
-    vwap = df['vwap'].iloc[-1]
-    vwap_std = df['vwap_std'].iloc[-1]
-    rsi = df[f'rsi_{rsi_period}'].iloc[-1]
+    current_price = df["close"].iloc[-1]
+    vwap = df["vwap"].iloc[-1]
+    vwap_std = df["vwap_std"].iloc[-1]
+    rsi = df[f"rsi_{rsi_period}"].iloc[-1]
 
     upper_band = vwap + (deviation_threshold * vwap_std)
     lower_band = vwap - (deviation_threshold * vwap_std)
@@ -370,7 +385,9 @@ def diagnose_vwap(df, params, signal):
     print(f"VWAP: ${vwap:.2f}")
     print(f"Upper Band (+{deviation_threshold}σ): ${upper_band:.2f}")
     print(f"Lower Band (-{deviation_threshold}σ): ${lower_band:.2f}")
-    print(f"RSI({rsi_period}): {rsi:.2f} (oversold<{oversold}, overbought>{overbought})")
+    print(
+        f"RSI({rsi_period}): {rsi:.2f} (oversold<{oversold}, overbought>{overbought})"
+    )
     print()
 
     price_above = current_price > upper_band
@@ -379,11 +396,15 @@ def diagnose_vwap(df, params, signal):
     rsi_overbought = rsi > overbought
 
     print(f"BUY conditions:")
-    print(f"{'' if price_below else ''} Price < VWAP - {deviation_threshold}σ: {price_below}")
+    print(
+        f"{'' if price_below else ''} Price < VWAP - {deviation_threshold}σ: {price_below}"
+    )
     print(f"{'' if rsi_oversold else ''} RSI < {oversold}: {rsi_oversold}")
     print()
     print(f"SELL conditions:")
-    print(f"{'' if price_above else ''} Price > VWAP + {deviation_threshold}σ: {price_above}")
+    print(
+        f"{'' if price_above else ''} Price > VWAP + {deviation_threshold}σ: {price_above}"
+    )
     print(f"{'' if rsi_overbought else ''} RSI > {overbought}: {rsi_overbought}")
 
 
@@ -392,8 +413,12 @@ if __name__ == "__main__":
         print("Usage: python diagnose_signals.py <config_path>")
         print()
         print("Examples:")
-        print("  python scripts/diagnose_signals.py configs/production/rsi_mean_reversion_SPY.json")
-        print("  python scripts/diagnose_signals.py configs/production/ma_crossover_AAPL.json")
+        print(
+            "  python scripts/diagnose_signals.py configs/production/rsi_mean_reversion_SPY.json"
+        )
+        print(
+            "  python scripts/diagnose_signals.py configs/production/ma_crossover_AAPL.json"
+        )
         sys.exit(1)
 
     config_path = sys.argv[1]

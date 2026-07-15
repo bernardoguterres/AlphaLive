@@ -21,13 +21,13 @@ import pytest
 from alphalive.broker.base_broker import Account, Position, Order
 from alphalive.strategy_schema import StrategySchema
 
-
 ET = ZoneInfo("America/New_York")
 
 
 @pytest.fixture
 def mock_clock():
     """Mock clock that can be advanced minute by minute."""
+
     class MockClock:
         def __init__(self, start_time):
             self.current_time = start_time
@@ -62,7 +62,7 @@ def mock_trading_components(sample_strategy_dict):
         long_market_value=0.0,
         short_market_value=0.0,
         daytrade_count=0,
-        pattern_day_trader=False
+        pattern_day_trader=False,
     )
     broker.get_position.return_value = None
     broker.get_all_positions.return_value = []
@@ -78,9 +78,9 @@ def mock_trading_components(sample_strategy_dict):
         filled_qty=66.0,
         filled_avg_price=150.0,
         submitted_at=datetime.now(ET),
-        filled_at=datetime.now(ET)
+        filled_at=datetime.now(ET),
     )
-    components['broker'] = broker
+    components["broker"] = broker
 
     # Mock market data
     market_data = Mock()
@@ -93,20 +93,24 @@ def mock_trading_components(sample_strategy_dict):
         else:
             price = 150.0 + ((i - 30) * 0.5)  # Rising (cross)
 
-        data.append({
-            "open": price,
-            "high": price + 0.5,
-            "low": price - 0.5,
-            "close": price,
-            "volume": 1000000
-        })
+        data.append(
+            {
+                "open": price,
+                "high": price + 0.5,
+                "low": price - 0.5,
+                "close": price,
+                "volume": 1000000,
+            }
+        )
 
     df = pd.DataFrame(data)
-    df.index = pd.date_range(start="2024-01-01", periods=50, freq="D", tz="America/New_York")
+    df.index = pd.date_range(
+        start="2024-01-01", periods=50, freq="D", tz="America/New_York"
+    )
 
     market_data.get_latest_bars.return_value = df
     market_data.get_current_price.return_value = 150.0
-    components['market_data'] = market_data
+    components["market_data"] = market_data
 
     # Mock telegram
     telegram = Mock()
@@ -120,11 +124,11 @@ def mock_trading_components(sample_strategy_dict):
     telegram.send_alert.return_value = True
     telegram.is_offline.return_value = False
     telegram.enabled = True
-    components['telegram'] = telegram
+    components["telegram"] = telegram
 
     # Strategy config
     config = StrategySchema(**sample_strategy_dict)
-    components['config'] = config
+    components["config"] = config
 
     return components
 
@@ -149,24 +153,26 @@ def test_full_trading_day(mock_clock, mock_trading_components):
     from alphalive.execution.risk_manager import RiskManager
     from alphalive.execution.order_manager import OrderManager
 
-    broker = mock_trading_components['broker']
-    market_data = mock_trading_components['market_data']
-    telegram = mock_trading_components['telegram']
-    config = mock_trading_components['config']
+    broker = mock_trading_components["broker"]
+    market_data = mock_trading_components["market_data"]
+    telegram = mock_trading_components["telegram"]
+    config = mock_trading_components["config"]
 
     # Initialize components
     signal_engine = SignalEngine(config)
-    risk_manager = RiskManager(config.risk, config.execution, "test_strategy", config.safety_limits)
+    risk_manager = RiskManager(
+        config.risk, config.execution, "test_strategy", config.safety_limits
+    )
     order_manager = OrderManager(
         broker=broker,
         risk_manager=risk_manager,
         config=config,
         notifier=telegram,
-        dry_run=False
+        dry_run=False,
     )
 
     # === 6:00 AM - Market closed ===
-    with patch('alphalive.main.datetime') as mock_datetime:
+    with patch("alphalive.main.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_clock.now(ET)
 
         # Verify market closed
@@ -180,7 +186,7 @@ def test_full_trading_day(mock_clock, mock_trading_components):
     mock_clock.advance(210)  # 3.5 hours = 210 minutes
     broker.is_market_open.return_value = True
 
-    with patch('alphalive.main.datetime') as mock_datetime:
+    with patch("alphalive.main.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_clock.now(ET)
 
         # Verify market open
@@ -189,7 +195,7 @@ def test_full_trading_day(mock_clock, mock_trading_components):
     # === 9:35 AM - Morning signal check fires ===
     mock_clock.advance(5)
 
-    with patch('alphalive.main.datetime') as mock_datetime:
+    with patch("alphalive.main.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_clock.now(ET)
 
         # Generate signal
@@ -208,7 +214,7 @@ def test_full_trading_day(mock_clock, mock_trading_components):
                 current_price=150.0,
                 account_equity=account.equity,
                 current_positions_count=0,
-                total_portfolio_positions=0
+                total_portfolio_positions=0,
             )
 
             # Verify order placed
@@ -227,14 +233,16 @@ def test_full_trading_day(mock_clock, mock_trading_components):
                     current_price=150.0,
                     unrealized_pl=0.0,
                     unrealized_plpc=0.0,
-                    market_value=9900.0
+                    market_value=9900.0,
                 )
-                broker.get_all_positions.return_value = [broker.get_position.return_value]
+                broker.get_all_positions.return_value = [
+                    broker.get_position.return_value
+                ]
 
     # === 9:40 AM - Exit check, no exits needed ===
     mock_clock.advance(5)
 
-    with patch('alphalive.main.datetime') as mock_datetime:
+    with patch("alphalive.main.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_clock.now(ET)
 
         # Update position (price unchanged)
@@ -245,7 +253,7 @@ def test_full_trading_day(mock_clock, mock_trading_components):
                 "ticker": "AAPL",
                 "avg_entry": 150.0,
                 "side": "long",
-                "highest_since_entry": 150.0
+                "highest_since_entry": 150.0,
             }
         ]
         current_prices = {"AAPL": 150.0}
@@ -258,7 +266,7 @@ def test_full_trading_day(mock_clock, mock_trading_components):
     # === 10:00 AM - Exit check, stop loss hit ===
     mock_clock.advance(20)
 
-    with patch('alphalive.main.datetime') as mock_datetime:
+    with patch("alphalive.main.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_clock.now(ET)
 
         # Price dropped below stop loss (2%)
@@ -274,7 +282,7 @@ def test_full_trading_day(mock_clock, mock_trading_components):
             current_price=146.0,
             unrealized_pl=-264.0,  # 66 * (146 - 150)
             unrealized_plpc=-2.67,
-            market_value=9636.0
+            market_value=9636.0,
         )
 
         positions = [
@@ -282,7 +290,7 @@ def test_full_trading_day(mock_clock, mock_trading_components):
                 "ticker": "AAPL",
                 "avg_entry": 150.0,
                 "side": "long",
-                "highest_since_entry": 150.0
+                "highest_since_entry": 150.0,
             }
         ]
         current_prices = {"AAPL": 146.0}
@@ -309,7 +317,7 @@ def test_full_trading_day(mock_clock, mock_trading_components):
     # === 10:05 AM - Exit check, no positions ===
     mock_clock.advance(5)
 
-    with patch('alphalive.main.datetime') as mock_datetime:
+    with patch("alphalive.main.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_clock.now(ET)
 
         positions = []
@@ -323,7 +331,7 @@ def test_full_trading_day(mock_clock, mock_trading_components):
     # === 2:00 PM - Exit check, all quiet ===
     mock_clock.advance(235)  # Jump ahead
 
-    with patch('alphalive.main.datetime') as mock_datetime:
+    with patch("alphalive.main.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_clock.now(ET)
 
         # Still no positions
@@ -333,7 +341,7 @@ def test_full_trading_day(mock_clock, mock_trading_components):
     # === 3:55 PM - EOD summary fires ===
     mock_clock.advance(115)
 
-    with patch('alphalive.main.datetime') as mock_datetime:
+    with patch("alphalive.main.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_clock.now(ET)
 
         # Send EOD summary
@@ -342,7 +350,7 @@ def test_full_trading_day(mock_clock, mock_trading_components):
             "pnl": -264.0,
             "win_rate": 0.0,
             "start_equity": 100000.0,
-            "end_equity": 99736.0
+            "end_equity": 99736.0,
         }
 
         telegram.send_daily_summary(daily_stats)
@@ -354,7 +362,7 @@ def test_full_trading_day(mock_clock, mock_trading_components):
     mock_clock.advance(5)
     broker.is_market_open.return_value = False
 
-    with patch('alphalive.main.datetime') as mock_datetime:
+    with patch("alphalive.main.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_clock.now(ET)
 
         # Verify market closed
@@ -363,7 +371,7 @@ def test_full_trading_day(mock_clock, mock_trading_components):
     # === 4:05 PM - Bot sleeping ===
     mock_clock.advance(5)
 
-    with patch('alphalive.main.datetime') as mock_datetime:
+    with patch("alphalive.main.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_clock.now(ET)
 
         # Market still closed, no API calls
@@ -377,14 +385,14 @@ def test_full_trading_day(mock_clock, mock_trading_components):
 
 def test_weekend_behavior(mock_clock, mock_trading_components):
     """Test Saturday 10 AM - bot sleeps, makes zero API calls."""
-    broker = mock_trading_components['broker']
-    market_data = mock_trading_components['market_data']
+    broker = mock_trading_components["broker"]
+    market_data = mock_trading_components["market_data"]
 
     # Set clock to Saturday 10 AM
     saturday = datetime(2024, 3, 16, 10, 0, 0, tzinfo=ET)  # Saturday
     mock_clock.current_time = saturday
 
-    with patch('alphalive.main.datetime') as mock_datetime:
+    with patch("alphalive.main.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_clock.now(ET)
 
         # Market closed on weekend
@@ -407,15 +415,15 @@ def test_weekend_behavior(mock_clock, mock_trading_components):
 
 def test_holiday_behavior(mock_clock, mock_trading_components):
     """Test weekday holiday where is_market_open() returns False all day."""
-    broker = mock_trading_components['broker']
-    market_data = mock_trading_components['market_data']
-    telegram = mock_trading_components['telegram']
+    broker = mock_trading_components["broker"]
+    market_data = mock_trading_components["market_data"]
+    telegram = mock_trading_components["telegram"]
 
     # Set clock to Monday (weekday) but market closed (holiday)
     holiday = datetime(2024, 12, 25, 10, 0, 0, tzinfo=ET)  # Christmas
     mock_clock.current_time = holiday
 
-    with patch('alphalive.main.datetime') as mock_datetime:
+    with patch("alphalive.main.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_clock.now(ET)
 
         # Market closed on holiday
@@ -445,10 +453,10 @@ def test_morning_signal_error_recovery(mock_clock, mock_trading_components):
     """Test morning check where market_data.get_latest_bars() throws exception."""
     from alphalive.strategy.signal_engine import SignalEngine
 
-    broker = mock_trading_components['broker']
-    market_data = mock_trading_components['market_data']
-    telegram = mock_trading_components['telegram']
-    config = mock_trading_components['config']
+    broker = mock_trading_components["broker"]
+    market_data = mock_trading_components["market_data"]
+    telegram = mock_trading_components["telegram"]
+    config = mock_trading_components["config"]
 
     # Set clock to 9:35 AM (signal check time)
     mock_clock.current_time = datetime(2024, 3, 11, 9, 35, 0, tzinfo=ET)
@@ -457,7 +465,7 @@ def test_morning_signal_error_recovery(mock_clock, mock_trading_components):
     # Make market_data.get_latest_bars() throw exception
     market_data.get_latest_bars.side_effect = Exception("Connection timeout")
 
-    with patch('alphalive.main.datetime') as mock_datetime:
+    with patch("alphalive.main.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_clock.now(ET)
 
         # Try to generate signal (should catch exception)
@@ -489,8 +497,8 @@ def test_morning_signal_error_recovery(mock_clock, mock_trading_components):
 
 def test_broker_connection_loss(mock_clock, mock_trading_components):
     """Test broker.get_account() throwing ConnectionError mid-day."""
-    broker = mock_trading_components['broker']
-    telegram = mock_trading_components['telegram']
+    broker = mock_trading_components["broker"]
+    telegram = mock_trading_components["telegram"]
 
     # Set clock to 10 AM (mid-day)
     mock_clock.current_time = datetime(2024, 3, 11, 10, 0, 0, tzinfo=ET)
@@ -499,7 +507,7 @@ def test_broker_connection_loss(mock_clock, mock_trading_components):
     # Make broker.get_account() throw ConnectionError
     broker.get_account.side_effect = ConnectionError("Network error")
 
-    with patch('alphalive.main.datetime') as mock_datetime:
+    with patch("alphalive.main.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_clock.now(ET)
 
         # Try to get account (should catch exception)
@@ -523,7 +531,7 @@ def test_broker_connection_loss(mock_clock, mock_trading_components):
                 long_market_value=0.0,
                 short_market_value=0.0,
                 daytrade_count=0,
-                pattern_day_trader=False
+                pattern_day_trader=False,
             )
 
             # Should work on next try
@@ -538,22 +546,24 @@ def test_daily_loss_limit_halt(mock_clock, mock_trading_components):
     from alphalive.execution.order_manager import OrderManager
     from alphalive.strategy.signal_engine import SignalEngine
 
-    broker = mock_trading_components['broker']
-    telegram = mock_trading_components['telegram']
-    config = mock_trading_components['config']
+    broker = mock_trading_components["broker"]
+    telegram = mock_trading_components["telegram"]
+    config = mock_trading_components["config"]
 
     # Set very low daily loss limit (1%)
     config.risk.max_daily_loss_pct = 1.0
 
     # Initialize components
     signal_engine = SignalEngine(config)
-    risk_manager = RiskManager(config.risk, config.execution, "test_strategy", config.safety_limits)
+    risk_manager = RiskManager(
+        config.risk, config.execution, "test_strategy", config.safety_limits
+    )
     order_manager = OrderManager(
         broker=broker,
         risk_manager=risk_manager,
         config=config,
         notifier=telegram,
-        dry_run=False
+        dry_run=False,
     )
 
     # === Morning: BUY executed ===
@@ -576,7 +586,7 @@ def test_daily_loss_limit_halt(mock_clock, mock_trading_components):
         signal="BUY",
         account_equity=account.equity,
         current_positions_count=0,
-        total_portfolio_positions=0
+        total_portfolio_positions=0,
     )
 
     # Should be blocked by daily loss limit
@@ -591,14 +601,16 @@ def test_max_positions_limit(mock_clock, mock_trading_components):
     """Test max positions limit enforcement."""
     from alphalive.execution.risk_manager import RiskManager
 
-    broker = mock_trading_components['broker']
-    telegram = mock_trading_components['telegram']
-    config = mock_trading_components['config']
+    broker = mock_trading_components["broker"]
+    telegram = mock_trading_components["telegram"]
+    config = mock_trading_components["config"]
 
     # Set max positions to 5
     config.risk.max_open_positions = 5
 
-    risk_manager = RiskManager(config.risk, config.execution, "test_strategy", config.safety_limits)
+    risk_manager = RiskManager(
+        config.risk, config.execution, "test_strategy", config.safety_limits
+    )
 
     # Mock 5 open positions already
     mock_clock.current_time = datetime(2024, 3, 11, 10, 0, 0, tzinfo=ET)
@@ -612,7 +624,7 @@ def test_max_positions_limit(mock_clock, mock_trading_components):
         signal="BUY",
         account_equity=account.equity,
         current_positions_count=5,  # Already at max
-        total_portfolio_positions=5
+        total_portfolio_positions=5,
     )
 
     # Should be blocked
@@ -626,20 +638,22 @@ def test_dry_run_no_orders(mock_clock, mock_trading_components):
     from alphalive.execution.risk_manager import RiskManager
     from alphalive.execution.order_manager import OrderManager
 
-    broker = mock_trading_components['broker']
-    market_data = mock_trading_components['market_data']
-    telegram = mock_trading_components['telegram']
-    config = mock_trading_components['config']
+    broker = mock_trading_components["broker"]
+    market_data = mock_trading_components["market_data"]
+    telegram = mock_trading_components["telegram"]
+    config = mock_trading_components["config"]
 
     # Initialize components in DRY RUN mode
     signal_engine = SignalEngine(config)
-    risk_manager = RiskManager(config.risk, config.execution, "test_strategy", config.safety_limits)
+    risk_manager = RiskManager(
+        config.risk, config.execution, "test_strategy", config.safety_limits
+    )
     order_manager = OrderManager(
         broker=broker,
         risk_manager=risk_manager,
         config=config,
         notifier=telegram,
-        dry_run=True  # DRY RUN MODE
+        dry_run=True,  # DRY RUN MODE
     )
 
     # === 9:35 AM - Morning signal check ===
@@ -659,7 +673,7 @@ def test_dry_run_no_orders(mock_clock, mock_trading_components):
             current_price=150.0,
             account_equity=account.equity,
             current_positions_count=0,
-            total_portfolio_positions=0
+            total_portfolio_positions=0,
         )
 
         # Verify broker.place_market_order() was NEVER called
@@ -672,7 +686,7 @@ def test_dry_run_no_orders(mock_clock, mock_trading_components):
 
 def test_sigterm_handling(mock_clock, mock_trading_components, monkeypatch):
     """Test SIGTERM signal handling - shutdown message sent, process exits cleanly."""
-    telegram = mock_trading_components['telegram']
+    telegram = mock_trading_components["telegram"]
 
     # Track if shutdown was called
     shutdown_called = False
@@ -684,15 +698,13 @@ def test_sigterm_handling(mock_clock, mock_trading_components, monkeypatch):
         exit_code = code
 
     # Mock sys.exit
-    monkeypatch.setattr('sys.exit', mock_exit)
+    monkeypatch.setattr("sys.exit", mock_exit)
 
     # Set up SIGTERM handler
     def sigterm_handler(signum, frame):
-        telegram.send_shutdown_notification({
-            "trades": 1,
-            "pnl": -264.0,
-            "win_rate": 0.0
-        })
+        telegram.send_shutdown_notification(
+            {"trades": 1, "pnl": -264.0, "win_rate": 0.0}
+        )
         mock_exit(0)
 
     # Register handler
@@ -716,11 +728,13 @@ def test_consecutive_loss_circuit_breaker(mock_clock, mock_trading_components):
     """Test consecutive loss circuit breaker - 3 losses in a row halts trading."""
     from alphalive.execution.risk_manager import RiskManager
 
-    broker = mock_trading_components['broker']
-    telegram = mock_trading_components['telegram']
-    config = mock_trading_components['config']
+    broker = mock_trading_components["broker"]
+    telegram = mock_trading_components["telegram"]
+    config = mock_trading_components["config"]
 
-    risk_manager = RiskManager(config.risk, config.execution, "test_strategy", config.safety_limits)
+    risk_manager = RiskManager(
+        config.risk, config.execution, "test_strategy", config.safety_limits
+    )
 
     mock_clock.current_time = datetime(2024, 3, 11, 9, 35, 0, tzinfo=ET)
     broker.is_market_open.return_value = True
@@ -742,7 +756,7 @@ def test_consecutive_loss_circuit_breaker(mock_clock, mock_trading_components):
         signal="BUY",
         account_equity=account.equity,
         current_positions_count=0,
-        total_portfolio_positions=0
+        total_portfolio_positions=0,
     )
 
     # Should be blocked by circuit breaker

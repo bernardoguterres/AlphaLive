@@ -352,7 +352,10 @@ class BotState:
         """
         pause_file = _pause_file_path(self.state_file)
         try:
-            payload = {"dashboard_paused": bool(paused), "updated_at": datetime.now(ET).isoformat()}
+            payload = {
+                "dashboard_paused": bool(paused),
+                "updated_at": datetime.now(ET).isoformat(),
+            }
             temp_file = f"{pause_file}.tmp"
             with open(temp_file, "w") as f:
                 json.dump(payload, f, indent=2)
@@ -384,7 +387,9 @@ class BotState:
             # NOT the same as "never configured" - we genuinely don't know
             # the real state, so fail toward the safe direction (paused)
             # rather than silently letting trading continue.
-            logger.error(f"Failed to read dashboard pause file {pause_file}: {e}. Failing safe (paused).")
+            logger.error(
+                f"Failed to read dashboard pause file {pause_file}: {e}. Failing safe (paused)."
+            )
             return True
 
     def mark_startup(self):

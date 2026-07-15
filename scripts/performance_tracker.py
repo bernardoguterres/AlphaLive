@@ -52,7 +52,7 @@ def resolve_config_path(config_path: str) -> str:
 
     # Try relative to AlphaLive directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    alphalive_dir = os.path.join(script_dir, '..')
+    alphalive_dir = os.path.join(script_dir, "..")
     config_full_path = os.path.join(alphalive_dir, config_path)
 
     if os.path.exists(config_full_path):
@@ -84,11 +84,11 @@ class PerformanceTracker:
     def _load_config(self) -> Dict:
         """Load strategy configuration with validation"""
         try:
-            with open(self.config_path, 'r') as f:
+            with open(self.config_path, "r") as f:
                 config = json.load(f)
 
             # Basic validation
-            required = ['strategy', 'ticker', 'timeframe']
+            required = ["strategy", "ticker", "timeframe"]
             missing = [k for k in required if k not in config]
             if missing:
                 raise ValueError(f"Config missing required fields: {missing}")
@@ -106,125 +106,140 @@ class PerformanceTracker:
         after = datetime.now() - timedelta(days=days)
 
         request = GetOrdersRequest(
-            status=QueryOrderStatus.FILLED,
-            after=after,
-            limit=500
+            status=QueryOrderStatus.FILLED, after=after, limit=500
         )
 
         # Retry logic for API calls
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                print(f"Fetching orders from Alpaca (last {days} days)...", end='', flush=True)
+                print(
+                    f"Fetching orders from Alpaca (last {days} days)...",
+                    end="",
+                    flush=True,
+                )
                 orders = self.client.get_orders(filter=request)
                 print(f"Found {len(orders)} orders")
 
                 trades = []
                 for order in orders:
-                    trades.append({
-                        'symbol': order.symbol,
-                        'side': order.side.value,
-                        'qty': float(order.filled_qty),
-                        'fill_price': float(order.filled_avg_price),
-                        'filled_at': order.filled_at,
-                        'order_id': order.id
-                    })
+                    trades.append(
+                        {
+                            "symbol": order.symbol,
+                            "side": order.side.value,
+                            "qty": float(order.filled_qty),
+                            "fill_price": float(order.filled_avg_price),
+                            "filled_at": order.filled_at,
+                            "order_id": order.id,
+                        }
+                    )
 
                 return trades
 
             except Exception as e:
                 if attempt == max_retries - 1:
                     raise
-                wait_time = 2 ** attempt
-                print(f"\n API call failed, retrying in {wait_time}s... ({attempt+1}/{max_retries})")
+                wait_time = 2**attempt
+                print(
+                    f"\n API call failed, retrying in {wait_time}s... ({attempt+1}/{max_retries})"
+                )
                 time.sleep(wait_time)
 
     def calculate_pnl(self, trades: List[Dict]) -> Dict:
         """Calculate P&L from trades"""
         if not trades:
             return {
-                'total_pnl': 0,
-                'win_rate': 0,
-                'total_trades': 0,
-                'winners': 0,
-                'losers': 0,
-                'avg_win': 0,
-                'avg_loss': 0,
-                'largest_win': 0,
-                'largest_loss': 0
+                "total_pnl": 0,
+                "win_rate": 0,
+                "total_trades": 0,
+                "winners": 0,
+                "losers": 0,
+                "avg_win": 0,
+                "avg_loss": 0,
+                "largest_win": 0,
+                "largest_loss": 0,
             }
 
         # Group by symbol and match buy/sell pairs
         df = pd.DataFrame(trades)
-        df['filled_at'] = pd.to_datetime(df['filled_at'])
-        df = df.sort_values('filled_at')
+        df["filled_at"] = pd.to_datetime(df["filled_at"])
+        df = df.sort_values("filled_at")
 
         positions = {}
         closed_trades = []
 
         for _, trade in df.iterrows():
-            symbol = trade['symbol']
+            symbol = trade["symbol"]
 
             if symbol not in positions:
                 positions[symbol] = []
 
-            if trade['side'] == 'buy':
-                positions[symbol].append({
-                    'qty': trade['qty'],
-                    'entry_price': trade['fill_price'],
-                    'entry_time': trade['filled_at']
-                })
-            elif trade['side'] == 'sell' and positions[symbol]:
+            if trade["side"] == "buy":
+                positions[symbol].append(
+                    {
+                        "qty": trade["qty"],
+                        "entry_price": trade["fill_price"],
+                        "entry_time": trade["filled_at"],
+                    }
+                )
+            elif trade["side"] == "sell" and positions[symbol]:
                 # Match with oldest position (FIFO)
                 position = positions[symbol].pop(0)
-                pnl = (trade['fill_price'] - position['entry_price']) * position['qty']
-                pnl_pct = ((trade['fill_price'] / position['entry_price']) - 1) * 100
+                pnl = (trade["fill_price"] - position["entry_price"]) * position["qty"]
+                pnl_pct = ((trade["fill_price"] / position["entry_price"]) - 1) * 100
 
-                closed_trades.append({
-                    'symbol': symbol,
-                    'entry_price': position['entry_price'],
-                    'exit_price': trade['fill_price'],
-                    'qty': position['qty'],
-                    'pnl': pnl,
-                    'pnl_pct': pnl_pct,
-                    'entry_time': position['entry_time'],
-                    'exit_time': trade['filled_at'],
-                    'hold_time': (trade['filled_at'] - position['entry_time']).total_seconds() / 3600  # hours
-                })
+                closed_trades.append(
+                    {
+                        "symbol": symbol,
+                        "entry_price": position["entry_price"],
+                        "exit_price": trade["fill_price"],
+                        "qty": position["qty"],
+                        "pnl": pnl,
+                        "pnl_pct": pnl_pct,
+                        "entry_time": position["entry_time"],
+                        "exit_time": trade["filled_at"],
+                        "hold_time": (
+                            trade["filled_at"] - position["entry_time"]
+                        ).total_seconds()
+                        / 3600,  # hours
+                    }
+                )
 
         if not closed_trades:
             return {
-                'total_pnl': 0,
-                'win_rate': 0,
-                'total_trades': 0,
-                'winners': 0,
-                'losers': 0,
-                'avg_win': 0,
-                'avg_loss': 0,
-                'largest_win': 0,
-                'largest_loss': 0,
-                'open_positions': sum(len(pos) for pos in positions.values())
+                "total_pnl": 0,
+                "win_rate": 0,
+                "total_trades": 0,
+                "winners": 0,
+                "losers": 0,
+                "avg_win": 0,
+                "avg_loss": 0,
+                "largest_win": 0,
+                "largest_loss": 0,
+                "open_positions": sum(len(pos) for pos in positions.values()),
             }
 
         closed_df = pd.DataFrame(closed_trades)
 
-        winners = closed_df[closed_df['pnl'] > 0]
-        losers = closed_df[closed_df['pnl'] <= 0]
+        winners = closed_df[closed_df["pnl"] > 0]
+        losers = closed_df[closed_df["pnl"] <= 0]
 
         return {
-            'total_pnl': closed_df['pnl'].sum(),
-            'total_pnl_pct': closed_df['pnl_pct'].sum(),
-            'win_rate': (len(winners) / len(closed_df)) * 100 if len(closed_df) > 0 else 0,
-            'total_trades': len(closed_df),
-            'winners': len(winners),
-            'losers': len(losers),
-            'avg_win': winners['pnl_pct'].mean() if len(winners) > 0 else 0,
-            'avg_loss': losers['pnl_pct'].mean() if len(losers) > 0 else 0,
-            'largest_win': winners['pnl_pct'].max() if len(winners) > 0 else 0,
-            'largest_loss': losers['pnl_pct'].min() if len(losers) > 0 else 0,
-            'avg_hold_time_hours': closed_df['hold_time'].mean(),
-            'open_positions': sum(len(pos) for pos in positions.values()),
-            'trades': closed_trades
+            "total_pnl": closed_df["pnl"].sum(),
+            "total_pnl_pct": closed_df["pnl_pct"].sum(),
+            "win_rate": (
+                (len(winners) / len(closed_df)) * 100 if len(closed_df) > 0 else 0
+            ),
+            "total_trades": len(closed_df),
+            "winners": len(winners),
+            "losers": len(losers),
+            "avg_win": winners["pnl_pct"].mean() if len(winners) > 0 else 0,
+            "avg_loss": losers["pnl_pct"].mean() if len(losers) > 0 else 0,
+            "largest_win": winners["pnl_pct"].max() if len(winners) > 0 else 0,
+            "largest_loss": losers["pnl_pct"].min() if len(losers) > 0 else 0,
+            "avg_hold_time_hours": closed_df["hold_time"].mean(),
+            "open_positions": sum(len(pos) for pos in positions.values()),
+            "trades": closed_trades,
         }
 
     def compare_to_backtest(self, live_stats: Dict) -> Dict:
@@ -232,18 +247,21 @@ class PerformanceTracker:
         if not self.config:
             return {}
 
-        backtest = self.config['metadata']['performance']
+        backtest = self.config["metadata"]["performance"]
 
         return {
-            'backtest_win_rate': backtest['win_rate_pct'],
-            'live_win_rate': live_stats['win_rate'],
-            'win_rate_diff': live_stats['win_rate'] - backtest['win_rate_pct'],
-            'backtest_sharpe': backtest['sharpe_ratio'],
-            'backtest_avg_win': backtest.get('avg_win_pct', 0),
-            'live_avg_win': live_stats['avg_win'],
-            'backtest_avg_loss': backtest.get('avg_loss_pct', 0),
-            'live_avg_loss': live_stats['avg_loss'],
-            'performance_aligned': abs(live_stats['win_rate'] - backtest['win_rate_pct']) < 15
+            "backtest_win_rate": backtest["win_rate_pct"],
+            "live_win_rate": live_stats["win_rate"],
+            "win_rate_diff": live_stats["win_rate"] - backtest["win_rate_pct"],
+            "backtest_sharpe": backtest["sharpe_ratio"],
+            "backtest_avg_win": backtest.get("avg_win_pct", 0),
+            "live_avg_win": live_stats["avg_win"],
+            "backtest_avg_loss": backtest.get("avg_loss_pct", 0),
+            "live_avg_loss": live_stats["avg_loss"],
+            "performance_aligned": abs(
+                live_stats["win_rate"] - backtest["win_rate_pct"]
+            )
+            < 15,
         }
 
     def generate_report(self, days: int = 7) -> str:
@@ -279,19 +297,21 @@ class PerformanceTracker:
         report.append("-" * 80)
         report.append("PROFIT & LOSS")
         report.append("-" * 80)
-        report.append(f"Total P&L: ${stats['total_pnl']:,.2f} ({stats.get('total_pnl_pct', 0):.2f}%)")
+        report.append(
+            f"Total P&L: ${stats['total_pnl']:,.2f} ({stats.get('total_pnl_pct', 0):.2f}%)"
+        )
         report.append(f"Average Win: {stats['avg_win']:.2f}%")
         report.append(f"Average Loss: {stats['avg_loss']:.2f}%")
         report.append(f"Largest Win: {stats['largest_win']:.2f}%")
         report.append(f"Largest Loss: {stats['largest_loss']:.2f}%")
 
-        if stats.get('avg_hold_time_hours'):
+        if stats.get("avg_hold_time_hours"):
             report.append(f"Avg Hold Time: {stats['avg_hold_time_hours']:.1f} hours")
 
         report.append("")
 
         # Compare to backtest if config available
-        if self.config and stats['total_trades'] > 0:
+        if self.config and stats["total_trades"] > 0:
             comparison = self.compare_to_backtest(stats)
             report.append("-" * 80)
             report.append("BACKTEST COMPARISON")
@@ -306,20 +326,20 @@ class PerformanceTracker:
             report.append(f"Live Avg Loss: {comparison['live_avg_loss']:.2f}%")
             report.append("")
 
-            if comparison['performance_aligned']:
+            if comparison["performance_aligned"]:
                 report.append("Performance ALIGNED with backtest expectations")
             else:
                 report.append("Performance DIVERGED from backtest (review strategy)")
 
         # Recent trades
-        if stats['total_trades'] > 0:
+        if stats["total_trades"] > 0:
             report.append("")
             report.append("-" * 80)
             report.append(f"RECENT TRADES (Last {min(10, stats['total_trades'])})")
             report.append("-" * 80)
 
-            for trade in stats['trades'][-10:]:
-                outcome = "WIN" if trade['pnl'] > 0 else "LOSS"
+            for trade in stats["trades"][-10:]:
+                outcome = "WIN" if trade["pnl"] > 0 else "LOSS"
                 report.append(
                     f"{trade['entry_time'].strftime('%m-%d %H:%M')} | "
                     f"{trade['symbol']:6s} | "
@@ -344,7 +364,7 @@ class PerformanceTracker:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{output_dir}/performance_{timestamp}.txt"
 
-        with open(filename, 'w') as f:
+        with open(filename, "w") as f:
             f.write(report)
 
         print(report)
@@ -360,7 +380,7 @@ def main():
     parser.add_argument("--config", help="Path to strategy config file")
     parser.add_argument("--days", type=int, default=7, help="Number of days to analyze")
     parser.add_argument("--save", action="store_true", help="Save report to file")
-    parser.add_argument('--version', action='version', version='AlphaLive Tools v1.0.0')
+    parser.add_argument("--version", action="version", version="AlphaLive Tools v1.0.0")
 
     args = parser.parse_args()
 
@@ -378,6 +398,7 @@ def main():
     except Exception as e:
         print(f"Error: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

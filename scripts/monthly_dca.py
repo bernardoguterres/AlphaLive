@@ -105,8 +105,13 @@ def run(dry_run: bool = False, force: bool = False) -> int:
     try:
         order = trading.submit_order(request)
     except APIError as e:
-        if getattr(e, "status_code", None) == 409 or "client_order_id" in str(e).lower():
-            logger.info(f"Already bought this month ({client_order_id}) - nothing to do")
+        if (
+            getattr(e, "status_code", None) == 409
+            or "client_order_id" in str(e).lower()
+        ):
+            logger.info(
+                f"Already bought this month ({client_order_id}) - nothing to do"
+            )
             return 0
         logger.error(f"Order failed: {e}")
         _notify(f"DCA order FAILED for {ticker}: {e}")
@@ -114,7 +119,7 @@ def run(dry_run: bool = False, force: bool = False) -> int:
 
     logger.info(f"Order placed: {order.id} | ${amount:.2f} {ticker} @ market")
     _notify(
-        f"\U0001F4C5 Monthly DCA executed\n"
+        f"\U0001f4c5 Monthly DCA executed\n"
         f"BUY ${amount:.2f} of {ticker} ({'paper' if paper else 'LIVE'})\n"
         f"Order: {order.id}"
     )
@@ -129,9 +134,9 @@ def _notify(message: str) -> None:
         token = os.getenv("TELEGRAM_BOT_TOKEN")
         chat_id = os.getenv("TELEGRAM_CHAT_ID")
         if token and chat_id:
-            TelegramNotifier(bot_token=token, chat_id=chat_id, enabled=True).send_message(
-                message
-            )
+            TelegramNotifier(
+                bot_token=token, chat_id=chat_id, enabled=True
+            ).send_message(message)
     except Exception as e:
         logger.warning(f"Telegram notification failed (buy unaffected): {e}")
 

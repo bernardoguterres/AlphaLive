@@ -18,7 +18,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from alphalive.services.alphasignal_client import AlphaSignalClient, run_pre_execution_checks
+from alphalive.services.alphasignal_client import (
+    AlphaSignalClient,
+    run_pre_execution_checks,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -51,8 +54,12 @@ async def test_positive_sentiment_allows_long():
     """Score=0.5 (above -0.3 threshold) should allow a long (BUY=2)."""
     client = _make_client()
 
-    with patch.object(client, "get_sentiment", new=AsyncMock(return_value=_sentiment_dict(0.5))):
-        allowed, sentiment = await client.is_execution_allowed(TICKER, intended_direction=2)
+    with patch.object(
+        client, "get_sentiment", new=AsyncMock(return_value=_sentiment_dict(0.5))
+    ):
+        allowed, sentiment = await client.is_execution_allowed(
+            TICKER, intended_direction=2
+        )
 
     assert allowed is True
     assert sentiment["sentiment_score"] == pytest.approx(0.5)
@@ -67,8 +74,12 @@ async def test_negative_sentiment_blocks_long():
     """Score=-0.5 (below -0.3 threshold) should block a long (BUY=2)."""
     client = _make_client()
 
-    with patch.object(client, "get_sentiment", new=AsyncMock(return_value=_sentiment_dict(-0.5))):
-        allowed, sentiment = await client.is_execution_allowed(TICKER, intended_direction=2)
+    with patch.object(
+        client, "get_sentiment", new=AsyncMock(return_value=_sentiment_dict(-0.5))
+    ):
+        allowed, sentiment = await client.is_execution_allowed(
+            TICKER, intended_direction=2
+        )
 
     assert allowed is False
     assert sentiment["sentiment_score"] == pytest.approx(-0.5)
@@ -86,8 +97,12 @@ async def test_negative_sentiment_allows_short():
     """
     client = _make_client()
 
-    with patch.object(client, "get_sentiment", new=AsyncMock(return_value=_sentiment_dict(-0.5))):
-        allowed, sentiment = await client.is_execution_allowed(TICKER, intended_direction=0)
+    with patch.object(
+        client, "get_sentiment", new=AsyncMock(return_value=_sentiment_dict(-0.5))
+    ):
+        allowed, sentiment = await client.is_execution_allowed(
+            TICKER, intended_direction=0
+        )
 
     assert allowed is True
     assert sentiment["sentiment_score"] == pytest.approx(-0.5)
@@ -105,8 +120,12 @@ async def test_positive_sentiment_blocks_short():
     """
     client = _make_client()
 
-    with patch.object(client, "get_sentiment", new=AsyncMock(return_value=_sentiment_dict(0.5))):
-        allowed, sentiment = await client.is_execution_allowed(TICKER, intended_direction=0)
+    with patch.object(
+        client, "get_sentiment", new=AsyncMock(return_value=_sentiment_dict(0.5))
+    ):
+        allowed, sentiment = await client.is_execution_allowed(
+            TICKER, intended_direction=0
+        )
 
     assert allowed is False
     assert sentiment["sentiment_score"] == pytest.approx(0.5)
@@ -123,7 +142,9 @@ async def test_neutral_direction_always_allowed():
     mock_get = AsyncMock(return_value=_sentiment_dict(-0.99))  # Worst possible score
 
     with patch.object(client, "get_sentiment", new=mock_get):
-        allowed, sentiment = await client.is_execution_allowed(TICKER, intended_direction=1)
+        allowed, sentiment = await client.is_execution_allowed(
+            TICKER, intended_direction=1
+        )
 
     assert allowed is True
     assert sentiment == {}  # No sentiment data fetched for neutral
@@ -142,7 +163,9 @@ async def test_timeout_fails_open():
     with patch.object(
         client, "get_sentiment", new=AsyncMock(side_effect=asyncio.TimeoutError)
     ):
-        allowed, sentiment = await client.is_execution_allowed(TICKER, intended_direction=2)
+        allowed, sentiment = await client.is_execution_allowed(
+            TICKER, intended_direction=2
+        )
 
     assert allowed is True
     assert sentiment == {}

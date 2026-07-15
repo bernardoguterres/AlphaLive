@@ -11,7 +11,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from alphalive.services.alphasignal_client import AlphaSignalClient, run_pre_execution_checks
+from alphalive.services.alphasignal_client import (
+    AlphaSignalClient,
+    run_pre_execution_checks,
+)
 
 
 def _mock_response(json_data, status_code=200):
@@ -37,13 +40,18 @@ def _mock_async_client(response):
 
 async def test_get_sentiment_parses_response_and_headers():
     client = AlphaSignalClient(api_key="secret-key")
-    response = _mock_response({
-        "latest_score": 0.4,
-        "signals": [{"score": 0.4, "confidence": 0.9, "source": "AAPL_10-K"}],
-    })
+    response = _mock_response(
+        {
+            "latest_score": 0.4,
+            "signals": [{"score": 0.4, "confidence": 0.9, "source": "AAPL_10-K"}],
+        }
+    )
     mock_client = _mock_async_client(response)
 
-    with patch("alphalive.services.alphasignal_client.httpx.AsyncClient", return_value=mock_client):
+    with patch(
+        "alphalive.services.alphasignal_client.httpx.AsyncClient",
+        return_value=mock_client,
+    ):
         result = await client.get_sentiment("AAPL")
 
     assert result["sentiment_score"] == 0.4
@@ -59,7 +67,10 @@ async def test_get_sentiment_no_signals_defaults_neutral():
     response = _mock_response({"latest_score": None, "signals": []})
     mock_client = _mock_async_client(response)
 
-    with patch("alphalive.services.alphasignal_client.httpx.AsyncClient", return_value=mock_client):
+    with patch(
+        "alphalive.services.alphasignal_client.httpx.AsyncClient",
+        return_value=mock_client,
+    ):
         result = await client.get_sentiment("AAPL")
 
     assert result["sentiment_score"] == 0.0
@@ -74,7 +85,10 @@ async def test_get_sentiment_timeout_raises_asyncio_timeout_error():
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("alphalive.services.alphasignal_client.httpx.AsyncClient", return_value=mock_client):
+    with patch(
+        "alphalive.services.alphasignal_client.httpx.AsyncClient",
+        return_value=mock_client,
+    ):
         with pytest.raises(TimeoutError):
             await client.get_sentiment("AAPL")
 
@@ -84,7 +98,10 @@ async def test_get_sentiment_no_api_key_omits_header():
     response = _mock_response({"latest_score": 0.1, "signals": []})
     mock_client = _mock_async_client(response)
 
-    with patch("alphalive.services.alphasignal_client.httpx.AsyncClient", return_value=mock_client):
+    with patch(
+        "alphalive.services.alphasignal_client.httpx.AsyncClient",
+        return_value=mock_client,
+    ):
         await client.get_sentiment("AAPL")
 
     _, kwargs = mock_client.get.call_args
@@ -98,7 +115,9 @@ async def test_get_sentiment_no_api_key_omits_header():
 
 async def test_run_pre_execution_checks_none_client_passthrough():
     allowed, pred = await run_pre_execution_checks(
-        alphasignal_client=None, ticker="AAPL", signal_direction=2,
+        alphasignal_client=None,
+        ticker="AAPL",
+        signal_direction=2,
     )
 
     assert allowed is True
@@ -114,7 +133,9 @@ async def test_run_pre_execution_checks_exception_fails_open():
     mock_client.is_execution_allowed = MagicMock(side_effect=lambda *a, **k: _raise())
 
     allowed, pred = await run_pre_execution_checks(
-        alphasignal_client=mock_client, ticker="AAPL", signal_direction=2,
+        alphasignal_client=mock_client,
+        ticker="AAPL",
+        signal_direction=2,
     )
 
     assert allowed is True

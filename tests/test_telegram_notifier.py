@@ -29,7 +29,7 @@ from alphalive.notifications.telegram_bot import TelegramNotifier
 @pytest.fixture
 def mock_httpx_success():
     """Mock successful httpx response."""
-    with patch('httpx.post') as mock_post:
+    with patch("httpx.post") as mock_post:
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.text = '{"ok": true}'
@@ -40,7 +40,7 @@ def mock_httpx_success():
 @pytest.fixture
 def mock_httpx_failure():
     """Mock failed httpx response."""
-    with patch('httpx.post') as mock_post:
+    with patch("httpx.post") as mock_post:
         mock_response = Mock()
         mock_response.status_code = 400
         mock_response.text = '{"ok": false, "description": "Bad Request"}'
@@ -51,18 +51,14 @@ def mock_httpx_failure():
 @pytest.fixture
 def mock_httpx_exception():
     """Mock httpx exception."""
-    with patch('httpx.post') as mock_post:
+    with patch("httpx.post") as mock_post:
         mock_post.side_effect = Exception("Connection timeout")
         yield mock_post
 
 
 def test_telegram_notifier_initialization():
     """Test TelegramNotifier initialization."""
-    notifier = TelegramNotifier(
-        bot_token="test_token",
-        chat_id="123456",
-        enabled=True
-    )
+    notifier = TelegramNotifier(bot_token="test_token", chat_id="123456", enabled=True)
 
     assert notifier.bot_token == "test_token"
     assert notifier.chat_id == "123456"
@@ -99,15 +95,15 @@ def test_send_now_success(mock_httpx_success):
 
     mock_httpx_success.assert_called_once()
     call_args = mock_httpx_success.call_args
-    assert call_args[1]['json']['chat_id'] == "123456"
-    assert call_args[1]['json']['text'] == "Test message"
-    assert call_args[1]['json']['parse_mode'] == "HTML"
+    assert call_args[1]["json"]["chat_id"] == "123456"
+    assert call_args[1]["json"]["text"] == "Test message"
+    assert call_args[1]["json"]["parse_mode"] == "HTML"
 
 
 def test_send_now_with_retry(mock_httpx_failure):
     notifier = TelegramNotifier("test_token", "123456")
 
-    with patch('time.sleep'):
+    with patch("time.sleep"):
         result = notifier._send_now("Test message")
 
     assert result is False
@@ -118,7 +114,7 @@ def test_send_now_with_retry(mock_httpx_failure):
 def test_send_now_graceful_degradation():
     notifier = TelegramNotifier("test_token", "123456")
 
-    with patch('httpx.post') as mock_post, patch('time.sleep'):
+    with patch("httpx.post") as mock_post, patch("time.sleep"):
         mock_post.side_effect = Exception("Connection error")
 
         result1 = notifier._send_now("Test 1")
@@ -145,7 +141,7 @@ def test_send_now_background_retry():
     notifier.consecutive_failures = 3
     notifier.last_retry_attempt = time.time() - 700  # 11+ minutes ago
 
-    with patch('httpx.post') as mock_post:
+    with patch("httpx.post") as mock_post:
         mock_response = Mock()
         mock_response.status_code = 200
         mock_post.return_value = mock_response
@@ -165,7 +161,7 @@ def test_send_now_skip_during_offline():
     notifier.consecutive_failures = 3
     notifier.last_retry_attempt = time.time()  # Just now
 
-    with patch('httpx.post') as mock_post:
+    with patch("httpx.post") as mock_post:
         result = notifier._send_now("Test")
 
         assert result is False
@@ -178,7 +174,7 @@ def test_send_now_restore_after_offline():
     notifier.telegram_offline = True
     notifier.consecutive_failures = 3
 
-    with patch('httpx.post') as mock_post:
+    with patch("httpx.post") as mock_post:
         mock_response = Mock()
         mock_response.status_code = 200
         mock_post.return_value = mock_response
@@ -196,12 +192,12 @@ def test_exponential_backoff_timing():
     """Test exponential backoff timing (1s, 2s, 4s)."""
     notifier = TelegramNotifier("test_token", "123456")
 
-    with patch('httpx.post') as mock_post:
+    with patch("httpx.post") as mock_post:
         mock_response = Mock()
         mock_response.status_code = 500  # Server error
         mock_post.return_value = mock_response
 
-        with patch('time.sleep') as mock_sleep:
+        with patch("time.sleep") as mock_sleep:
             notifier._send_now("Test")
 
             assert mock_sleep.call_count == 2
@@ -213,27 +209,27 @@ def test_http_timeout():
     """Test HTTP request timeout."""
     notifier = TelegramNotifier("test_token", "123456")
 
-    with patch('httpx.post') as mock_post:
+    with patch("httpx.post") as mock_post:
         notifier._send_now("Test")
 
         call_args = mock_post.call_args
-        assert call_args[1]['timeout'] == 10.0
+        assert call_args[1]["timeout"] == 10.0
 
 
 def test_parse_mode():
     """Test parse_mode parameter."""
     notifier = TelegramNotifier("test_token", "123456")
 
-    with patch('httpx.post') as mock_post:
+    with patch("httpx.post") as mock_post:
         mock_response = Mock()
         mock_response.status_code = 200
         mock_post.return_value = mock_response
 
         notifier._send_now("Test", parse_mode="HTML")
-        assert mock_post.call_args[1]['json']['parse_mode'] == "HTML"
+        assert mock_post.call_args[1]["json"]["parse_mode"] == "HTML"
 
         notifier._send_now("Test", parse_mode="Markdown")
-        assert mock_post.call_args[1]['json']['parse_mode'] == "Markdown"
+        assert mock_post.call_args[1]["json"]["parse_mode"] == "Markdown"
 
 
 def test_is_offline():
@@ -290,7 +286,7 @@ def test_send_message_delivers_via_background_worker(mock_httpx_success):
 
     mock_httpx_success.assert_called_once()
     call_args = mock_httpx_success.call_args
-    assert call_args[1]['json']['text'] == "Test message"
+    assert call_args[1]["json"]["text"] == "Test message"
 
 
 def test_send_message_queue_full_drops_message_without_blocking():
@@ -329,7 +325,7 @@ def test_send_startup_notification(mock_httpx_success):
         "stop_loss_pct": 2.0,
         "take_profit_pct": 5.0,
         "max_position_size_pct": 10.0,
-        "max_daily_loss_pct": 3.0
+        "max_daily_loss_pct": 3.0,
     }
 
     notifier.send_startup_notification("ma_crossover", "AAPL", config)
@@ -337,7 +333,7 @@ def test_send_startup_notification(mock_httpx_success):
 
     mock_httpx_success.assert_called_once()
     call_args = mock_httpx_success.call_args
-    message = call_args[1]['json']['text']
+    message = call_args[1]["json"]["text"]
 
     assert "AlphaLive Started" in message
     assert "ma_crossover" in message
@@ -349,18 +345,14 @@ def test_send_shutdown_notification(mock_httpx_success):
     """Test shutdown notification."""
     notifier = TelegramNotifier("test_token", "123456")
 
-    stats = {
-        "trades": 5,
-        "pnl": 450.0,
-        "win_rate": 60.0
-    }
+    stats = {"trades": 5, "pnl": 450.0, "win_rate": 60.0}
 
     notifier.send_shutdown_notification(stats)
     notifier._queue.join()
 
     mock_httpx_success.assert_called_once()
     call_args = mock_httpx_success.call_args
-    message = call_args[1]['json']['text']
+    message = call_args[1]["json"]["text"]
 
     assert "AlphaLive Stopped" in message
     assert "5" in message  # trades
@@ -372,17 +364,13 @@ def test_send_trade_notification(mock_httpx_success):
     notifier = TelegramNotifier("test_token", "123456")
 
     notifier.send_trade_notification(
-        ticker="AAPL",
-        side="BUY",
-        qty=66,
-        price=150.0,
-        reason="MA crossover"
+        ticker="AAPL", side="BUY", qty=66, price=150.0, reason="MA crossover"
     )
     notifier._queue.join()
 
     mock_httpx_success.assert_called_once()
     call_args = mock_httpx_success.call_args
-    message = call_args[1]['json']['text']
+    message = call_args[1]["json"]["text"]
 
     assert "BUY" in message
     assert "AAPL" in message
@@ -403,13 +391,13 @@ def test_send_position_closed_notification(mock_httpx_success):
         exit_price=157.5,
         pnl=495.0,
         pnl_pct=5.0,
-        reason="Take profit hit"
+        reason="Take profit hit",
     )
     notifier._queue.join()
 
     mock_httpx_success.assert_called_once()
     call_args = mock_httpx_success.call_args
-    message = call_args[1]['json']['text']
+    message = call_args[1]["json"]["text"]
 
     assert "Position Closed" in message
     assert "AAPL" in message
@@ -430,7 +418,7 @@ def test_send_error_alert(mock_httpx_success):
 
     mock_httpx_success.assert_called_once()
     call_args = mock_httpx_success.call_args
-    message = call_args[1]['json']['text']
+    message = call_args[1]["json"]["text"]
 
     assert "AlphaLive Error" in message
     assert "Connection timeout" in message
@@ -446,7 +434,7 @@ def test_send_alert(mock_httpx_success):
 
     mock_httpx_success.assert_called_once()
     call_args = mock_httpx_success.call_args
-    message = call_args[1]['json']['text']
+    message = call_args[1]["json"]["text"]
 
     assert "Alert" in message
     assert "High slippage detected" in message
@@ -462,7 +450,7 @@ def test_send_daily_summary(mock_httpx_success):
         "pnl": 450.0,
         "win_rate": 60.0,
         "start_equity": 100000.0,
-        "end_equity": 100450.0
+        "end_equity": 100450.0,
     }
 
     notifier.send_daily_summary(stats)
@@ -470,7 +458,7 @@ def test_send_daily_summary(mock_httpx_success):
 
     mock_httpx_success.assert_called_once()
     call_args = mock_httpx_success.call_args
-    message = call_args[1]['json']['text']
+    message = call_args[1]["json"]["text"]
 
     assert "Daily Summary" in message
     assert "5" in message  # trades

@@ -33,14 +33,14 @@ def test_full_signal_to_order_flow(
         execution_config=strategy_config.execution,
         strategy_name="test_strategy",
         safety_limits=strategy_config.safety_limits,
-        notifier=mock_telegram
+        notifier=mock_telegram,
     )
     order_manager = OrderManager(
         broker=mock_broker,
         risk_manager=risk_manager,
         config=strategy_config,
         notifier=mock_telegram,
-        dry_run=False
+        dry_run=False,
     )
 
     # Get account equity for position sizing
@@ -62,7 +62,7 @@ def test_full_signal_to_order_flow(
             current_price=150.0,
             account_equity=account.equity,
             current_positions_count=0,
-            total_portfolio_positions=0
+            total_portfolio_positions=0,
         )
 
         # Should succeed
@@ -70,7 +70,10 @@ def test_full_signal_to_order_flow(
 
         if result["status"] == "success":
             # Verify broker was called
-            assert mock_broker.place_market_order.called or mock_broker.place_limit_order.called
+            assert (
+                mock_broker.place_market_order.called
+                or mock_broker.place_limit_order.called
+            )
 
 
 def test_full_exit_flow(sample_strategy_dict, mock_broker, mock_telegram):
@@ -89,7 +92,7 @@ def test_full_exit_flow(sample_strategy_dict, mock_broker, mock_telegram):
         current_price=145.0,  # Down 3.33% (below 2% stop loss)
         unrealized_pl=-50.0,
         unrealized_plpc=-3.33,
-        market_value=1450.0
+        market_value=1450.0,
     )
 
     mock_broker.get_position.return_value = mock_position
@@ -101,14 +104,14 @@ def test_full_exit_flow(sample_strategy_dict, mock_broker, mock_telegram):
         execution_config=strategy_config.execution,
         strategy_name="test_strategy",
         safety_limits=strategy_config.safety_limits,
-        notifier=mock_telegram
+        notifier=mock_telegram,
     )
     order_manager = OrderManager(
         broker=mock_broker,
         risk_manager=risk_manager,
         config=strategy_config,
         notifier=mock_telegram,
-        dry_run=False
+        dry_run=False,
     )
 
     # Check exit conditions
@@ -117,7 +120,7 @@ def test_full_exit_flow(sample_strategy_dict, mock_broker, mock_telegram):
             "ticker": "AAPL",
             "avg_entry": 150.0,
             "side": "long",
-            "highest_since_entry": 152.0
+            "highest_since_entry": 152.0,
         }
     ]
     current_prices = {"AAPL": 145.0}
@@ -136,7 +139,9 @@ def test_full_exit_flow(sample_strategy_dict, mock_broker, mock_telegram):
     assert result["status"] in ["success", "error"]
 
 
-def test_dry_run_flow(sample_strategy_dict, mock_broker, ma_crossover_bars, mock_telegram):
+def test_dry_run_flow(
+    sample_strategy_dict, mock_broker, ma_crossover_bars, mock_telegram
+):
     """Test dry run flow: same as signal-to-order but no orders placed, only logs."""
     from alphalive.strategy_schema import StrategySchema
 
@@ -150,14 +155,14 @@ def test_dry_run_flow(sample_strategy_dict, mock_broker, ma_crossover_bars, mock
         execution_config=strategy_config.execution,
         strategy_name="test_strategy",
         safety_limits=strategy_config.safety_limits,
-        notifier=mock_telegram
+        notifier=mock_telegram,
     )
     order_manager = OrderManager(
         broker=mock_broker,
         risk_manager=risk_manager,
         config=strategy_config,
         notifier=mock_telegram,
-        dry_run=True  # DRY RUN MODE
+        dry_run=True,  # DRY RUN MODE
     )
 
     # Get account equity
@@ -174,7 +179,7 @@ def test_dry_run_flow(sample_strategy_dict, mock_broker, ma_crossover_bars, mock
             current_price=150.0,
             account_equity=account.equity,
             current_positions_count=0,
-            total_portfolio_positions=0
+            total_portfolio_positions=0,
         )
 
         # In dry run, should return success without calling broker
@@ -186,7 +191,9 @@ def test_dry_run_flow(sample_strategy_dict, mock_broker, ma_crossover_bars, mock
             assert not mock_broker.place_limit_order.called
 
 
-def test_multiple_strategies_loaded_and_processed(sample_strategy_dict, mock_broker, ma_crossover_bars):
+def test_multiple_strategies_loaded_and_processed(
+    sample_strategy_dict, mock_broker, ma_crossover_bars
+):
     """Test multiple strategies loaded and processed."""
     from alphalive.strategy_schema import StrategySchema
 
@@ -200,7 +207,11 @@ def test_multiple_strategies_loaded_and_processed(sample_strategy_dict, mock_bro
     strategy2_dict = copy.deepcopy(sample_strategy_dict)
     strategy2_dict["ticker"] = "TSLA"
     strategy2_dict["strategy"]["name"] = "rsi_mean_reversion"
-    strategy2_dict["strategy"]["parameters"] = {"period": 14, "oversold": 30, "overbought": 70}
+    strategy2_dict["strategy"]["parameters"] = {
+        "period": 14,
+        "oversold": 30,
+        "overbought": 70,
+    }
 
     strategy1 = StrategySchema(**strategy1_dict)
     strategy2 = StrategySchema(**strategy2_dict)
@@ -243,14 +254,14 @@ def test_error_recovery_broker_exception(
         execution_config=strategy_config.execution,
         strategy_name="test_strategy",
         safety_limits=strategy_config.safety_limits,
-        notifier=mock_telegram
+        notifier=mock_telegram,
     )
     order_manager = OrderManager(
         broker=mock_broker,
         risk_manager=risk_manager,
         config=strategy_config,
         notifier=mock_telegram,
-        dry_run=False
+        dry_run=False,
     )
 
     # Get account equity
@@ -267,7 +278,7 @@ def test_error_recovery_broker_exception(
             current_price=150.0,
             account_equity=account.equity,
             current_positions_count=0,
-            total_portfolio_positions=0
+            total_portfolio_positions=0,
         )
 
         # Should return error status, not raise exception
@@ -275,4 +286,7 @@ def test_error_recovery_broker_exception(
         assert "reason" in result
 
         # Error should be logged
-        assert any("error" in record.message.lower() or "fail" in record.message.lower() for record in caplog.records)
+        assert any(
+            "error" in record.message.lower() or "fail" in record.message.lower()
+            for record in caplog.records
+        )

@@ -1101,7 +1101,9 @@ class SignalEngine:
         # Parity tests also need it off: the filter is a deliberate
         # AlphaLive-only overlay, not part of the shared signal logic.
         if os.environ.get("ENABLE_BEAR_MARKET_FILTER", "true").lower() in (
-            "false", "0", "no",
+            "false",
+            "0",
+            "no",
         ):
             return False
 

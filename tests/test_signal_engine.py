@@ -10,13 +10,19 @@ from datetime import datetime
 from alphalive.strategy.signal_engine import SignalEngine
 
 
-def test_ma_crossover_buy_signal_on_golden_cross(sample_strategy_dict, ma_crossover_bars):
+def test_ma_crossover_buy_signal_on_golden_cross(
+    sample_strategy_dict, ma_crossover_bars
+):
     """Test MA crossover BUY signal on golden cross."""
     # Setup MA crossover strategy
     sample_strategy_dict["strategy"]["name"] = "ma_crossover"
-    sample_strategy_dict["strategy"]["parameters"] = {"fast_period": 10, "slow_period": 20}
+    sample_strategy_dict["strategy"]["parameters"] = {
+        "fast_period": 10,
+        "slow_period": 20,
+    }
 
     from alphalive.strategy_schema import StrategySchema
+
     config = StrategySchema(**sample_strategy_dict)
 
     engine = SignalEngine(config)
@@ -41,21 +47,29 @@ def test_ma_crossover_sell_signal_on_death_cross(sample_strategy_dict):
             # Fast crosses below slow
             price = 100.0 - ((i - 30) * 0.5)
 
-        data.append({
-            "open": price,
-            "high": price + 0.5,
-            "low": price - 0.5,
-            "close": price,
-            "volume": 1000000
-        })
+        data.append(
+            {
+                "open": price,
+                "high": price + 0.5,
+                "low": price - 0.5,
+                "close": price,
+                "volume": 1000000,
+            }
+        )
 
     df = pd.DataFrame(data)
-    df.index = pd.date_range(start="2024-01-01", periods=50, freq="D", tz="America/New_York")
+    df.index = pd.date_range(
+        start="2024-01-01", periods=50, freq="D", tz="America/New_York"
+    )
 
     sample_strategy_dict["strategy"]["name"] = "ma_crossover"
-    sample_strategy_dict["strategy"]["parameters"] = {"fast_period": 10, "slow_period": 20}
+    sample_strategy_dict["strategy"]["parameters"] = {
+        "fast_period": 10,
+        "slow_period": 20,
+    }
 
     from alphalive.strategy_schema import StrategySchema
+
     config = StrategySchema(**sample_strategy_dict)
 
     engine = SignalEngine(config)
@@ -71,21 +85,29 @@ def test_ma_crossover_hold_when_no_cross(sample_strategy_dict):
     data = []
     for i in range(50):
         price = 100.0 + (i * 0.1)  # Slow steady trend
-        data.append({
-            "open": price,
-            "high": price + 0.5,
-            "low": price - 0.5,
-            "close": price,
-            "volume": 1000000
-        })
+        data.append(
+            {
+                "open": price,
+                "high": price + 0.5,
+                "low": price - 0.5,
+                "close": price,
+                "volume": 1000000,
+            }
+        )
 
     df = pd.DataFrame(data)
-    df.index = pd.date_range(start="2024-01-01", periods=50, freq="D", tz="America/New_York")
+    df.index = pd.date_range(
+        start="2024-01-01", periods=50, freq="D", tz="America/New_York"
+    )
 
     sample_strategy_dict["strategy"]["name"] = "ma_crossover"
-    sample_strategy_dict["strategy"]["parameters"] = {"fast_period": 10, "slow_period": 20}
+    sample_strategy_dict["strategy"]["parameters"] = {
+        "fast_period": 10,
+        "slow_period": 20,
+    }
 
     from alphalive.strategy_schema import StrategySchema
+
     config = StrategySchema(**sample_strategy_dict)
 
     engine = SignalEngine(config)
@@ -102,10 +124,11 @@ def test_rsi_mean_reversion_buy_when_oversold(sample_strategy_dict, rsi_oversold
     sample_strategy_dict["strategy"]["parameters"] = {
         "period": 14,
         "oversold": 30,
-        "overbought": 70
+        "overbought": 70,
     }
 
     from alphalive.strategy_schema import StrategySchema
+
     config = StrategySchema(**sample_strategy_dict)
 
     engine = SignalEngine(config)
@@ -116,16 +139,19 @@ def test_rsi_mean_reversion_buy_when_oversold(sample_strategy_dict, rsi_oversold
     assert signal["signal"] in ["BUY", "HOLD"]
 
 
-def test_rsi_mean_reversion_sell_when_overbought(sample_strategy_dict, rsi_overbought_bars):
+def test_rsi_mean_reversion_sell_when_overbought(
+    sample_strategy_dict, rsi_overbought_bars
+):
     """Test RSI mean reversion SELL when RSI > overbought."""
     sample_strategy_dict["strategy"]["name"] = "rsi_mean_reversion"
     sample_strategy_dict["strategy"]["parameters"] = {
         "period": 14,
         "oversold": 30,
-        "overbought": 70
+        "overbought": 70,
     }
 
     from alphalive.strategy_schema import StrategySchema
+
     config = StrategySchema(**sample_strategy_dict)
 
     engine = SignalEngine(config)
@@ -136,17 +162,20 @@ def test_rsi_mean_reversion_sell_when_overbought(sample_strategy_dict, rsi_overb
     assert signal["signal"] in ["SELL", "HOLD"]
 
 
-def test_momentum_breakout_buy_on_breakout_with_volume(sample_strategy_dict, momentum_breakout_bars):
+def test_momentum_breakout_buy_on_breakout_with_volume(
+    sample_strategy_dict, momentum_breakout_bars
+):
     """Test momentum breakout BUY on breakout with volume surge."""
     sample_strategy_dict["strategy"]["name"] = "momentum_breakout"
     sample_strategy_dict["strategy"]["parameters"] = {
         "lookback": 20,
         "surge_pct": 1.5,
         "atr_period": 14,
-        "volume_ma_period": 20
+        "volume_ma_period": 20,
     }
 
     from alphalive.strategy_schema import StrategySchema
+
     config = StrategySchema(**sample_strategy_dict)
 
     engine = SignalEngine(config)
@@ -167,26 +196,31 @@ def test_momentum_breakout_hold_without_volume_surge(sample_strategy_dict):
         else:
             price = 105.0  # Breakout
 
-        data.append({
-            "open": price,
-            "high": price + 0.5,
-            "low": price - 0.5,
-            "close": price,
-            "volume": 1000000  # Constant volume (no surge)
-        })
+        data.append(
+            {
+                "open": price,
+                "high": price + 0.5,
+                "low": price - 0.5,
+                "close": price,
+                "volume": 1000000,  # Constant volume (no surge)
+            }
+        )
 
     df = pd.DataFrame(data)
-    df.index = pd.date_range(start="2024-01-01", periods=50, freq="D", tz="America/New_York")
+    df.index = pd.date_range(
+        start="2024-01-01", periods=50, freq="D", tz="America/New_York"
+    )
 
     sample_strategy_dict["strategy"]["name"] = "momentum_breakout"
     sample_strategy_dict["strategy"]["parameters"] = {
         "lookback": 20,
         "surge_pct": 1.5,
         "atr_period": 14,
-        "volume_ma_period": 20
+        "volume_ma_period": 20,
     }
 
     from alphalive.strategy_schema import StrategySchema
+
     config = StrategySchema(**sample_strategy_dict)
 
     engine = SignalEngine(config)
@@ -209,26 +243,31 @@ def test_bollinger_breakout_buy_above_upper_band(sample_strategy_dict):
             price = 110.0  # Break above
             volume = 2000000  # Volume surge
 
-        data.append({
-            "open": price,
-            "high": price + 0.5,
-            "low": price - 0.5,
-            "close": price,
-            "volume": volume
-        })
+        data.append(
+            {
+                "open": price,
+                "high": price + 0.5,
+                "low": price - 0.5,
+                "close": price,
+                "volume": volume,
+            }
+        )
 
     df = pd.DataFrame(data)
-    df.index = pd.date_range(start="2024-01-01", periods=50, freq="D", tz="America/New_York")
+    df.index = pd.date_range(
+        start="2024-01-01", periods=50, freq="D", tz="America/New_York"
+    )
 
     sample_strategy_dict["strategy"]["name"] = "bollinger_breakout"
     sample_strategy_dict["strategy"]["parameters"] = {
         "period": 20,
         "std_dev": 2.0,
         "confirmation_bars": 2,
-        "volume_ma_period": 20
+        "volume_ma_period": 20,
     }
 
     from alphalive.strategy_schema import StrategySchema
+
     config = StrategySchema(**sample_strategy_dict)
 
     engine = SignalEngine(config)
@@ -250,16 +289,20 @@ def test_vwap_reversion_buy_below_vwap_deviation(sample_strategy_dict):
             price = 90.0  # Drop below VWAP
             volume = 1000000
 
-        data.append({
-            "open": price,
-            "high": price + 0.5,
-            "low": price - 0.5,
-            "close": price,
-            "volume": volume
-        })
+        data.append(
+            {
+                "open": price,
+                "high": price + 0.5,
+                "low": price - 0.5,
+                "close": price,
+                "volume": volume,
+            }
+        )
 
     df = pd.DataFrame(data)
-    df.index = pd.date_range(start="2024-01-01", periods=50, freq="D", tz="America/New_York")
+    df.index = pd.date_range(
+        start="2024-01-01", periods=50, freq="D", tz="America/New_York"
+    )
 
     sample_strategy_dict["strategy"]["name"] = "vwap_reversion"
     sample_strategy_dict["strategy"]["parameters"] = {
@@ -267,10 +310,11 @@ def test_vwap_reversion_buy_below_vwap_deviation(sample_strategy_dict):
         "rsi_period": 14,
         "oversold": 30,
         "overbought": 70,
-        "vwap_std_period": 20
+        "vwap_std_period": 20,
     }
 
     from alphalive.strategy_schema import StrategySchema
+
     config = StrategySchema(**sample_strategy_dict)
 
     engine = SignalEngine(config)
@@ -283,6 +327,7 @@ def test_vwap_reversion_buy_below_vwap_deviation(sample_strategy_dict):
 def test_signal_includes_confidence_score(sample_strategy_dict, ma_crossover_bars):
     """Test that signal includes confidence score."""
     from alphalive.strategy_schema import StrategySchema
+
     config = StrategySchema(**sample_strategy_dict)
 
     engine = SignalEngine(config)
@@ -297,6 +342,7 @@ def test_signal_includes_confidence_score(sample_strategy_dict, ma_crossover_bar
 def test_signal_includes_human_readable_reason(sample_strategy_dict, ma_crossover_bars):
     """Test that signal includes human-readable reason."""
     from alphalive.strategy_schema import StrategySchema
+
     config = StrategySchema(**sample_strategy_dict)
 
     engine = SignalEngine(config)
@@ -314,30 +360,33 @@ def test_signal_only_looks_at_last_bar(sample_strategy_dict):
     data = []
     for i in range(50):
         price = 100.0  # Flat
-        data.append({
-            "open": price,
-            "high": price + 0.5,
-            "low": price - 0.5,
-            "close": price,
-            "volume": 1000000
-        })
+        data.append(
+            {
+                "open": price,
+                "high": price + 0.5,
+                "low": price - 0.5,
+                "close": price,
+                "volume": 1000000,
+            }
+        )
 
     df1 = pd.DataFrame(data)
-    df1.index = pd.date_range(start="2024-01-01", periods=50, freq="D", tz="America/New_York")
+    df1.index = pd.date_range(
+        start="2024-01-01", periods=50, freq="D", tz="America/New_York"
+    )
 
     # Add one more bar with sharp move
-    data.append({
-        "open": 105.0,
-        "high": 106.0,
-        "low": 104.5,
-        "close": 105.5,
-        "volume": 2000000
-    })
+    data.append(
+        {"open": 105.0, "high": 106.0, "low": 104.5, "close": 105.5, "volume": 2000000}
+    )
 
     df2 = pd.DataFrame(data)
-    df2.index = pd.date_range(start="2024-01-01", periods=51, freq="D", tz="America/New_York")
+    df2.index = pd.date_range(
+        start="2024-01-01", periods=51, freq="D", tz="America/New_York"
+    )
 
     from alphalive.strategy_schema import StrategySchema
+
     config = StrategySchema(**sample_strategy_dict)
 
     engine = SignalEngine(config)
@@ -355,9 +404,11 @@ def test_signal_only_looks_at_last_bar(sample_strategy_dict):
 # bollinger_rsi_combo tests
 # =============================================================================
 
+
 def _make_engine(sample_strategy_dict, strategy_name, params):
     """Helper: build a SignalEngine for a given strategy."""
     from alphalive.strategy_schema import StrategySchema
+
     d = dict(sample_strategy_dict)
     d["strategy"] = {"name": strategy_name, "parameters": params}
     return SignalEngine(StrategySchema(**d))
@@ -367,20 +418,43 @@ def _bb_rsi_buy_bars(n=50):
     """50 bars: 35 flat at 100, then 15 declining to 55 - forces price below BB lower and RSI well below 45."""
     data = []
     for i in range(35):
-        data.append({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1_000_000})
+        data.append(
+            {
+                "open": 100.0,
+                "high": 101.0,
+                "low": 99.0,
+                "close": 100.0,
+                "volume": 1_000_000,
+            }
+        )
     for i in range(15):
         price = 100.0 - (i + 1) * 3.0  # 97, 94, ..., 55
-        data.append({"open": price + 0.5, "high": price + 1.0, "low": price - 0.5, "close": price, "volume": 1_000_000})
+        data.append(
+            {
+                "open": price + 0.5,
+                "high": price + 1.0,
+                "low": price - 0.5,
+                "close": price,
+                "volume": 1_000_000,
+            }
+        )
     df = pd.DataFrame(data)
-    df.index = pd.date_range(start="2024-01-01", periods=n, freq="D", tz="America/New_York")
+    df.index = pd.date_range(
+        start="2024-01-01", periods=n, freq="D", tz="America/New_York"
+    )
     return df
 
 
 def _bb_rsi_neutral_bars(n=50):
     """50 bars: flat at 100 - price equals BB_middle, RSI ~50 (neutral zone for rsi_oversold=45/rsi_overbought=55)."""
-    data = [{"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1_000_000} for _ in range(n)]
+    data = [
+        {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1_000_000}
+        for _ in range(n)
+    ]
     df = pd.DataFrame(data)
-    df.index = pd.date_range(start="2024-01-01", periods=n, freq="D", tz="America/New_York")
+    df.index = pd.date_range(
+        start="2024-01-01", periods=n, freq="D", tz="America/New_York"
+    )
     return df
 
 
@@ -389,15 +463,34 @@ def _rsi_uptrend_bars(n=60):
     data = []
     for i in range(n):
         price = 100.0 + i * 1.0
-        data.append({"open": price - 0.5, "high": price + 0.5, "low": price - 1.0, "close": price, "volume": 1_000_000})
+        data.append(
+            {
+                "open": price - 0.5,
+                "high": price + 0.5,
+                "low": price - 1.0,
+                "close": price,
+                "volume": 1_000_000,
+            }
+        )
     df = pd.DataFrame(data)
-    df.index = pd.date_range(start="2024-01-01", periods=n, freq="D", tz="America/New_York")
+    df.index = pd.date_range(
+        start="2024-01-01", periods=n, freq="D", tz="America/New_York"
+    )
     return df
 
 
-def test_bollinger_rsi_combo_buy_when_price_at_lower_band_and_rsi_oversold(sample_strategy_dict):
+def test_bollinger_rsi_combo_buy_when_price_at_lower_band_and_rsi_oversold(
+    sample_strategy_dict,
+):
     """BUY when price ≤ BB lower AND RSI < 45."""
-    params = {"bb_period": 20, "bb_std": 2.0, "rsi_period": 14, "rsi_oversold": 45, "rsi_overbought": 55, "exit_at_middle": True}
+    params = {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 14,
+        "rsi_oversold": 45,
+        "rsi_overbought": 55,
+        "exit_at_middle": True,
+    }
     engine = _make_engine(sample_strategy_dict, "bollinger_rsi_combo", params)
 
     df = _bb_rsi_buy_bars()
@@ -408,9 +501,18 @@ def test_bollinger_rsi_combo_buy_when_price_at_lower_band_and_rsi_oversold(sampl
     assert "reason" in result
 
 
-def test_bollinger_rsi_combo_stateful_hold_when_already_in_position(sample_strategy_dict):
+def test_bollinger_rsi_combo_stateful_hold_when_already_in_position(
+    sample_strategy_dict,
+):
     """After entering a position, BUY conditions on the next bar must yield HOLD - not another BUY."""
-    params = {"bb_period": 20, "bb_std": 2.0, "rsi_period": 14, "rsi_oversold": 45, "rsi_overbought": 55, "exit_at_middle": True}
+    params = {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 14,
+        "rsi_oversold": 45,
+        "rsi_overbought": 55,
+        "exit_at_middle": True,
+    }
     engine = _make_engine(sample_strategy_dict, "bollinger_rsi_combo", params)
 
     # Force engine into in-position state
@@ -422,12 +524,21 @@ def test_bollinger_rsi_combo_stateful_hold_when_already_in_position(sample_strat
     result = engine.generate_signal(df)
 
     # Must NOT generate another BUY
-    assert result["signal"] != "BUY", "State bug: generated BUY while already in position"
+    assert (
+        result["signal"] != "BUY"
+    ), "State bug: generated BUY while already in position"
 
 
 def test_bollinger_rsi_combo_sell_when_price_reaches_middle_band(sample_strategy_dict):
     """When in position and price >= BB middle, generate SELL."""
-    params = {"bb_period": 20, "bb_std": 2.0, "rsi_period": 14, "rsi_oversold": 45, "rsi_overbought": 55, "exit_at_middle": True}
+    params = {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 14,
+        "rsi_oversold": 45,
+        "rsi_overbought": 55,
+        "exit_at_middle": True,
+    }
     engine = _make_engine(sample_strategy_dict, "bollinger_rsi_combo", params)
 
     engine._in_position = True
@@ -437,13 +548,22 @@ def test_bollinger_rsi_combo_sell_when_price_reaches_middle_band(sample_strategy
     df = _bb_rsi_neutral_bars()
     result = engine.generate_signal(df)
 
-    assert result["signal"] == "SELL", f"Expected SELL at BB middle but got {result['signal']}: {result['reason']}"
+    assert (
+        result["signal"] == "SELL"
+    ), f"Expected SELL at BB middle but got {result['signal']}: {result['reason']}"
     assert engine._in_position is False, "State not cleared after SELL"
 
 
 def test_bollinger_rsi_combo_sell_when_rsi_overbought(sample_strategy_dict):
     """When in position and RSI > 55, generate SELL."""
-    params = {"bb_period": 20, "bb_std": 2.0, "rsi_period": 14, "rsi_oversold": 45, "rsi_overbought": 55, "exit_at_middle": False}
+    params = {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 14,
+        "rsi_oversold": 45,
+        "rsi_overbought": 55,
+        "exit_at_middle": False,
+    }
     engine = _make_engine(sample_strategy_dict, "bollinger_rsi_combo", params)
 
     engine._in_position = True
@@ -458,7 +578,14 @@ def test_bollinger_rsi_combo_sell_when_rsi_overbought(sample_strategy_dict):
 
 def test_bollinger_rsi_combo_no_sell_when_not_in_position(sample_strategy_dict):
     """SELL conditions met but not in position - must return HOLD."""
-    params = {"bb_period": 20, "bb_std": 2.0, "rsi_period": 14, "rsi_oversold": 45, "rsi_overbought": 55, "exit_at_middle": True}
+    params = {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 14,
+        "rsi_oversold": 45,
+        "rsi_overbought": 55,
+        "exit_at_middle": True,
+    }
     engine = _make_engine(sample_strategy_dict, "bollinger_rsi_combo", params)
 
     # Flat bars trigger exit_at_middle condition (price == BB_middle), but not in position
@@ -471,7 +598,14 @@ def test_bollinger_rsi_combo_no_sell_when_not_in_position(sample_strategy_dict):
 
 def test_bollinger_rsi_combo_full_state_cycle(sample_strategy_dict):
     """Full cycle: HOLD → BUY → HOLD (while in position) → SELL → HOLD (after exit)."""
-    params = {"bb_period": 20, "bb_std": 2.0, "rsi_period": 14, "rsi_oversold": 45, "rsi_overbought": 55, "exit_at_middle": True}
+    params = {
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_period": 14,
+        "rsi_oversold": 45,
+        "rsi_overbought": 55,
+        "exit_at_middle": True,
+    }
     engine = _make_engine(sample_strategy_dict, "bollinger_rsi_combo", params)
 
     # Enter position by hand
@@ -497,14 +631,25 @@ def test_bollinger_rsi_combo_full_state_cycle(sample_strategy_dict):
 # trend_adaptive_rsi tests
 # =============================================================================
 
+
 def _range_rsi_oversold_bars(n=60):
     """60 bars: declining from 100 to 40 - RSI drops well below 35 in range regime (SMA_50 far above price)."""
     data = []
     for i in range(n):
         price = 100.0 - i * 1.0
-        data.append({"open": price + 0.5, "high": price + 0.5, "low": price - 0.5, "close": price, "volume": 1_000_000})
+        data.append(
+            {
+                "open": price + 0.5,
+                "high": price + 0.5,
+                "low": price - 0.5,
+                "close": price,
+                "volume": 1_000_000,
+            }
+        )
     df = pd.DataFrame(data)
-    df.index = pd.date_range(start="2024-01-01", periods=n, freq="D", tz="America/New_York")
+    df.index = pd.date_range(
+        start="2024-01-01", periods=n, freq="D", tz="America/New_York"
+    )
     return df
 
 
@@ -513,17 +658,35 @@ def _range_rsi_overbought_bars(n=60):
     data = []
     for i in range(n):
         price = 100.0 + i * 1.0
-        data.append({"open": price - 0.5, "high": price + 0.5, "low": price - 0.5, "close": price, "volume": 1_000_000})
+        data.append(
+            {
+                "open": price - 0.5,
+                "high": price + 0.5,
+                "low": price - 0.5,
+                "close": price,
+                "volume": 1_000_000,
+            }
+        )
     df = pd.DataFrame(data)
-    df.index = pd.date_range(start="2024-01-01", periods=n, freq="D", tz="America/New_York")
+    df.index = pd.date_range(
+        start="2024-01-01", periods=n, freq="D", tz="America/New_York"
+    )
     return df
 
 
 def test_trend_adaptive_rsi_buy_when_rsi_below_threshold(sample_strategy_dict):
     """BUY when RSI < buy_threshold for the detected regime."""
-    params = {"rsi_period": 14, "trend_sma": 50, "trend_lookback": 5,
-              "uptrend_buy": 45, "uptrend_sell": 65, "downtrend_buy": 35,
-              "downtrend_sell": 55, "range_buy": 35, "range_sell": 65}
+    params = {
+        "rsi_period": 14,
+        "trend_sma": 50,
+        "trend_lookback": 5,
+        "uptrend_buy": 45,
+        "uptrend_sell": 65,
+        "downtrend_buy": 35,
+        "downtrend_sell": 55,
+        "range_buy": 35,
+        "range_sell": 65,
+    }
     engine = _make_engine(sample_strategy_dict, "trend_adaptive_rsi", params)
 
     df = _range_rsi_oversold_bars()
@@ -533,11 +696,21 @@ def test_trend_adaptive_rsi_buy_when_rsi_below_threshold(sample_strategy_dict):
     assert 0.0 <= result["confidence"] <= 1.0
 
 
-def test_trend_adaptive_rsi_stateful_hold_when_already_in_position(sample_strategy_dict):
+def test_trend_adaptive_rsi_stateful_hold_when_already_in_position(
+    sample_strategy_dict,
+):
     """After entering a position, BUY conditions on the next bar must yield HOLD."""
-    params = {"rsi_period": 14, "trend_sma": 50, "trend_lookback": 5,
-              "uptrend_buy": 45, "uptrend_sell": 65, "downtrend_buy": 35,
-              "downtrend_sell": 55, "range_buy": 35, "range_sell": 65}
+    params = {
+        "rsi_period": 14,
+        "trend_sma": 50,
+        "trend_lookback": 5,
+        "uptrend_buy": 45,
+        "uptrend_sell": 65,
+        "downtrend_buy": 35,
+        "downtrend_sell": 55,
+        "range_buy": 35,
+        "range_sell": 65,
+    }
     engine = _make_engine(sample_strategy_dict, "trend_adaptive_rsi", params)
 
     # Force in-position state
@@ -547,14 +720,24 @@ def test_trend_adaptive_rsi_stateful_hold_when_already_in_position(sample_strate
     df = _range_rsi_oversold_bars()
     result = engine.generate_signal(df)
 
-    assert result["signal"] != "BUY", "State bug: generated BUY while already in position"
+    assert (
+        result["signal"] != "BUY"
+    ), "State bug: generated BUY while already in position"
 
 
 def test_trend_adaptive_rsi_sell_when_rsi_above_threshold(sample_strategy_dict):
     """When in position and RSI > sell_threshold, generate SELL."""
-    params = {"rsi_period": 14, "trend_sma": 50, "trend_lookback": 5,
-              "uptrend_buy": 45, "uptrend_sell": 65, "downtrend_buy": 35,
-              "downtrend_sell": 55, "range_buy": 35, "range_sell": 65}
+    params = {
+        "rsi_period": 14,
+        "trend_sma": 50,
+        "trend_lookback": 5,
+        "uptrend_buy": 45,
+        "uptrend_sell": 65,
+        "downtrend_buy": 35,
+        "downtrend_sell": 55,
+        "range_buy": 35,
+        "range_sell": 65,
+    }
     engine = _make_engine(sample_strategy_dict, "trend_adaptive_rsi", params)
 
     engine._in_position = True
@@ -568,9 +751,17 @@ def test_trend_adaptive_rsi_sell_when_rsi_above_threshold(sample_strategy_dict):
 
 def test_trend_adaptive_rsi_no_sell_when_not_in_position(sample_strategy_dict):
     """RSI overbought but not in position - must return HOLD, not SELL."""
-    params = {"rsi_period": 14, "trend_sma": 50, "trend_lookback": 5,
-              "uptrend_buy": 45, "uptrend_sell": 65, "downtrend_buy": 35,
-              "downtrend_sell": 55, "range_buy": 35, "range_sell": 65}
+    params = {
+        "rsi_period": 14,
+        "trend_sma": 50,
+        "trend_lookback": 5,
+        "uptrend_buy": 45,
+        "uptrend_sell": 65,
+        "downtrend_buy": 35,
+        "downtrend_sell": 55,
+        "range_buy": 35,
+        "range_sell": 65,
+    }
     engine = _make_engine(sample_strategy_dict, "trend_adaptive_rsi", params)
 
     assert engine._in_position is False
@@ -582,9 +773,17 @@ def test_trend_adaptive_rsi_no_sell_when_not_in_position(sample_strategy_dict):
 
 def test_trend_adaptive_rsi_sell_clears_position_state(sample_strategy_dict):
     """After SELL, _in_position must be False."""
-    params = {"rsi_period": 14, "trend_sma": 50, "trend_lookback": 5,
-              "uptrend_buy": 45, "uptrend_sell": 65, "downtrend_buy": 35,
-              "downtrend_sell": 55, "range_buy": 35, "range_sell": 65}
+    params = {
+        "rsi_period": 14,
+        "trend_sma": 50,
+        "trend_lookback": 5,
+        "uptrend_buy": 45,
+        "uptrend_sell": 65,
+        "downtrend_buy": 35,
+        "downtrend_sell": 55,
+        "range_buy": 35,
+        "range_sell": 65,
+    }
     engine = _make_engine(sample_strategy_dict, "trend_adaptive_rsi", params)
 
     engine._in_position = True
@@ -668,12 +867,18 @@ def test_restored_peak_drives_trailing_stop(sample_strategy_dict):
     # the restored 200 peak -> trailing stop must fire
     n = 60
     prices = [150.0] * (n - 1) + [155.0]
-    df = pd.DataFrame({
-        "open": prices, "high": [p + 1 for p in prices],
-        "low": [p - 1 for p in prices], "close": prices,
-        "volume": [1_000_000] * n,
-    })
-    df.index = pd.date_range(start="2024-01-05", periods=n, freq="W-FRI", tz="America/New_York")
+    df = pd.DataFrame(
+        {
+            "open": prices,
+            "high": [p + 1 for p in prices],
+            "low": [p - 1 for p in prices],
+            "close": prices,
+            "volume": [1_000_000] * n,
+        }
+    )
+    df.index = pd.date_range(
+        start="2024-01-05", periods=n, freq="W-FRI", tz="America/New_York"
+    )
 
     signal = engine.generate_signal(df)
 
@@ -688,12 +893,18 @@ def test_restored_peak_drives_trailing_stop(sample_strategy_dict):
 
 def _rising_weekly_df(n=60, start=100.0, step=2.0):
     prices = [start + i * step for i in range(n)]
-    df = pd.DataFrame({
-        "open": prices, "high": [p + 1 for p in prices],
-        "low": [p - 1 for p in prices], "close": prices,
-        "volume": [1_000_000] * n,
-    })
-    df.index = pd.date_range(start="2024-01-05", periods=n, freq="W-FRI", tz="America/New_York")
+    df = pd.DataFrame(
+        {
+            "open": prices,
+            "high": [p + 1 for p in prices],
+            "low": [p - 1 for p in prices],
+            "close": prices,
+            "volume": [1_000_000] * n,
+        }
+    )
+    df.index = pd.date_range(
+        start="2024-01-05", periods=n, freq="W-FRI", tz="America/New_York"
+    )
     return df
 
 
@@ -703,8 +914,11 @@ def _greenblatt_engine_in_position(sample_strategy_dict, df):
     engine = _make_engine(
         sample_strategy_dict,
         params={
-            "fast_sma": 10, "slow_sma": 50, "rsi_overbought": 65,
-            "trailing_stop_fraction": 0.20, "exit_rsi_overbought": True,
+            "fast_sma": 10,
+            "slow_sma": 50,
+            "rsi_overbought": 65,
+            "trailing_stop_fraction": 0.20,
+            "exit_rsi_overbought": True,
         },
     )
     last = float(df["close"].iloc[-1])

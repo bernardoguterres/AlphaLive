@@ -74,7 +74,9 @@ from alphalive.strategy_schema import (  # noqa: E402
 )
 
 
-def _assert_field_parity(lab_cls, live_cls, *, lab_only=frozenset(), live_only=frozenset()):
+def _assert_field_parity(
+    lab_cls, live_cls, *, lab_only=frozenset(), live_only=frozenset()
+):
     """Assert lab_cls and live_cls declare the same Pydantic field names,
     modulo the explicitly documented exceptions in lab_only/live_only."""
     lab_fields = set(lab_cls.model_fields.keys())
@@ -99,6 +101,7 @@ def _assert_field_parity(lab_cls, live_cls, *, lab_only=frozenset(), live_only=f
 # Envelope blocks (Risk, Execution, SafetyLimits, Metadata, BacktestPeriod,
 # Performance) - all field sets match exactly today, no known exceptions.
 # ---------------------------------------------------------------------------
+
 
 def test_backtest_period_field_parity():
     _assert_field_parity(LabBacktestPeriod, LiveBacktestPeriod)
@@ -130,6 +133,7 @@ def test_safety_limits_field_parity():
 # literal (not currently live-deployable), so there is no AlphaLive side to
 # compare against.
 # ---------------------------------------------------------------------------
+
 
 def test_ma_crossover_param_field_parity():
     _assert_field_parity(MACrossoverParams, MACrossoverStrategyParams)

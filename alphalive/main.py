@@ -748,7 +748,11 @@ def _run_exit_checks(
                         # position and never re-enters (nor exits again).
                         if signal_engine_map and ticker in signal_engine_map:
                             signal_engine_map[ticker].restore_state(
-                                {"in_position": False, "entry_price": 0.0, "peak_price": 0.0}
+                                {
+                                    "in_position": False,
+                                    "entry_price": 0.0,
+                                    "peak_price": 0.0,
+                                }
                             )
                             bot_state.save_engine_state(
                                 ticker, signal_engine_map[ticker].get_state()
@@ -759,9 +763,9 @@ def _run_exit_checks(
                             None,
                         )
                         if closed_pos:
-                            commission = (
-                                order_manager_map[ticker].config.risk.commission_per_trade
-                            )
+                            commission = order_manager_map[
+                                ticker
+                            ].config.risk.commission_per_trade
                             # Prefer the actual fill price from the close order;
                             # fall back to the pre-order price if the fill
                             # hasn't been reported yet (market order in flight).
@@ -781,9 +785,7 @@ def _run_exit_checks(
                             order_manager_map[ticker].risk.record_trade(
                                 ticker=exit_signal["ticker"], pnl=pnl
                             )
-                            global_risk.record_trade(
-                                strategy_name=ticker, pnl=pnl
-                            )
+                            global_risk.record_trade(strategy_name=ticker, pnl=pnl)
                             bot_state.add_daily_pnl(pnl)
 
                             notifier.send_position_closed_notification(
@@ -1009,7 +1011,9 @@ def main(
     from alphalive.health import create_health_server
 
     create_health_server(
-        all_strategy_configs[0], dry_run=app_config.dry_run, paper=app_config.broker.paper
+        all_strategy_configs[0],
+        dry_run=app_config.dry_run,
+        paper=app_config.broker.paper,
     )
 
     # 2. Initialize components

@@ -64,20 +64,18 @@ class WeeklyReportGenerator:
         start_date = datetime.now() - timedelta(days=7)
 
         request = GetOrdersRequest(
-            status=QueryOrderStatus.FILLED,
-            after=start_date,
-            limit=500
+            status=QueryOrderStatus.FILLED, after=start_date, limit=500
         )
 
         orders = self.client.get_orders(filter=request)
 
         return [
             {
-                'symbol': order.symbol,
-                'side': order.side.value,
-                'qty': float(order.filled_qty),
-                'fill_price': float(order.filled_avg_price),
-                'filled_at': order.filled_at,
+                "symbol": order.symbol,
+                "side": order.side.value,
+                "qty": float(order.filled_qty),
+                "fill_price": float(order.filled_avg_price),
+                "filled_at": order.filled_at,
             }
             for order in orders
         ]
@@ -86,38 +84,44 @@ class WeeklyReportGenerator:
         """Match buy/sell orders into complete trades"""
         by_symbol = {}
         for order in orders:
-            symbol = order['symbol']
+            symbol = order["symbol"]
             if symbol not in by_symbol:
                 by_symbol[symbol] = []
             by_symbol[symbol].append(order)
 
         for symbol in by_symbol:
-            by_symbol[symbol].sort(key=lambda x: x['filled_at'])
+            by_symbol[symbol].sort(key=lambda x: x["filled_at"])
 
         trades = []
         for symbol, symbol_orders in by_symbol.items():
             open_positions = []
 
             for order in symbol_orders:
-                if order['side'] == 'buy':
+                if order["side"] == "buy":
                     open_positions.append(order)
-                elif order['side'] == 'sell' and open_positions:
+                elif order["side"] == "sell" and open_positions:
                     buy_order = open_positions.pop(0)
 
-                    pnl = (order['fill_price'] - buy_order['fill_price']) * buy_order['qty']
-                    pnl_pct = ((order['fill_price'] / buy_order['fill_price']) - 1) * 100
+                    pnl = (order["fill_price"] - buy_order["fill_price"]) * buy_order[
+                        "qty"
+                    ]
+                    pnl_pct = (
+                        (order["fill_price"] / buy_order["fill_price"]) - 1
+                    ) * 100
 
-                    trades.append({
-                        'symbol': symbol,
-                        'entry_price': buy_order['fill_price'],
-                        'exit_price': order['fill_price'],
-                        'qty': buy_order['qty'],
-                        'pnl': pnl,
-                        'pnl_pct': pnl_pct,
-                        'outcome': 'WIN' if pnl > 0 else 'LOSS',
-                        'entry_time': buy_order['filled_at'],
-                        'exit_time': order['filled_at'],
-                    })
+                    trades.append(
+                        {
+                            "symbol": symbol,
+                            "entry_price": buy_order["fill_price"],
+                            "exit_price": order["fill_price"],
+                            "qty": buy_order["qty"],
+                            "pnl": pnl,
+                            "pnl_pct": pnl_pct,
+                            "outcome": "WIN" if pnl > 0 else "LOSS",
+                            "entry_time": buy_order["filled_at"],
+                            "exit_time": order["filled_at"],
+                        }
+                    )
 
         return trades
 
@@ -125,35 +129,39 @@ class WeeklyReportGenerator:
         """Calculate weekly statistics"""
         if not trades:
             return {
-                'total_trades': 0,
-                'win_rate': 0,
-                'total_pnl': 0,
-                'avg_win': 0,
-                'avg_loss': 0,
-                'winners': 0,
-                'losers': 0,
+                "total_trades": 0,
+                "win_rate": 0,
+                "total_pnl": 0,
+                "avg_win": 0,
+                "avg_loss": 0,
+                "winners": 0,
+                "losers": 0,
             }
 
-        winners = [t for t in trades if t['outcome'] == 'WIN']
-        losers = [t for t in trades if t['outcome'] == 'LOSS']
+        winners = [t for t in trades if t["outcome"] == "WIN"]
+        losers = [t for t in trades if t["outcome"] == "LOSS"]
 
         return {
-            'total_trades': len(trades),
-            'winners': len(winners),
-            'losers': len(losers),
-            'win_rate': (len(winners) / len(trades)) * 100,
-            'total_pnl': sum(t['pnl'] for t in trades),
-            'total_pnl_pct': sum(t['pnl_pct'] for t in trades),
-            'avg_win': sum(t['pnl_pct'] for t in winners) / len(winners) if winners else 0,
-            'avg_loss': sum(t['pnl_pct'] for t in losers) / len(losers) if losers else 0,
-            'largest_win': max((t['pnl_pct'] for t in winners), default=0),
-            'largest_loss': min((t['pnl_pct'] for t in losers), default=0),
+            "total_trades": len(trades),
+            "winners": len(winners),
+            "losers": len(losers),
+            "win_rate": (len(winners) / len(trades)) * 100,
+            "total_pnl": sum(t["pnl"] for t in trades),
+            "total_pnl_pct": sum(t["pnl_pct"] for t in trades),
+            "avg_win": (
+                sum(t["pnl_pct"] for t in winners) / len(winners) if winners else 0
+            ),
+            "avg_loss": (
+                sum(t["pnl_pct"] for t in losers) / len(losers) if losers else 0
+            ),
+            "largest_win": max((t["pnl_pct"] for t in winners), default=0),
+            "largest_loss": min((t["pnl_pct"] for t in losers), default=0),
         }
 
     def generate_report(self, trades: List[Dict], stats: Dict) -> str:
         """Generate weekly report text"""
-        week_start = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
-        week_end = datetime.now().strftime('%Y-%m-%d')
+        week_start = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        week_end = datetime.now().strftime("%Y-%m-%d")
 
         lines = []
         lines.append("=" * 80)
@@ -165,7 +173,7 @@ class WeeklyReportGenerator:
         lines.append(f"Buying Power: ${float(self.account.buying_power):,.2f}")
         lines.append("")
 
-        if stats['total_trades'] == 0:
+        if stats["total_trades"] == 0:
             lines.append("No trades executed this week")
             lines.append("")
             lines.append("Possible reasons:")
@@ -181,7 +189,9 @@ class WeeklyReportGenerator:
             lines.append(f"Total Trades: {stats['total_trades']}")
             lines.append(f"Winners: {stats['winners']} | Losers: {stats['losers']}")
             lines.append(f"Win Rate: {stats['win_rate']:.1f}%")
-            lines.append(f"Total P&L: ${stats['total_pnl']:.2f} ({stats['total_pnl_pct']:.2f}%)")
+            lines.append(
+                f"Total P&L: ${stats['total_pnl']:.2f} ({stats['total_pnl_pct']:.2f}%)"
+            )
             lines.append(f"Avg Win: {stats['avg_win']:.2f}%")
             lines.append(f"Avg Loss: {stats['avg_loss']:.2f}%")
             lines.append(f"Best Trade: {stats['largest_win']:.2f}%")
@@ -193,11 +203,11 @@ class WeeklyReportGenerator:
             lines.append("PERFORMANCE ASSESSMENT")
             lines.append("-" * 80)
 
-            if stats['win_rate'] >= 65 and stats['total_pnl'] > 0:
+            if stats["win_rate"] >= 65 and stats["total_pnl"] > 0:
                 lines.append("EXCELLENT - Performing above expectations")
-            elif stats['win_rate'] >= 55 and stats['total_pnl'] > 0:
+            elif stats["win_rate"] >= 55 and stats["total_pnl"] > 0:
                 lines.append("GOOD - On track")
-            elif stats['total_pnl'] > 0:
+            elif stats["total_pnl"] > 0:
                 lines.append("ACCEPTABLE - Profitable but below target win rate")
             else:
                 lines.append("NEEDS ATTENTION - Review strategy parameters")
@@ -210,7 +220,7 @@ class WeeklyReportGenerator:
             lines.append("-" * 80)
 
             for i, trade in enumerate(trades, 1):
-                outcome_icon = "" if trade['outcome'] == 'WIN' else ""
+                outcome_icon = "" if trade["outcome"] == "WIN" else ""
                 lines.append(
                     f"{i:2d}. {trade['entry_time'].strftime('%m-%d %H:%M')} | "
                     f"{trade['symbol']:6s} | ${trade['entry_price']:.2f} → ${trade['exit_price']:.2f} | "
@@ -222,10 +232,10 @@ class WeeklyReportGenerator:
         lines.append("NEXT WEEK ACTION ITEMS")
         lines.append("-" * 80)
 
-        if not self.is_paper and stats['total_trades'] > 0:
-            if stats['win_rate'] >= 60:
+        if not self.is_paper and stats["total_trades"] > 0:
+            if stats["win_rate"] >= 60:
                 lines.append("Continue current strategy")
-                if stats['total_trades'] < 10:
+                if stats["total_trades"] < 10:
                     lines.append("Consider adding 2nd strategy to increase frequency")
             else:
                 lines.append("Review and adjust parameters")
@@ -233,12 +243,14 @@ class WeeklyReportGenerator:
 
         if self.is_paper:
             lines.append("Continue paper trading")
-            if stats['total_trades'] >= 20 and stats['win_rate'] >= 60:
+            if stats["total_trades"] >= 20 and stats["win_rate"] >= 60:
                 lines.append("Ready to consider live deployment")
 
         lines.append("")
         lines.append("=" * 80)
-        lines.append(f"Report generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append(
+            f"Report generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
         lines.append("=" * 80)
 
         return "\n".join(lines)
@@ -254,19 +266,19 @@ class WeeklyReportGenerator:
 
             # Telegram has 4096 char limit, split if needed
             if len(report) > 4000:
-                parts = [report[i:i+4000] for i in range(0, len(report), 4000)]
+                parts = [report[i : i + 4000] for i in range(0, len(report), 4000)]
                 for part in parts:
                     payload = {
                         "chat_id": self.telegram_chat_id,
                         "text": part,
-                        "parse_mode": "HTML"
+                        "parse_mode": "HTML",
                     }
                     httpx.post(url, json=payload, timeout=10)
             else:
                 payload = {
                     "chat_id": self.telegram_chat_id,
                     "text": report,
-                    "parse_mode": "HTML"
+                    "parse_mode": "HTML",
                 }
                 httpx.post(url, json=payload, timeout=10)
 
@@ -284,7 +296,7 @@ class WeeklyReportGenerator:
         timestamp = datetime.now().strftime("%Y-%m-%d")
         filename = f"{output_dir}/weekly_report_{timestamp}.txt"
 
-        with open(filename, 'w') as f:
+        with open(filename, "w") as f:
             f.write(report)
 
             print(f"Report saved to: {filename}")
@@ -295,9 +307,11 @@ def main():
 
     parser = argparse.ArgumentParser(description="Generate automated weekly report")
     parser.add_argument("--telegram", action="store_true", help="Send via Telegram")
-    parser.add_argument("--save-only", action="store_true", help="Only save to file, don't print")
+    parser.add_argument(
+        "--save-only", action="store_true", help="Only save to file, don't print"
+    )
     parser.add_argument("--output-dir", default="reports", help="Output directory")
-    parser.add_argument('--version', action='version', version='AlphaLive Tools v1.0.0')
+    parser.add_argument("--version", action="version", version="AlphaLive Tools v1.0.0")
 
     args = parser.parse_args()
 
@@ -307,11 +321,11 @@ def main():
     try:
         generator = WeeklyReportGenerator()
 
-        print("Fetching trades from past week...", end='', flush=True)
+        print("Fetching trades from past week...", end="", flush=True)
         orders = generator.fetch_week_trades()
         print(f"")
 
-        print("Matching trades...", end='', flush=True)
+        print("Matching trades...", end="", flush=True)
         trades = generator.match_trades(orders)
         stats = generator.calculate_stats(trades)
         print(f"Found {len(trades)} completed trades")
@@ -329,6 +343,7 @@ def main():
     except Exception as e:
         print(f"Error: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

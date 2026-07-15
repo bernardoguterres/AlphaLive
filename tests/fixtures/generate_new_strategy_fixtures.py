@@ -55,10 +55,15 @@ def load_fixture() -> pd.DataFrame:
     fixture_path = FIXTURES_DIR / "aapl_fixture_500bars.csv"
     df = pd.read_csv(fixture_path)
     df.columns = df.columns.str.lower()
-    return df.rename(columns={
-        "open": "Open", "high": "High", "low": "Low",
-        "close": "Close", "volume": "Volume",
-    })
+    return df.rename(
+        columns={
+            "open": "Open",
+            "high": "High",
+            "low": "Low",
+            "close": "Close",
+            "volume": "Volume",
+        }
+    )
 
 
 def main():
@@ -85,10 +90,12 @@ def main():
 
         rows = []
         for i, (_, row) in enumerate(signals_df.iterrows()):
-            rows.append({
-                "bar_index": i,
-                "signal": SIGNAL_MAP[row["signal"]],
-            })
+            rows.append(
+                {
+                    "bar_index": i,
+                    "signal": SIGNAL_MAP[row["signal"]],
+                }
+            )
 
         out = pd.DataFrame(rows)
         non_hold = (out["signal"] != "HOLD").sum()

@@ -37,8 +37,9 @@ def test_client_order_id_is_month_scoped():
 
 def test_buys_when_due(env):
     trading = _mock_trading()
-    with patch("alpaca.trading.client.TradingClient", return_value=trading), \
-         patch.object(monthly_dca, "datetime") as m_dt:
+    with patch(
+        "alpaca.trading.client.TradingClient", return_value=trading
+    ), patch.object(monthly_dca, "datetime") as m_dt:
         m_dt.now.return_value = datetime(2026, 7, 1, 10, 0, tzinfo=ET)
         assert monthly_dca.run() == 0
 
@@ -50,8 +51,9 @@ def test_buys_when_due(env):
 
 def test_skips_outside_window(env):
     trading = _mock_trading()
-    with patch("alpaca.trading.client.TradingClient", return_value=trading), \
-         patch.object(monthly_dca, "datetime") as m_dt:
+    with patch(
+        "alpaca.trading.client.TradingClient", return_value=trading
+    ), patch.object(monthly_dca, "datetime") as m_dt:
         m_dt.now.return_value = datetime(2026, 7, 15, 10, 0, tzinfo=ET)
         assert monthly_dca.run() == 0
 
@@ -60,8 +62,9 @@ def test_skips_outside_window(env):
 
 def test_force_overrides_window(env):
     trading = _mock_trading()
-    with patch("alpaca.trading.client.TradingClient", return_value=trading), \
-         patch.object(monthly_dca, "datetime") as m_dt:
+    with patch(
+        "alpaca.trading.client.TradingClient", return_value=trading
+    ), patch.object(monthly_dca, "datetime") as m_dt:
         m_dt.now.return_value = datetime(2026, 7, 15, 10, 0, tzinfo=ET)
         assert monthly_dca.run(force=True) == 0
 
@@ -70,8 +73,9 @@ def test_force_overrides_window(env):
 
 def test_dry_run_places_no_order(env):
     trading = _mock_trading()
-    with patch("alpaca.trading.client.TradingClient", return_value=trading), \
-         patch.object(monthly_dca, "datetime") as m_dt:
+    with patch(
+        "alpaca.trading.client.TradingClient", return_value=trading
+    ), patch.object(monthly_dca, "datetime") as m_dt:
         m_dt.now.return_value = datetime(2026, 7, 1, 10, 0, tzinfo=ET)
         assert monthly_dca.run(dry_run=True) == 0
 
@@ -80,8 +84,9 @@ def test_dry_run_places_no_order(env):
 
 def test_market_closed_waits(env):
     trading = _mock_trading(clock_open=False)
-    with patch("alpaca.trading.client.TradingClient", return_value=trading), \
-         patch.object(monthly_dca, "datetime") as m_dt:
+    with patch(
+        "alpaca.trading.client.TradingClient", return_value=trading
+    ), patch.object(monthly_dca, "datetime") as m_dt:
         m_dt.now.return_value = datetime(2026, 8, 1, 10, 0, tzinfo=ET)  # Saturday
         assert monthly_dca.run() == 0
 
@@ -96,10 +101,13 @@ def test_duplicate_month_409_is_success(env):
     http_error = Mock()
     http_error.response = Mock(status_code=409)
     trading = _mock_trading()
-    trading.submit_order.side_effect = APIError("duplicate client_order_id", http_error=http_error)
+    trading.submit_order.side_effect = APIError(
+        "duplicate client_order_id", http_error=http_error
+    )
 
-    with patch("alpaca.trading.client.TradingClient", return_value=trading), \
-         patch.object(monthly_dca, "datetime") as m_dt:
+    with patch(
+        "alpaca.trading.client.TradingClient", return_value=trading
+    ), patch.object(monthly_dca, "datetime") as m_dt:
         m_dt.now.return_value = datetime(2026, 7, 2, 10, 0, tzinfo=ET)
         assert monthly_dca.run() == 0
 

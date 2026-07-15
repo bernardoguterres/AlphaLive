@@ -16,7 +16,7 @@ from alphalive.broker.base_broker import (
     BrokerError,
     AuthenticationError,
     RateLimitError,
-    OrderError
+    OrderError,
 )
 
 
@@ -30,7 +30,7 @@ def test_position_dataclass():
         current_price=155.0,
         unrealized_pl=50.0,
         unrealized_plpc=3.33,
-        market_value=1550.0
+        market_value=1550.0,
     )
 
     assert position.symbol == "AAPL"
@@ -51,7 +51,7 @@ def test_order_dataclass():
         filled_qty=10.0,
         filled_avg_price=150.0,
         submitted_at=datetime.now(),
-        filled_at=datetime.now()
+        filled_at=datetime.now(),
     )
 
     assert order.id == "order123"
@@ -70,7 +70,7 @@ def test_account_dataclass():
         short_market_value=0.0,
         daytrade_count=0,
         pattern_day_trader=False,
-        account_status="ACTIVE"
+        account_status="ACTIVE",
     )
 
     assert account.equity == 100000.0
@@ -102,11 +102,7 @@ def test_alpaca_broker_initialization():
     """Test AlpacaBroker initialization."""
     from alphalive.broker.alpaca_broker import AlpacaBroker
 
-    broker = AlpacaBroker(
-        api_key="test_key",
-        secret_key="test_secret",
-        paper=True
-    )
+    broker = AlpacaBroker(api_key="test_key", secret_key="test_secret", paper=True)
 
     assert broker.api_key == "test_key"
     assert broker.secret_key == "test_secret"
@@ -119,11 +115,7 @@ def test_alpaca_broker_live_mode():
     """Test AlpacaBroker live mode URL."""
     from alphalive.broker.alpaca_broker import AlpacaBroker
 
-    broker = AlpacaBroker(
-        api_key="test_key",
-        secret_key="test_secret",
-        paper=False
-    )
+    broker = AlpacaBroker(api_key="test_key", secret_key="test_secret", paper=False)
 
     assert broker.base_url == "https://api.alpaca.markets"
 
@@ -187,8 +179,8 @@ def _make_api_error(message, status_code):
     return APIError(message, http_error=http_error)
 
 
-@patch('alphalive.broker.alpaca_broker.TradingClient')
-@patch('alphalive.broker.alpaca_broker.StockHistoricalDataClient')
+@patch("alphalive.broker.alpaca_broker.TradingClient")
+@patch("alphalive.broker.alpaca_broker.StockHistoricalDataClient")
 def test_alpaca_broker_retry_logic(mock_data_client, mock_trading_client):
     """Test AlpacaBroker retry logic with exponential backoff."""
     from alphalive.broker.alpaca_broker import AlpacaBroker
@@ -196,13 +188,15 @@ def test_alpaca_broker_retry_logic(mock_data_client, mock_trading_client):
     broker = AlpacaBroker(api_key="test", secret_key="test", paper=True)
 
     # Test successful retry after transient error
-    mock_func = Mock(side_effect=[
-        _make_api_error("Rate limited", 429),
-        _make_api_error("Rate limited", 429),
-        "success"
-    ])
+    mock_func = Mock(
+        side_effect=[
+            _make_api_error("Rate limited", 429),
+            _make_api_error("Rate limited", 429),
+            "success",
+        ]
+    )
 
-    with patch('time.sleep'):  # Mock sleep to speed up test
+    with patch("time.sleep"):  # Mock sleep to speed up test
         result = broker._retry_with_backoff(mock_func)
         assert result == "success"
         assert mock_func.call_count == 3
@@ -281,7 +275,7 @@ def test_base_broker_is_abstract():
         BaseBroker()
 
 
-@patch('alphalive.broker.alpaca_broker.StockHistoricalDataClient')
+@patch("alphalive.broker.alpaca_broker.StockHistoricalDataClient")
 def test_get_historical_bars(mock_data_client):
     """Test get_historical_bars method returns proper DataFrame."""
     import pandas as pd
@@ -297,17 +291,22 @@ def test_get_historical_bars(mock_data_client):
 
     # Mock the response
     mock_bars = Mock()
-    mock_df = pd.DataFrame({
-        'open': [150.0, 151.0, 152.0],
-        'high': [151.0, 152.0, 153.0],
-        'low': [149.0, 150.0, 151.0],
-        'close': [150.5, 151.5, 152.5],
-        'volume': [1000000, 1100000, 1200000]
-    }, index=pd.DatetimeIndex([
-        datetime(2024, 1, 2, 9, 30, tzinfo=ET),
-        datetime(2024, 1, 3, 9, 30, tzinfo=ET),
-        datetime(2024, 1, 4, 9, 30, tzinfo=ET)
-    ]))
+    mock_df = pd.DataFrame(
+        {
+            "open": [150.0, 151.0, 152.0],
+            "high": [151.0, 152.0, 153.0],
+            "low": [149.0, 150.0, 151.0],
+            "close": [150.5, 151.5, 152.5],
+            "volume": [1000000, 1100000, 1200000],
+        },
+        index=pd.DatetimeIndex(
+            [
+                datetime(2024, 1, 2, 9, 30, tzinfo=ET),
+                datetime(2024, 1, 3, 9, 30, tzinfo=ET),
+                datetime(2024, 1, 4, 9, 30, tzinfo=ET),
+            ]
+        ),
+    )
     mock_bars.df = mock_df
     broker.data_client.get_stock_bars.return_value = mock_bars
 
@@ -319,11 +318,11 @@ def test_get_historical_bars(mock_data_client):
     # Verify result
     assert isinstance(df, pd.DataFrame)
     assert len(df) == 3
-    assert 'open' in df.columns
-    assert 'close' in df.columns
-    assert 'volume' in df.columns
+    assert "open" in df.columns
+    assert "close" in df.columns
+    assert "volume" in df.columns
     assert df.index.tz is not None  # Timezone-aware
-    assert df['close'].iloc[0] == 150.5
+    assert df["close"].iloc[0] == 150.5
 
 
 def test_get_historical_bars_invalid_timeframe():
@@ -345,7 +344,7 @@ def test_get_historical_bars_invalid_timeframe():
         broker.get_historical_bars("AAPL", "invalid", start, end)
 
 
-@patch('alphalive.broker.alpaca_broker.StockHistoricalDataClient')
+@patch("alphalive.broker.alpaca_broker.StockHistoricalDataClient")
 def test_get_historical_bars_empty_data(mock_data_client):
     """Test get_historical_bars raises error when no data returned."""
     import pandas as pd

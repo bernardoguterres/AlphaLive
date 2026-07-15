@@ -22,8 +22,7 @@ from alphalive.broker.alpaca_broker import AlpacaBroker
 
 # Setup logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -38,7 +37,7 @@ def main():
     broker = AlpacaBroker(
         api_key=os.environ["ALPACA_API_KEY"],
         secret_key=os.environ["ALPACA_SECRET_KEY"],
-        paper=True
+        paper=True,
     )
 
     # Connect
@@ -51,10 +50,7 @@ def main():
     end_date = datetime(2024, 12, 31, tzinfo=ET)
 
     df = broker.get_historical_bars(
-        symbol="AAPL",
-        timeframe="1Day",
-        start=start_date,
-        end=end_date
+        symbol="AAPL", timeframe="1Day", start=start_date, end=end_date
     )
 
     # Display results
@@ -63,7 +59,9 @@ def main():
     logger.info(f"{'='*80}")
     logger.info(f"Symbol: AAPL")
     logger.info(f"Timeframe: 1Day")
-    logger.info(f"Date Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+    logger.info(
+        f"Date Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
+    )
     logger.info(f"Total Bars: {len(df)}")
     logger.info(f"\nFirst 5 bars:")
     print(df.head())

@@ -10,7 +10,9 @@ from alphalive.utils.retry import RetryDecision, RetryOutcome, retry_with_backof
 def test_retry_with_backoff_returns_immediately_on_success():
     func = MagicMock(return_value="ok")
 
-    result = retry_with_backoff(func, classify=lambda e: RetryOutcome(RetryDecision.RETRY))
+    result = retry_with_backoff(
+        func, classify=lambda e: RetryOutcome(RetryDecision.RETRY)
+    )
 
     assert result == "ok"
     assert func.call_count == 1
@@ -35,7 +37,9 @@ def test_retry_with_backoff_raises_after_exhausting_retries():
     with patch("alphalive.utils.retry.time.sleep"):
         with pytest.raises(ValueError, match="permanent"):
             retry_with_backoff(
-                func, classify=lambda e: RetryOutcome(RetryDecision.RETRY), max_retries=3
+                func,
+                classify=lambda e: RetryOutcome(RetryDecision.RETRY),
+                max_retries=3,
             )
 
     assert func.call_count == 3
@@ -47,7 +51,9 @@ def test_retry_with_backoff_raises_immediately_on_fatal_classification():
     with patch("alphalive.utils.retry.time.sleep") as mock_sleep:
         with pytest.raises(ValueError, match="fatal"):
             retry_with_backoff(
-                func, classify=lambda e: RetryOutcome(RetryDecision.FATAL), max_retries=3
+                func,
+                classify=lambda e: RetryOutcome(RetryDecision.FATAL),
+                max_retries=3,
             )
 
     # Must not have retried or slept - fatal errors bail out on the first attempt.

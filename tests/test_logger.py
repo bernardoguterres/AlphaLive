@@ -60,7 +60,9 @@ def test_setup_logger_json_format_uses_json_formatter(monkeypatch):
     setup_logger(log_level="INFO")
 
     root = logging.getLogger()
-    stdout_handler = next(h for h in root.handlers if isinstance(h, logging.StreamHandler))
+    stdout_handler = next(
+        h for h in root.handlers if isinstance(h, logging.StreamHandler)
+    )
     assert isinstance(stdout_handler.formatter, JsonFormatter)
 
 
@@ -86,8 +88,13 @@ def test_setup_logger_clears_existing_handlers(monkeypatch):
 def test_json_formatter_emits_valid_json_with_core_fields():
     formatter = JsonFormatter()
     record = logging.LogRecord(
-        name="alphalive.test", level=logging.INFO, pathname=__file__, lineno=1,
-        msg="signal generated", args=(), exc_info=None,
+        name="alphalive.test",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="signal generated",
+        args=(),
+        exc_info=None,
     )
 
     output = formatter.format(record)
@@ -102,8 +109,13 @@ def test_json_formatter_emits_valid_json_with_core_fields():
 def test_json_formatter_includes_extra_structured_fields():
     formatter = JsonFormatter()
     record = logging.LogRecord(
-        name="alphalive.test", level=logging.INFO, pathname=__file__, lineno=1,
-        msg="trade executed", args=(), exc_info=None,
+        name="alphalive.test",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="trade executed",
+        args=(),
+        exc_info=None,
     )
     record.ticker = "AAPL"
     record.signal = "BUY"
@@ -120,9 +132,15 @@ def test_json_formatter_includes_exception_info():
         raise ValueError("boom")
     except ValueError:
         import sys
+
         record = logging.LogRecord(
-            name="alphalive.test", level=logging.ERROR, pathname=__file__, lineno=1,
-            msg="order failed", args=(), exc_info=sys.exc_info(),
+            name="alphalive.test",
+            level=logging.ERROR,
+            pathname=__file__,
+            lineno=1,
+            msg="order failed",
+            args=(),
+            exc_info=sys.exc_info(),
         )
 
     parsed = json.loads(formatter.format(record))

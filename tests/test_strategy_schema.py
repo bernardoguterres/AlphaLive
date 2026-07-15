@@ -19,7 +19,9 @@ def test_ma_crossover_rejects_unknown_field(sample_strategy_dict):
     or a leftover field from a different strategy) must now be rejected.
     """
     config = copy.deepcopy(sample_strategy_dict)
-    config["strategy"]["parameters"]["short_window"] = 10  # AlphaLab-internal name, never valid here
+    config["strategy"]["parameters"][
+        "short_window"
+    ] = 10  # AlphaLab-internal name, never valid here
 
     with pytest.raises(ValidationError):
         StrategySchema(**config)

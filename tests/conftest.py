@@ -51,7 +51,7 @@ def mock_broker():
         long_market_value=50000.0,
         short_market_value=0.0,
         daytrade_count=0,
-        pattern_day_trader=False
+        pattern_day_trader=False,
     )
 
     # Mock positions (empty by default)
@@ -75,7 +75,7 @@ def mock_broker():
         filled_qty=10.0,
         filled_avg_price=150.0,
         submitted_at=datetime.now(),
-        filled_at=datetime.now()
+        filled_at=datetime.now(),
     )
 
     # Mock get_bars
@@ -86,7 +86,7 @@ def mock_broker():
             "high": 152.0,
             "low": 149.0,
             "close": 151.0,
-            "volume": 1000000
+            "volume": 1000000,
         }
     ]
 
@@ -106,7 +106,7 @@ def mock_account_state():
         "cash": 50000.0,
         "buying_power": 200000.0,
         "portfolio_value": 100000.0,
-        "positions": []
+        "positions": [],
     }
 
 
@@ -123,14 +123,16 @@ def sample_bars():
 
     for i in range(50):
         price = base_price + (i * 0.5)
-        data.append({
-            "timestamp": datetime.now(),
-            "open": price,
-            "high": price + 1.0,
-            "low": price - 1.0,
-            "close": price + 0.5,
-            "volume": 1000000
-        })
+        data.append(
+            {
+                "timestamp": datetime.now(),
+                "open": price,
+                "high": price + 1.0,
+                "low": price - 1.0,
+                "close": price + 0.5,
+                "volume": 1000000,
+            }
+        )
 
     return pd.DataFrame(data)
 
@@ -151,7 +153,7 @@ def sample_position():
         current_price=155.0,
         unrealized_pl=50.0,
         unrealized_plpc=3.33,
-        market_value=1550.0
+        market_value=1550.0,
     )
 
 
@@ -192,16 +194,20 @@ def mock_market_data():
     base_price = 100.0
     for i in range(200):
         price = base_price + (i * 0.5)
-        data.append({
-            "open": price,
-            "high": price + 1.0,
-            "low": price - 1.0,
-            "close": price + 0.5,
-            "volume": 1000000
-        })
+        data.append(
+            {
+                "open": price,
+                "high": price + 1.0,
+                "low": price - 1.0,
+                "close": price + 0.5,
+                "volume": 1000000,
+            }
+        )
 
     df = pd.DataFrame(data)
-    df.index = pd.date_range(start="2024-01-01", periods=200, freq="D", tz="America/New_York")
+    df.index = pd.date_range(
+        start="2024-01-01", periods=200, freq="D", tz="America/New_York"
+    )
 
     fetcher.get_latest_bars.return_value = df
     fetcher.get_current_price.return_value = 150.0
@@ -227,16 +233,20 @@ def ma_crossover_bars():
             # Fast crosses above slow
             price = 100.0 + ((i - 30) * 0.5)
 
-        data.append({
-            "open": price,
-            "high": price + 0.5,
-            "low": price - 0.5,
-            "close": price,
-            "volume": 1000000
-        })
+        data.append(
+            {
+                "open": price,
+                "high": price + 0.5,
+                "low": price - 0.5,
+                "close": price,
+                "volume": 1000000,
+            }
+        )
 
     df = pd.DataFrame(data)
-    df.index = pd.date_range(start="2024-01-01", periods=50, freq="D", tz="America/New_York")
+    df.index = pd.date_range(
+        start="2024-01-01", periods=50, freq="D", tz="America/New_York"
+    )
     return df
 
 
@@ -252,16 +262,20 @@ def rsi_oversold_bars():
     # Create declining prices to push RSI below 30
     for i in range(50):
         price = 100.0 - (i * 1.0)  # Strong downtrend
-        data.append({
-            "open": price + 0.5,
-            "high": price + 1.0,
-            "low": price - 0.5,
-            "close": price,
-            "volume": 1000000
-        })
+        data.append(
+            {
+                "open": price + 0.5,
+                "high": price + 1.0,
+                "low": price - 0.5,
+                "close": price,
+                "volume": 1000000,
+            }
+        )
 
     df = pd.DataFrame(data)
-    df.index = pd.date_range(start="2024-01-01", periods=50, freq="D", tz="America/New_York")
+    df.index = pd.date_range(
+        start="2024-01-01", periods=50, freq="D", tz="America/New_York"
+    )
     return df
 
 
@@ -277,16 +291,20 @@ def rsi_overbought_bars():
     # Create rising prices to push RSI above 70
     for i in range(50):
         price = 100.0 + (i * 1.0)  # Strong uptrend
-        data.append({
-            "open": price - 0.5,
-            "high": price + 0.5,
-            "low": price - 1.0,
-            "close": price,
-            "volume": 1000000
-        })
+        data.append(
+            {
+                "open": price - 0.5,
+                "high": price + 0.5,
+                "low": price - 1.0,
+                "close": price,
+                "volume": 1000000,
+            }
+        )
 
     df = pd.DataFrame(data)
-    df.index = pd.date_range(start="2024-01-01", periods=50, freq="D", tz="America/New_York")
+    df.index = pd.date_range(
+        start="2024-01-01", periods=50, freq="D", tz="America/New_York"
+    )
     return df
 
 
@@ -309,16 +327,20 @@ def momentum_breakout_bars():
             price = 105.0 + (i - 40) * 0.5
             volume = 2000000  # Volume surge
 
-        data.append({
-            "open": price - 0.2,
-            "high": price + 0.5,
-            "low": price - 0.5,
-            "close": price,
-            "volume": volume
-        })
+        data.append(
+            {
+                "open": price - 0.2,
+                "high": price + 0.5,
+                "low": price - 0.5,
+                "close": price,
+                "volume": volume,
+            }
+        )
 
     df = pd.DataFrame(data)
-    df.index = pd.date_range(start="2024-01-01", periods=50, freq="D", tz="America/New_York")
+    df.index = pd.date_range(
+        start="2024-01-01", periods=50, freq="D", tz="America/New_York"
+    )
     return df
 
 
@@ -334,11 +356,8 @@ def sample_strategy_dict():
         "schema_version": "1.0",
         "strategy": {
             "name": "ma_crossover",
-            "parameters": {
-                "fast_period": 10,
-                "slow_period": 20
-            },
-            "description": "Test strategy"
+            "parameters": {"fast_period": 10, "slow_period": 20},
+            "description": "Test strategy",
         },
         "ticker": "AAPL",
         "timeframe": "1Day",
@@ -351,28 +370,25 @@ def sample_strategy_dict():
             "portfolio_max_positions": 10,
             "trailing_stop_enabled": False,
             "trailing_stop_pct": 3.0,
-            "commission_per_trade": 0.0
+            "commission_per_trade": 0.0,
         },
         "execution": {
             "order_type": "market",
             "limit_offset_pct": 0.1,
-            "cooldown_bars": 1
+            "cooldown_bars": 1,
         },
         "safety_limits": {
             "max_trades_per_day": 20,
             "max_api_calls_per_hour": 500,
             "signal_generation_timeout_seconds": 5.0,
-            "broker_degraded_mode_threshold_failures": 3
+            "broker_degraded_mode_threshold_failures": 3,
         },
         "metadata": {
             "exported_from": "AlphaLab",
             "exported_at": "2024-01-01T00:00:00Z",
             "alphalab_version": "0.1.0",
             "backtest_id": "test_123",
-            "backtest_period": {
-                "start": "2020-01-01",
-                "end": "2023-12-31"
-            },
+            "backtest_period": {"start": "2020-01-01", "end": "2023-12-31"},
             "performance": {
                 "sharpe_ratio": 1.5,
                 "sortino_ratio": 2.0,
@@ -381,9 +397,9 @@ def sample_strategy_dict():
                 "win_rate_pct": 55.0,
                 "profit_factor": 1.8,
                 "total_trades": 50,
-                "calmar_ratio": 2.5
-            }
-        }
+                "calmar_ratio": 2.5,
+            },
+        },
     }
 
 
@@ -403,5 +419,5 @@ def sample_app_config_dict():
         "TELEGRAM_CHAT_ID": "123456789",
         "LOG_LEVEL": "INFO",
         "DRY_RUN": "false",
-        "TRADING_PAUSED": "false"
+        "TRADING_PAUSED": "false",
     }

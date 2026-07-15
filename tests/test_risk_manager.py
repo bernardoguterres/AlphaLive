@@ -22,17 +22,14 @@ def sample_risk_config():
         max_daily_loss_pct=3.0,
         max_open_positions=5,
         portfolio_max_positions=10,
-        trailing_stop_enabled=False
+        trailing_stop_enabled=False,
     )
 
 
 @pytest.fixture
 def sample_execution_config():
     """Sample execution configuration."""
-    return Execution(
-        order_type="market",
-        cooldown_bars=1
-    )
+    return Execution(order_type="market", cooldown_bars=1)
 
 
 @pytest.fixture
@@ -42,7 +39,7 @@ def risk_manager(sample_risk_config, sample_execution_config, sample_strategy_co
         risk_config=sample_risk_config,
         execution_config=sample_execution_config,
         strategy_name="test_strategy",
-        safety_limits=sample_strategy_config.safety_limits
+        safety_limits=sample_strategy_config.safety_limits,
     )
 
 
@@ -62,20 +59,14 @@ def test_calculate_position_size(risk_manager):
     # Max position value = 10000
     # At $150/share: 10000/150 = 66.666... -> 66.666 (floored to 3 dp)
     shares = risk_manager.calculate_position_size(
-        ticker="AAPL",
-        signal="BUY",
-        current_price=150.0,
-        account_equity=100000.0
+        ticker="AAPL", signal="BUY", current_price=150.0, account_equity=100000.0
     )
 
     assert shares == 66.666
 
     # Exact division stays exact
     shares = risk_manager.calculate_position_size(
-        ticker="AAPL",
-        signal="BUY",
-        current_price=200.0,
-        account_equity=100000.0
+        ticker="AAPL", signal="BUY", current_price=200.0, account_equity=100000.0
     )
 
     assert shares == 50.0
@@ -85,10 +76,7 @@ def test_calculate_position_size_fractional_small_account(risk_manager):
     """A $1,000 account with 10% sizing must be able to buy expensive tickers -
     integer sizing rounded $100/$600 to 0 shares and the strategy never traded."""
     shares = risk_manager.calculate_position_size(
-        ticker="SPY",
-        signal="BUY",
-        current_price=600.0,
-        account_equity=1000.0
+        ticker="SPY", signal="BUY", current_price=600.0, account_equity=1000.0
     )
 
     assert shares == 0.166  # floor(100/600 * 1000) / 1000
@@ -98,10 +86,7 @@ def test_calculate_position_size_fractional_small_account(risk_manager):
 def test_calculate_position_size_below_min_notional_returns_zero(risk_manager):
     # 10% of $8 equity = $0.80 -> below Alpaca's $1 fractional minimum
     shares = risk_manager.calculate_position_size(
-        ticker="SPY",
-        signal="BUY",
-        current_price=600.0,
-        account_equity=8.0
+        ticker="SPY", signal="BUY", current_price=600.0, account_equity=8.0
     )
 
     assert shares == 0
@@ -119,10 +104,7 @@ def test_calculate_position_size_limit_orders_whole_shares(
         safety_limits=sample_strategy_config.safety_limits,
     )
     shares = rm.calculate_position_size(
-        ticker="AAPL",
-        signal="BUY",
-        current_price=150.0,
-        account_equity=100000.0
+        ticker="AAPL", signal="BUY", current_price=150.0, account_equity=100000.0
     )
 
     assert shares == 66
@@ -132,19 +114,13 @@ def test_calculate_position_size_invalid_inputs(risk_manager):
     """Test position size calculation with invalid inputs."""
     # Invalid price
     shares = risk_manager.calculate_position_size(
-        ticker="AAPL",
-        signal="BUY",
-        current_price=0.0,
-        account_equity=100000.0
+        ticker="AAPL", signal="BUY", current_price=0.0, account_equity=100000.0
     )
     assert shares == 0
 
     # Invalid equity
     shares = risk_manager.calculate_position_size(
-        ticker="AAPL",
-        signal="BUY",
-        current_price=150.0,
-        account_equity=0.0
+        ticker="AAPL", signal="BUY", current_price=150.0, account_equity=0.0
     )
     assert shares == 0
 
@@ -215,13 +191,20 @@ def test_check_trailing_stop_disabled(risk_manager):
     assert risk_manager.check_trailing_stop(100.0, 110.0, 108.0, "long") is False
 
 
-def test_check_trailing_stop_long(sample_risk_config, sample_execution_config, sample_strategy_config):
+def test_check_trailing_stop_long(
+    sample_risk_config, sample_execution_config, sample_strategy_config
+):
     """Test trailing stop for long positions."""
     # Enable trailing stop
     sample_risk_config.trailing_stop_enabled = True
     sample_risk_config.trailing_stop_pct = 3.0  # 3% trailing stop
 
-    rm = RiskManager(sample_risk_config, sample_execution_config, "test", sample_strategy_config.safety_limits)
+    rm = RiskManager(
+        sample_risk_config,
+        sample_execution_config,
+        "test",
+        sample_strategy_config.safety_limits,
+    )
 
     # Entry: $100, High: $110, Trailing stop: $106.70 (110 * 0.97)
     # Should NOT trigger at $106.71
@@ -290,7 +273,7 @@ def test_can_trade_all_checks_pass(risk_manager):
         account_equity=100000.0,
         current_positions_count=2,
         total_portfolio_positions=5,
-        current_bar=100
+        current_bar=100,
     )
 
     assert can_trade is True
@@ -307,7 +290,7 @@ def test_can_trade_kill_switch(risk_manager, monkeypatch):
         signal="BUY",
         account_equity=100000.0,
         current_positions_count=2,
-        total_portfolio_positions=5
+        total_portfolio_positions=5,
     )
 
     assert can_trade is False
@@ -324,7 +307,7 @@ def test_can_trade_daily_loss_limit(risk_manager):
         signal="BUY",
         account_equity=100000.0,
         current_positions_count=2,
-        total_portfolio_positions=5
+        total_portfolio_positions=5,
     )
 
     assert can_trade is False
@@ -406,7 +389,7 @@ def test_can_trade_circuit_breaker(risk_manager):
         signal="BUY",
         account_equity=100000.0,
         current_positions_count=2,
-        total_portfolio_positions=5
+        total_portfolio_positions=5,
     )
 
     assert can_trade is False
@@ -420,7 +403,7 @@ def test_can_trade_max_positions_strategy(risk_manager):
         signal="BUY",
         account_equity=100000.0,
         current_positions_count=5,  # At limit
-        total_portfolio_positions=5
+        total_portfolio_positions=5,
     )
 
     assert can_trade is False
@@ -434,7 +417,7 @@ def test_can_trade_portfolio_max_positions(risk_manager):
         signal="BUY",
         account_equity=100000.0,
         current_positions_count=2,
-        total_portfolio_positions=10  # At portfolio limit
+        total_portfolio_positions=10,  # At portfolio limit
     )
 
     assert can_trade is False
@@ -523,24 +506,37 @@ def test_global_risk_manager_register_strategy(risk_manager):
 def test_global_check_daily_loss_no_loss():
     """Test global daily loss check with no losses."""
     from alphalive.strategy_schema import SafetyLimits
+
     grm = GlobalRiskManager()
 
     safety_limits = SafetyLimits()  # Use defaults
 
     # Create and register strategies
     rm1 = RiskManager(
-        Risk(stop_loss_pct=2.0, take_profit_pct=5.0, max_position_size_pct=10.0,
-             max_daily_loss_pct=3.0, max_open_positions=5, portfolio_max_positions=10),
+        Risk(
+            stop_loss_pct=2.0,
+            take_profit_pct=5.0,
+            max_position_size_pct=10.0,
+            max_daily_loss_pct=3.0,
+            max_open_positions=5,
+            portfolio_max_positions=10,
+        ),
         Execution(order_type="market", cooldown_bars=1),
         "strategy_1",
-        safety_limits
+        safety_limits,
     )
     rm2 = RiskManager(
-        Risk(stop_loss_pct=2.0, take_profit_pct=5.0, max_position_size_pct=10.0,
-             max_daily_loss_pct=3.0, max_open_positions=5, portfolio_max_positions=10),
+        Risk(
+            stop_loss_pct=2.0,
+            take_profit_pct=5.0,
+            max_position_size_pct=10.0,
+            max_daily_loss_pct=3.0,
+            max_open_positions=5,
+            portfolio_max_positions=10,
+        ),
         Execution(order_type="market", cooldown_bars=1),
         "strategy_2",
-        safety_limits
+        safety_limits,
     )
 
     grm.register_strategy("strategy_1", rm1)
@@ -556,24 +552,37 @@ def test_global_check_daily_loss_no_loss():
 def test_global_check_daily_loss_limit_exceeded():
     """Test global daily loss check with limit exceeded."""
     from alphalive.strategy_schema import SafetyLimits
+
     grm = GlobalRiskManager()
 
     safety_limits = SafetyLimits()  # Use defaults
 
     # Create and register strategies
     rm1 = RiskManager(
-        Risk(stop_loss_pct=2.0, take_profit_pct=5.0, max_position_size_pct=10.0,
-             max_daily_loss_pct=3.0, max_open_positions=5, portfolio_max_positions=10),
+        Risk(
+            stop_loss_pct=2.0,
+            take_profit_pct=5.0,
+            max_position_size_pct=10.0,
+            max_daily_loss_pct=3.0,
+            max_open_positions=5,
+            portfolio_max_positions=10,
+        ),
         Execution(order_type="market", cooldown_bars=1),
         "strategy_1",
-        safety_limits
+        safety_limits,
     )
     rm2 = RiskManager(
-        Risk(stop_loss_pct=2.0, take_profit_pct=5.0, max_position_size_pct=10.0,
-             max_daily_loss_pct=3.0, max_open_positions=5, portfolio_max_positions=10),
+        Risk(
+            stop_loss_pct=2.0,
+            take_profit_pct=5.0,
+            max_position_size_pct=10.0,
+            max_daily_loss_pct=3.0,
+            max_open_positions=5,
+            portfolio_max_positions=10,
+        ),
         Execution(order_type="market", cooldown_bars=1),
         "strategy_2",
-        safety_limits
+        safety_limits,
     )
 
     # Set losses
@@ -613,7 +622,7 @@ def test_can_trade_sell_bypasses_max_positions(risk_manager):
         ticker="AAPL",
         signal="SELL",
         account_equity=100000.0,
-        current_positions_count=5,   # at per-strategy limit
+        current_positions_count=5,  # at per-strategy limit
         total_portfolio_positions=10,  # at portfolio limit
     )
 

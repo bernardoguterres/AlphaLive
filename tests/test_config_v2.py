@@ -17,7 +17,7 @@ from alphalive.config import (
     load_strategy,
     load_strategies,
     load_env,
-    validate_all
+    validate_all,
 )
 from alphalive.execution.risk_manager import GlobalRiskManager, RiskManager
 from alphalive.broker.base_broker import Account
@@ -27,9 +27,7 @@ def test_broker_config_validation():
     """Test BrokerConfig validation."""
     # Valid config
     config = BrokerConfig(
-        api_key="test_key_123",
-        secret_key="test_secret_456",
-        paper=True
+        api_key="test_key_123", secret_key="test_secret_456", paper=True
     )
 
     assert config.api_key == "test_key_123"
@@ -39,9 +37,7 @@ def test_broker_config_validation():
 
     # Test live mode
     live_config = BrokerConfig(
-        api_key="test_key",
-        secret_key="test_secret",
-        paper=False
+        api_key="test_key", secret_key="test_secret", paper=False
     )
     assert live_config.base_url == "https://api.alpaca.markets"
 
@@ -49,9 +45,7 @@ def test_broker_config_validation():
 def test_broker_config_masking():
     """Test API key masking."""
     config = BrokerConfig(
-        api_key="test_key_12345",
-        secret_key="test_secret_67890",
-        paper=True
+        api_key="test_key_12345", secret_key="test_secret_67890", paper=True
     )
 
     assert config.mask_api_key() == "****2345"
@@ -61,10 +55,7 @@ def test_broker_config_masking():
 def test_telegram_config_auto_enable():
     """Test TelegramConfig auto-enablement."""
     # With both token and chat_id
-    config = TelegramConfig(
-        bot_token="123456:ABC-DEF",
-        chat_id="987654321"
-    )
+    config = TelegramConfig(bot_token="123456:ABC-DEF", chat_id="987654321")
     assert config.enabled is True
 
     # With only token
@@ -78,18 +69,11 @@ def test_telegram_config_auto_enable():
 
 def test_app_config_validation():
     """Test AppConfig validation."""
-    broker = BrokerConfig(
-        api_key="test_key",
-        secret_key="test_secret",
-        paper=True
-    )
+    broker = BrokerConfig(api_key="test_key", secret_key="test_secret", paper=True)
     telegram = TelegramConfig()
 
     config = AppConfig(
-        broker=broker,
-        telegram=telegram,
-        log_level="DEBUG",
-        dry_run=True
+        broker=broker, telegram=telegram, log_level="DEBUG", dry_run=True
     )
 
     assert config.log_level == "DEBUG"
@@ -206,7 +190,7 @@ def test_global_risk_manager_daily_loss(sample_strategy_config):
         execution_config=sample_strategy_config.execution,
         strategy_name="strategy1",
         safety_limits=SafetyLimits(),
-        notifier=None
+        notifier=None,
     )
     rm1.daily_pnl = -2000.0  # $2k loss
     grm.register_strategy("strategy1", rm1)
@@ -257,7 +241,7 @@ def test_global_risk_manager_halt_state(sample_strategy_config):
         execution_config=sample_strategy_config.execution,
         strategy_name="strategy1",
         safety_limits=SafetyLimits(),
-        notifier=None
+        notifier=None,
     )
     rm1.daily_pnl = -4000.0  # 4% loss on 100k
     grm.register_strategy("strategy1", rm1)

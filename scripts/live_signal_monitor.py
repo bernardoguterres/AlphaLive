@@ -56,7 +56,7 @@ def resolve_config_path(config_path: str) -> str:
 
     # Try relative to AlphaLive directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    alphalive_dir = os.path.join(script_dir, '..')
+    alphalive_dir = os.path.join(script_dir, "..")
     config_full_path = os.path.join(alphalive_dir, config_path)
 
     if os.path.exists(config_full_path):
@@ -85,11 +85,11 @@ class LiveSignalMonitor:
     def _load_config(self) -> Dict:
         """Load strategy configuration"""
         try:
-            with open(self.config_path, 'r') as f:
+            with open(self.config_path, "r") as f:
                 config = json.load(f)
 
             # Basic validation
-            required = ['strategy', 'ticker', 'timeframe']
+            required = ["strategy", "ticker", "timeframe"]
             missing = [k for k in required if k not in config]
             if missing:
                 raise ValueError(f"Config missing required fields: {missing}")
@@ -109,11 +109,11 @@ class LiveSignalMonitor:
             "1Hour": TimeFrame.Hour,
             "15Min": TimeFrame.Minute,
         }
-        return tf_map.get(self.config['timeframe'], TimeFrame.Day)
+        return tf_map.get(self.config["timeframe"], TimeFrame.Day)
 
     def fetch_current_data(self, bars: int = 100) -> pd.DataFrame:
         """Fetch recent market data with retry logic"""
-        ticker = self.config['ticker']
+        ticker = self.config["ticker"]
         timeframe = self._get_timeframe()
 
         # For 15Min, we need to adjust the number of bars
@@ -121,9 +121,7 @@ class LiveSignalMonitor:
             bars = bars * 15  # Get enough 1min bars to construct 15min bars
 
         request = StockBarsRequest(
-            symbol_or_symbols=ticker,
-            timeframe=timeframe,
-            limit=bars
+            symbol_or_symbols=ticker, timeframe=timeframe, limit=bars
         )
 
         # Retry logic
@@ -145,194 +143,202 @@ class LiveSignalMonitor:
             except Exception as e:
                 if attempt == max_retries - 1:
                     raise
-                wait_time = 2 ** attempt
-                print(f"API call failed, retrying in {wait_time}s... ({attempt+1}/{max_retries})")
+                wait_time = 2**attempt
+                print(
+                    f"API call failed, retrying in {wait_time}s... ({attempt+1}/{max_retries})"
+                )
                 time.sleep(wait_time)
 
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """Calculate indicators based on strategy using ta library"""
-        strategy_name = self.config['strategy']['name']
-        params = self.config['strategy']['parameters']
+        strategy_name = self.config["strategy"]["name"]
+        params = self.config["strategy"]["parameters"]
 
-        if strategy_name in ['rsi_mean_reversion', 'rsi_simple', 'trend_adaptive_rsi']:
-            rsi_period = params.get('rsi_period', 14)
-            rsi_indicator = RSIIndicator(close=df['close'], window=rsi_period)
-            df['rsi'] = rsi_indicator.rsi()
+        if strategy_name in ["rsi_mean_reversion", "rsi_simple", "trend_adaptive_rsi"]:
+            rsi_period = params.get("rsi_period", 14)
+            rsi_indicator = RSIIndicator(close=df["close"], window=rsi_period)
+            df["rsi"] = rsi_indicator.rsi()
 
-        if strategy_name == 'bollinger_rsi_combo' or 'bollinger' in strategy_name:
-            bb_period = params.get('bb_period', 20)
-            bb_std = params.get('bb_std', 2.0)
-            bb_indicator = BollingerBands(close=df['close'], window=bb_period, window_dev=bb_std)
-            df['bb_upper'] = bb_indicator.bollinger_hband()
-            df['bb_middle'] = bb_indicator.bollinger_mavg()
-            df['bb_lower'] = bb_indicator.bollinger_lband()
+        if strategy_name == "bollinger_rsi_combo" or "bollinger" in strategy_name:
+            bb_period = params.get("bb_period", 20)
+            bb_std = params.get("bb_std", 2.0)
+            bb_indicator = BollingerBands(
+                close=df["close"], window=bb_period, window_dev=bb_std
+            )
+            df["bb_upper"] = bb_indicator.bollinger_hband()
+            df["bb_middle"] = bb_indicator.bollinger_mavg()
+            df["bb_lower"] = bb_indicator.bollinger_lband()
 
-        if strategy_name == 'trend_adaptive_rsi':
-            trend_sma = params.get('trend_sma', 50)
-            sma_indicator = SMAIndicator(close=df['close'], window=trend_sma)
-            df['sma'] = sma_indicator.sma_indicator()
-            df['sma_slope'] = df['sma'].diff(params.get('trend_lookback', 5))
+        if strategy_name == "trend_adaptive_rsi":
+            trend_sma = params.get("trend_sma", 50)
+            sma_indicator = SMAIndicator(close=df["close"], window=trend_sma)
+            df["sma"] = sma_indicator.sma_indicator()
+            df["sma_slope"] = df["sma"].diff(params.get("trend_lookback", 5))
 
-        if 'ma_crossover' in strategy_name:
-            fast_period = params.get('fast_period', 10)
-            slow_period = params.get('slow_period', 30)
-            fast_sma = SMAIndicator(close=df['close'], window=fast_period)
-            slow_sma = SMAIndicator(close=df['close'], window=slow_period)
-            df['sma_fast'] = fast_sma.sma_indicator()
-            df['sma_slow'] = slow_sma.sma_indicator()
+        if "ma_crossover" in strategy_name:
+            fast_period = params.get("fast_period", 10)
+            slow_period = params.get("slow_period", 30)
+            fast_sma = SMAIndicator(close=df["close"], window=fast_period)
+            slow_sma = SMAIndicator(close=df["close"], window=slow_period)
+            df["sma_fast"] = fast_sma.sma_indicator()
+            df["sma_slow"] = slow_sma.sma_indicator()
 
         return df
 
     def get_signal_proximity(self, df: pd.DataFrame) -> Dict:
         """Calculate how close we are to generating a signal"""
-        strategy_name = self.config['strategy']['name']
-        params = self.config['strategy']['parameters']
+        strategy_name = self.config["strategy"]["name"]
+        params = self.config["strategy"]["parameters"]
 
         latest = df.iloc[-1]
         proximity = {
-            'timestamp': latest.get('timestamp', datetime.now()),
-            'price': latest['close'],
-            'strategy': strategy_name
+            "timestamp": latest.get("timestamp", datetime.now()),
+            "price": latest["close"],
+            "strategy": strategy_name,
         }
 
-        if strategy_name in ['rsi_mean_reversion', 'rsi_simple']:
-            oversold = params.get('oversold', 30)
-            overbought = params.get('overbought', 70)
-            rsi = latest['rsi']
+        if strategy_name in ["rsi_mean_reversion", "rsi_simple"]:
+            oversold = params.get("oversold", 30)
+            overbought = params.get("overbought", 70)
+            rsi = latest["rsi"]
 
-            proximity['rsi'] = rsi
-            proximity['oversold_threshold'] = oversold
-            proximity['overbought_threshold'] = overbought
-            proximity['distance_to_buy'] = rsi - oversold
-            proximity['distance_to_sell'] = overbought - rsi
+            proximity["rsi"] = rsi
+            proximity["oversold_threshold"] = oversold
+            proximity["overbought_threshold"] = overbought
+            proximity["distance_to_buy"] = rsi - oversold
+            proximity["distance_to_sell"] = overbought - rsi
 
             if rsi < oversold:
-                proximity['signal'] = 'BUY'
-                proximity['signal_strength'] = (oversold - rsi) / oversold * 100
+                proximity["signal"] = "BUY"
+                proximity["signal_strength"] = (oversold - rsi) / oversold * 100
             elif rsi > overbought:
-                proximity['signal'] = 'SELL'
-                proximity['signal_strength'] = (rsi - overbought) / (100 - overbought) * 100
+                proximity["signal"] = "SELL"
+                proximity["signal_strength"] = (
+                    (rsi - overbought) / (100 - overbought) * 100
+                )
             else:
-                proximity['signal'] = 'HOLD'
-                proximity['signal_strength'] = 0
+                proximity["signal"] = "HOLD"
+                proximity["signal_strength"] = 0
 
-        elif strategy_name == 'trend_adaptive_rsi':
-            rsi = latest['rsi']
-            sma_slope = latest['sma_slope']
+        elif strategy_name == "trend_adaptive_rsi":
+            rsi = latest["rsi"]
+            sma_slope = latest["sma_slope"]
 
             # Determine regime
             if sma_slope > 0:
-                regime = 'UPTREND'
-                buy_threshold = params.get('uptrend_buy', 45)
-                sell_threshold = params.get('uptrend_sell', 65)
+                regime = "UPTREND"
+                buy_threshold = params.get("uptrend_buy", 45)
+                sell_threshold = params.get("uptrend_sell", 65)
             elif sma_slope < 0:
-                regime = 'DOWNTREND'
-                buy_threshold = params.get('downtrend_buy', 35)
-                sell_threshold = params.get('downtrend_sell', 55)
+                regime = "DOWNTREND"
+                buy_threshold = params.get("downtrend_buy", 35)
+                sell_threshold = params.get("downtrend_sell", 55)
             else:
-                regime = 'RANGING'
-                buy_threshold = params.get('range_buy', 35)
-                sell_threshold = params.get('range_sell', 65)
+                regime = "RANGING"
+                buy_threshold = params.get("range_buy", 35)
+                sell_threshold = params.get("range_sell", 65)
 
-            proximity['rsi'] = rsi
-            proximity['sma_slope'] = sma_slope
-            proximity['regime'] = regime
-            proximity['buy_threshold'] = buy_threshold
-            proximity['sell_threshold'] = sell_threshold
-            proximity['distance_to_buy'] = rsi - buy_threshold
-            proximity['distance_to_sell'] = sell_threshold - rsi
+            proximity["rsi"] = rsi
+            proximity["sma_slope"] = sma_slope
+            proximity["regime"] = regime
+            proximity["buy_threshold"] = buy_threshold
+            proximity["sell_threshold"] = sell_threshold
+            proximity["distance_to_buy"] = rsi - buy_threshold
+            proximity["distance_to_sell"] = sell_threshold - rsi
 
             if rsi < buy_threshold:
-                proximity['signal'] = 'BUY'
-                proximity['signal_strength'] = (buy_threshold - rsi) / buy_threshold * 100
+                proximity["signal"] = "BUY"
+                proximity["signal_strength"] = (
+                    (buy_threshold - rsi) / buy_threshold * 100
+                )
             elif rsi > sell_threshold:
-                proximity['signal'] = 'SELL'
-                proximity['signal_strength'] = (rsi - sell_threshold) / (100 - sell_threshold) * 100
+                proximity["signal"] = "SELL"
+                proximity["signal_strength"] = (
+                    (rsi - sell_threshold) / (100 - sell_threshold) * 100
+                )
             else:
-                proximity['signal'] = 'HOLD'
-                proximity['signal_strength'] = 0
+                proximity["signal"] = "HOLD"
+                proximity["signal_strength"] = 0
 
-        elif strategy_name == 'bollinger_rsi_combo':
-            rsi = latest['rsi']
-            price = latest['close']
-            bb_lower = latest['bb_lower']
-            bb_upper = latest['bb_upper']
-            bb_middle = latest['bb_middle']
+        elif strategy_name == "bollinger_rsi_combo":
+            rsi = latest["rsi"]
+            price = latest["close"]
+            bb_lower = latest["bb_lower"]
+            bb_upper = latest["bb_upper"]
+            bb_middle = latest["bb_middle"]
 
-            rsi_buy = params.get('rsi_oversold', 45)
-            rsi_sell = params.get('rsi_overbought', 55)
+            rsi_buy = params.get("rsi_oversold", 45)
+            rsi_sell = params.get("rsi_overbought", 55)
 
-            proximity['rsi'] = rsi
-            proximity['price'] = price
-            proximity['bb_lower'] = bb_lower
-            proximity['bb_middle'] = bb_middle
-            proximity['bb_upper'] = bb_upper
-            proximity['distance_to_bb_lower'] = price - bb_lower
-            proximity['distance_to_bb_lower_pct'] = ((price / bb_lower) - 1) * 100
+            proximity["rsi"] = rsi
+            proximity["price"] = price
+            proximity["bb_lower"] = bb_lower
+            proximity["bb_middle"] = bb_middle
+            proximity["bb_upper"] = bb_upper
+            proximity["distance_to_bb_lower"] = price - bb_lower
+            proximity["distance_to_bb_lower_pct"] = ((price / bb_lower) - 1) * 100
 
             # Check both conditions
             at_bb_lower = price <= bb_lower
             rsi_oversold = rsi < rsi_buy
 
             if at_bb_lower and rsi_oversold:
-                proximity['signal'] = 'BUY'
-                proximity['signal_strength'] = 100
+                proximity["signal"] = "BUY"
+                proximity["signal_strength"] = 100
             elif price >= bb_middle or rsi > rsi_sell:
-                proximity['signal'] = 'SELL'
-                proximity['signal_strength'] = 50
+                proximity["signal"] = "SELL"
+                proximity["signal_strength"] = 50
             else:
-                proximity['signal'] = 'HOLD'
-                proximity['signal_strength'] = 0
+                proximity["signal"] = "HOLD"
+                proximity["signal_strength"] = 0
 
-            proximity['bb_lower_touch'] = at_bb_lower
-            proximity['rsi_oversold'] = rsi_oversold
+            proximity["bb_lower_touch"] = at_bb_lower
+            proximity["rsi_oversold"] = rsi_oversold
 
-        elif 'ma_crossover' in strategy_name:
-            sma_fast = latest['sma_fast']
-            sma_slow = latest['sma_slow']
+        elif "ma_crossover" in strategy_name:
+            sma_fast = latest["sma_fast"]
+            sma_slow = latest["sma_slow"]
 
-            proximity['sma_fast'] = sma_fast
-            proximity['sma_slow'] = sma_slow
-            proximity['distance'] = sma_fast - sma_slow
-            proximity['distance_pct'] = ((sma_fast / sma_slow) - 1) * 100
+            proximity["sma_fast"] = sma_fast
+            proximity["sma_slow"] = sma_slow
+            proximity["distance"] = sma_fast - sma_slow
+            proximity["distance_pct"] = ((sma_fast / sma_slow) - 1) * 100
 
             if sma_fast > sma_slow:
-                proximity['signal'] = 'BUY'
-                proximity['signal_strength'] = proximity['distance_pct'] * 10
+                proximity["signal"] = "BUY"
+                proximity["signal_strength"] = proximity["distance_pct"] * 10
             elif sma_fast < sma_slow:
-                proximity['signal'] = 'SELL'
-                proximity['signal_strength'] = abs(proximity['distance_pct']) * 10
+                proximity["signal"] = "SELL"
+                proximity["signal_strength"] = abs(proximity["distance_pct"]) * 10
             else:
-                proximity['signal'] = 'HOLD'
-                proximity['signal_strength'] = 0
+                proximity["signal"] = "HOLD"
+                proximity["signal_strength"] = 0
 
         return proximity
 
     def display_status(self, proximity: Dict):
         """Display current signal status with color"""
         print("\n" + "=" * 80)
-        print(f"LIVE SIGNAL MONITOR - {self.config['ticker']} @ {self.config['timeframe']}")
+        print(
+            f"LIVE SIGNAL MONITOR - {self.config['ticker']} @ {self.config['timeframe']}"
+        )
         print("=" * 80)
         print(f"Strategy: {proximity['strategy']}")
         print(f"Current Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"Price: ${proximity['price']:.2f}")
         print()
 
-        signal = proximity['signal']
-        signal_icon = {
-            'BUY': '',
-            'SELL': '',
-            'HOLD': ''
-        }.get(signal, '')
+        signal = proximity["signal"]
+        signal_icon = {"BUY": "", "SELL": "", "HOLD": ""}.get(signal, "")
 
         print(f"Signal: {signal_icon} {signal}")
         print(f"Strength: {proximity['signal_strength']:.1f}%")
         print()
 
         # Strategy-specific details
-        strategy_name = proximity['strategy']
+        strategy_name = proximity["strategy"]
 
-        if strategy_name in ['rsi_mean_reversion', 'rsi_simple']:
+        if strategy_name in ["rsi_mean_reversion", "rsi_simple"]:
             print("-" * 80)
             print("RSI ANALYSIS")
             print("-" * 80)
@@ -340,26 +346,36 @@ class LiveSignalMonitor:
             print(f"Oversold Threshold: {proximity['oversold_threshold']}")
             print(f"Overbought Threshold: {proximity['overbought_threshold']}")
             print(f"Distance to BUY signal: {proximity['distance_to_buy']:.2f} points")
-            print(f"Distance to SELL signal: {proximity['distance_to_sell']:.2f} points")
+            print(
+                f"Distance to SELL signal: {proximity['distance_to_sell']:.2f} points"
+            )
 
-            if proximity['distance_to_buy'] > 0:
-                print(f"\n Need RSI to drop {proximity['distance_to_buy']:.2f} points for BUY signal")
-            elif proximity['distance_to_sell'] > 0:
-                print(f"\n Need RSI to rise {proximity['distance_to_sell']:.2f} points for SELL signal")
+            if proximity["distance_to_buy"] > 0:
+                print(
+                    f"\n Need RSI to drop {proximity['distance_to_buy']:.2f} points for BUY signal"
+                )
+            elif proximity["distance_to_sell"] > 0:
+                print(
+                    f"\n Need RSI to rise {proximity['distance_to_sell']:.2f} points for SELL signal"
+                )
 
-        elif strategy_name == 'trend_adaptive_rsi':
+        elif strategy_name == "trend_adaptive_rsi":
             print("-" * 80)
             print("TREND ADAPTIVE RSI ANALYSIS")
             print("-" * 80)
             print(f"Market Regime: {proximity['regime']}")
             print(f"SMA Slope: {proximity['sma_slope']:.4f}")
             print(f"Current RSI: {proximity['rsi']:.2f}")
-            print(f"Buy Threshold ({proximity['regime']}): {proximity['buy_threshold']}")
-            print(f"Sell Threshold ({proximity['regime']}): {proximity['sell_threshold']}")
+            print(
+                f"Buy Threshold ({proximity['regime']}): {proximity['buy_threshold']}"
+            )
+            print(
+                f"Sell Threshold ({proximity['regime']}): {proximity['sell_threshold']}"
+            )
             print(f"Distance to BUY: {proximity['distance_to_buy']:.2f} points")
             print(f"Distance to SELL: {proximity['distance_to_sell']:.2f} points")
 
-        elif strategy_name == 'bollinger_rsi_combo':
+        elif strategy_name == "bollinger_rsi_combo":
             print("-" * 80)
             print("BOLLINGER + RSI COMBO ANALYSIS")
             print("-" * 80)
@@ -367,24 +383,30 @@ class LiveSignalMonitor:
             print(f"BB Lower: ${proximity['bb_lower']:.2f}")
             print(f"BB Middle: ${proximity['bb_middle']:.2f}")
             print(f"BB Upper: ${proximity['bb_upper']:.2f}")
-            print(f"Distance to BB Lower: ${proximity['distance_to_bb_lower']:.2f} ({proximity['distance_to_bb_lower_pct']:.2f}%)")
+            print(
+                f"Distance to BB Lower: ${proximity['distance_to_bb_lower']:.2f} ({proximity['distance_to_bb_lower_pct']:.2f}%)"
+            )
             print(f"Current RSI: {proximity['rsi']:.2f}")
             print()
             print(f"BB Lower Touch: {'YES' if proximity['bb_lower_touch'] else 'NO'}")
             print(f"RSI Oversold: {'YES' if proximity['rsi_oversold'] else 'NO'}")
 
-            if not proximity['bb_lower_touch']:
-                print(f"\n Need price to drop {proximity['distance_to_bb_lower_pct']:.2f}% to touch BB Lower")
+            if not proximity["bb_lower_touch"]:
+                print(
+                    f"\n Need price to drop {proximity['distance_to_bb_lower_pct']:.2f}% to touch BB Lower"
+                )
 
-        elif 'ma_crossover' in strategy_name:
+        elif "ma_crossover" in strategy_name:
             print("-" * 80)
             print("MA CROSSOVER ANALYSIS")
             print("-" * 80)
             print(f"Fast SMA: ${proximity['sma_fast']:.2f}")
             print(f"Slow SMA: ${proximity['sma_slow']:.2f}")
-            print(f"Distance: ${proximity['distance']:.2f} ({proximity['distance_pct']:.2f}%)")
+            print(
+                f"Distance: ${proximity['distance']:.2f} ({proximity['distance_pct']:.2f}%)"
+            )
 
-            if proximity['distance'] > 0:
+            if proximity["distance"] > 0:
                 print("\n Fast SMA above Slow SMA (Bullish)")
             else:
                 print("\n Fast SMA below Slow SMA (Bearish)")
@@ -399,18 +421,18 @@ class LiveSignalMonitor:
         try:
             while True:
                 try:
-                    print("Fetching market data...", end='', flush=True)
+                    print("Fetching market data...", end="", flush=True)
                     df = self.fetch_current_data()
                     print("")
 
-                    print("Calculating indicators...", end='', flush=True)
+                    print("Calculating indicators...", end="", flush=True)
                     df = self.calculate_indicators(df)
                     print("")
 
                     proximity = self.get_signal_proximity(df)
                     self.display_status(proximity)
 
-                    if proximity['signal'] != 'HOLD':
+                    if proximity["signal"] != "HOLD":
                         print(f"\n ALERT: {proximity['signal']} SIGNAL DETECTED!")
 
                     time.sleep(interval)
@@ -431,9 +453,16 @@ def main():
 
     parser = argparse.ArgumentParser(description="Monitor live signals")
     parser.add_argument("--config", required=True, help="Path to strategy config file")
-    parser.add_argument("--watch", action="store_true", help="Continuously watch for signals")
-    parser.add_argument("--interval", type=int, default=60, help="Check interval in seconds (for --watch mode)")
-    parser.add_argument('--version', action='version', version='AlphaLive Tools v1.0.0')
+    parser.add_argument(
+        "--watch", action="store_true", help="Continuously watch for signals"
+    )
+    parser.add_argument(
+        "--interval",
+        type=int,
+        default=60,
+        help="Check interval in seconds (for --watch mode)",
+    )
+    parser.add_argument("--version", action="version", version="AlphaLive Tools v1.0.0")
 
     args = parser.parse_args()
 
@@ -446,18 +475,18 @@ def main():
         if args.watch:
             monitor.watch(interval=args.interval)
         else:
-            print("Fetching market data...", end='', flush=True)
+            print("Fetching market data...", end="", flush=True)
             df = monitor.fetch_current_data()
             print("")
 
-            print("Calculating indicators...", end='', flush=True)
+            print("Calculating indicators...", end="", flush=True)
             df = monitor.calculate_indicators(df)
             print("")
 
             proximity = monitor.get_signal_proximity(df)
             monitor.display_status(proximity)
 
-            if proximity['signal'] != 'HOLD':
+            if proximity["signal"] != "HOLD":
                 print(f"\n {proximity['signal']} SIGNAL ACTIVE!")
 
     except Exception as e:

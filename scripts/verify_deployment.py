@@ -105,10 +105,14 @@ def check_strategy_configs():
                 print(f"WARNING: Wide stop loss ({strategy.risk.stop_loss_pct}%)")
 
             if strategy.risk.max_position_size_pct > 20:
-                print(f"WARNING: Large position size ({strategy.risk.max_position_size_pct}%)")
+                print(
+                    f"WARNING: Large position size ({strategy.risk.max_position_size_pct}%)"
+                )
 
             if strategy.safety_limits.max_trades_per_day > 50:
-                print(f"WARNING: High trade frequency ({strategy.safety_limits.max_trades_per_day}/day)")
+                print(
+                    f"WARNING: High trade frequency ({strategy.safety_limits.max_trades_per_day}/day)"
+                )
 
                 print(f"\n All {len(strategies)} strategies validated successfully")
 
@@ -172,11 +176,12 @@ def check_security():
     # Check no .env file in git
     try:
         import subprocess
+
         result = subprocess.run(
             ["git", "ls-files", ".env"],
             cwd=Path(__file__).parent.parent,
             capture_output=True,
-            text=True
+            text=True,
         )
         if result.stdout.strip():
             print(".env is tracked by git!")

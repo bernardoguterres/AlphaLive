@@ -60,7 +60,9 @@ class TestWebSocketAuthEnforced:
     def test_ws_accepts_connection_with_correct_credentials(self, client_with_password):
         headers = {"authorization": _basic_auth_header("correct-horse-battery-staple")}
         fake_payload = {"account": None, "positions": [], "orders": [], "risk": {}}
-        with patch.object(dashboard_server, "_build_payload", return_value=fake_payload):
+        with patch.object(
+            dashboard_server, "_build_payload", return_value=fake_payload
+        ):
             with client_with_password.websocket_connect("/ws", headers=headers) as ws:
                 data = ws.receive_json()
                 assert data == fake_payload
@@ -69,7 +71,9 @@ class TestWebSocketAuthEnforced:
         """DASHBOARD_PASSWORD unset = auth disabled entirely (documented
         no-op behavior) - must still work, this isn't a regression target."""
         fake_payload = {"account": None, "positions": [], "orders": [], "risk": {}}
-        with patch.object(dashboard_server, "_build_payload", return_value=fake_payload):
+        with patch.object(
+            dashboard_server, "_build_payload", return_value=fake_payload
+        ):
             with client_no_password.websocket_connect("/ws") as ws:
                 data = ws.receive_json()
                 assert data == fake_payload

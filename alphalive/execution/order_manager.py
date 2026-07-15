@@ -476,9 +476,7 @@ class OrderManager:
 
             # Non-API errors: network timeout, connection reset, etc.
             if is_last:
-                logger.error(
-                    f"All {max_retries} retry attempts exhausted for {ticker}"
-                )
+                logger.error(f"All {max_retries} retry attempts exhausted for {ticker}")
                 return RetryOutcome(RetryDecision.RETRY)
             wait_time = 2**attempt  # 2s, 4s, 8s
             return RetryOutcome(

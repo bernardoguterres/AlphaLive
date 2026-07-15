@@ -68,7 +68,7 @@ def migrate_schema(config: Dict[str, Any]) -> Dict[str, Any]:
                 "max_trades_per_day": 20,
                 "max_api_calls_per_hour": 500,
                 "signal_generation_timeout_seconds": 5.0,
-                "broker_degraded_mode_threshold_failures": 3
+                "broker_degraded_mode_threshold_failures": 3,
             }
         return config
 

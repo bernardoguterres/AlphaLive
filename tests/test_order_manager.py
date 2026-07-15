@@ -35,7 +35,7 @@ def mock_broker():
         filled_qty=66.0,
         filled_avg_price=150.0,
         submitted_at=datetime.now(ET),
-        filled_at=datetime.now(ET)
+        filled_at=datetime.now(ET),
     )
     broker.place_market_order = Mock(return_value=order)
     broker.place_limit_order = Mock(return_value=order)
@@ -63,7 +63,10 @@ def sample_config():
     """Create a sample strategy config."""
     return StrategySchema(
         schema_version="1.0",
-        strategy={"name": "ma_crossover", "parameters": {"fast_period": 10, "slow_period": 20}},
+        strategy={
+            "name": "ma_crossover",
+            "parameters": {"fast_period": 10, "slow_period": 20},
+        },
         ticker="AAPL",
         timeframe="1Day",
         risk={
@@ -72,13 +75,9 @@ def sample_config():
             "max_position_size_pct": 10.0,
             "max_daily_loss_pct": 3.0,
             "max_open_positions": 5,
-            "portfolio_max_positions": 10
+            "portfolio_max_positions": 10,
         },
-        execution={
-            "order_type": "market",
-            "limit_offset_pct": 0.1,
-            "cooldown_bars": 1
-        },
+        execution={"order_type": "market", "limit_offset_pct": 0.1, "cooldown_bars": 1},
         safety_limits={},
         metadata={
             "exported_from": "AlphaLab",
@@ -94,9 +93,9 @@ def sample_config():
                 "win_rate_pct": 55.0,
                 "profit_factor": 1.8,
                 "total_trades": 100,
-                "calmar_ratio": 2.5
-            }
-        }
+                "calmar_ratio": 2.5,
+            },
+        },
     )
 
 
@@ -108,7 +107,7 @@ def order_manager(mock_broker, mock_risk_manager, sample_config):
         risk_manager=mock_risk_manager,
         config=sample_config,
         notifier=None,
-        dry_run=False
+        dry_run=False,
     )
 
 
@@ -128,7 +127,7 @@ def test_execute_signal_success(order_manager, mock_risk_manager, mock_broker):
         "confidence": 0.8,
         "reason": "MA crossover",
         "indicators": {},
-        "warmup_complete": True
+        "warmup_complete": True,
     }
 
     result = order_manager.execute_signal(
@@ -138,7 +137,7 @@ def test_execute_signal_success(order_manager, mock_risk_manager, mock_broker):
         account_equity=100000.0,
         current_positions_count=2,
         total_portfolio_positions=5,
-        current_bar=100
+        current_bar=100,
     )
 
     assert result["status"] == "success"
@@ -172,7 +171,7 @@ def test_execute_signal_blocked_by_risk(order_manager, mock_risk_manager):
         current_price=150.0,
         account_equity=100000.0,
         current_positions_count=2,
-        total_portfolio_positions=5
+        total_portfolio_positions=5,
     )
 
     assert result["status"] == "blocked"
@@ -190,7 +189,7 @@ def test_execute_signal_hold(order_manager):
         current_price=150.0,
         account_equity=100000.0,
         current_positions_count=2,
-        total_portfolio_positions=5
+        total_portfolio_positions=5,
     )
 
     assert result["status"] == "blocked"
@@ -209,7 +208,7 @@ def test_execute_signal_zero_position_size(order_manager, mock_risk_manager):
         current_price=150.0,
         account_equity=100000.0,
         current_positions_count=2,
-        total_portfolio_positions=5
+        total_portfolio_positions=5,
     )
 
     assert result["status"] == "blocked"
@@ -227,7 +226,7 @@ def test_duplicate_order_prevention(order_manager, mock_risk_manager, mock_broke
         current_price=150.0,
         account_equity=100000.0,
         current_positions_count=2,
-        total_portfolio_positions=5
+        total_portfolio_positions=5,
     )
 
     assert result1["status"] == "success"
@@ -240,7 +239,7 @@ def test_duplicate_order_prevention(order_manager, mock_risk_manager, mock_broke
         current_price=150.0,
         account_equity=100000.0,
         current_positions_count=2,
-        total_portfolio_positions=5
+        total_portfolio_positions=5,
     )
 
     assert result2["status"] == "blocked"
@@ -303,9 +302,7 @@ def test_check_exits_stop_loss(order_manager, mock_risk_manager):
     """Test check_exits with stop loss."""
     mock_risk_manager.check_stop_loss = Mock(return_value=True)
 
-    positions = [
-        {"ticker": "AAPL", "avg_entry": 150.0, "side": "long"}
-    ]
+    positions = [{"ticker": "AAPL", "avg_entry": 150.0, "side": "long"}]
 
     current_prices = {"AAPL": 147.0}
 
@@ -321,9 +318,7 @@ def test_check_exits_take_profit(order_manager, mock_risk_manager):
     mock_risk_manager.check_stop_loss = Mock(return_value=False)
     mock_risk_manager.check_take_profit = Mock(return_value=True)
 
-    positions = [
-        {"ticker": "AAPL", "avg_entry": 150.0, "side": "long"}
-    ]
+    positions = [{"ticker": "AAPL", "avg_entry": 150.0, "side": "long"}]
 
     current_prices = {"AAPL": 157.5}
 
@@ -342,7 +337,12 @@ def test_check_exits_trailing_stop(order_manager, mock_risk_manager):
     mock_risk_manager.risk_config.trailing_stop_enabled = True
 
     positions = [
-        {"ticker": "AAPL", "avg_entry": 150.0, "side": "long", "highest_since_entry": 160.0}
+        {
+            "ticker": "AAPL",
+            "avg_entry": 150.0,
+            "side": "long",
+            "highest_since_entry": 160.0,
+        }
     ]
 
     current_prices = {"AAPL": 155.0}
@@ -356,9 +356,7 @@ def test_check_exits_trailing_stop(order_manager, mock_risk_manager):
 
 def test_check_exits_no_exits(order_manager, mock_risk_manager):
     """Test check_exits with no exit conditions."""
-    positions = [
-        {"ticker": "AAPL", "avg_entry": 150.0, "side": "long"}
-    ]
+    positions = [{"ticker": "AAPL", "avg_entry": 150.0, "side": "long"}]
 
     current_prices = {"AAPL": 152.0}
 
@@ -369,9 +367,7 @@ def test_check_exits_no_exits(order_manager, mock_risk_manager):
 
 def test_check_exits_missing_price(order_manager, mock_risk_manager):
     """Test check_exits with missing current price."""
-    positions = [
-        {"ticker": "AAPL", "avg_entry": 150.0, "side": "long"}
-    ]
+    positions = [{"ticker": "AAPL", "avg_entry": 150.0, "side": "long"}]
 
     current_prices = {}  # No price for AAPL
 
@@ -408,7 +404,10 @@ def test_dry_run_mode():
 
     config = StrategySchema(
         schema_version="1.0",
-        strategy={"name": "ma_crossover", "parameters": {"fast_period": 10, "slow_period": 20}},
+        strategy={
+            "name": "ma_crossover",
+            "parameters": {"fast_period": 10, "slow_period": 20},
+        },
         ticker="AAPL",
         timeframe="1Day",
         risk={
@@ -417,7 +416,7 @@ def test_dry_run_mode():
             "max_position_size_pct": 10.0,
             "max_daily_loss_pct": 3.0,
             "max_open_positions": 5,
-            "portfolio_max_positions": 10
+            "portfolio_max_positions": 10,
         },
         execution={"order_type": "market"},
         safety_limits={},
@@ -435,9 +434,9 @@ def test_dry_run_mode():
                 "win_rate_pct": 55.0,
                 "profit_factor": 1.8,
                 "total_trades": 100,
-                "calmar_ratio": 2.5
-            }
-        }
+                "calmar_ratio": 2.5,
+            },
+        },
     )
 
     om = OrderManager(mock_broker, mock_risk_manager, config, dry_run=True)
@@ -450,7 +449,7 @@ def test_dry_run_mode():
         current_price=150.0,
         account_equity=100000.0,
         current_positions_count=2,
-        total_portfolio_positions=5
+        total_portfolio_positions=5,
     )
 
     assert result["status"] == "success"
@@ -463,9 +462,7 @@ def test_dry_run_mode():
 def test_reset_daily(order_manager):
     """Test daily reset."""
     # Add some orders
-    order_manager.order_history = [
-        {"ticker": "AAPL", "side": "BUY", "order_id": "123"}
-    ]
+    order_manager.order_history = [{"ticker": "AAPL", "side": "BUY", "order_id": "123"}]
     order_manager.pending_orders = {"AAPL": "123"}
 
     # Reset
@@ -477,9 +474,7 @@ def test_reset_daily(order_manager):
 
 def test_get_order_history(order_manager):
     """Test get_order_history method."""
-    order_manager.order_history = [
-        {"ticker": "AAPL", "side": "BUY", "order_id": "123"}
-    ]
+    order_manager.order_history = [{"ticker": "AAPL", "side": "BUY", "order_id": "123"}]
 
     history = order_manager.get_order_history()
 
@@ -565,9 +560,7 @@ def test_execute_signal_sell_position_lookup_error_returns_error(
     mock_broker.place_market_order.assert_not_called()
 
 
-def test_execute_signal_order_record_has_filled_status(
-    order_manager, mock_broker
-):
+def test_execute_signal_order_record_has_filled_status(order_manager, mock_broker):
     """Order records must carry status='filled' - consumers (dashboard,
     daily stats) filter on it."""
     result = order_manager.execute_signal(
