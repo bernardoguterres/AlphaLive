@@ -24,7 +24,15 @@ class JsonFormatter(logging.Formatter):
     passed via logger.info("...", extra={"strategy": "rsi", "ticker": "SPY"}).
     """
 
-    EXTRA_FIELDS = ("strategy", "ticker", "signal", "confidence", "trade_action", "reason", "pnl")
+    EXTRA_FIELDS = (
+        "strategy",
+        "ticker",
+        "signal",
+        "confidence",
+        "trade_action",
+        "reason",
+        "pnl",
+    )
 
     def format(self, record: logging.LogRecord) -> str:
         entry: dict = {
@@ -78,7 +86,7 @@ def setup_logger(log_level: Optional[str] = None):
     else:
         formatter = logging.Formatter(
             fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"
+            datefmt="%Y-%m-%d %H:%M:%S",
         )
 
     # Always add stdout handler (for Railway)
@@ -99,7 +107,7 @@ def setup_logger(log_level: Optional[str] = None):
             when="midnight",
             interval=1,
             backupCount=30,
-            encoding="utf-8"
+            encoding="utf-8",
         )
         file_handler.setLevel(numeric_level)
         file_handler.setFormatter(formatter)

@@ -454,7 +454,9 @@ def test_engine_state_save_get_clear(temp_state_file):
     state = BotState(temp_state_file)
     assert state.get_engine_state("AAPL") is None
 
-    state.save_engine_state("AAPL", {"in_position": True, "entry_price": 150.0, "peak_price": 160.0})
+    state.save_engine_state(
+        "AAPL", {"in_position": True, "entry_price": 150.0, "peak_price": 160.0}
+    )
     saved = state.get_engine_state("AAPL")
     assert saved["in_position"] is True
     assert saved["peak_price"] == 160.0
@@ -465,7 +467,9 @@ def test_engine_state_save_get_clear(temp_state_file):
 
 def test_engine_state_survives_restart(temp_state_file):
     state = BotState(temp_state_file)
-    state.save_engine_state("MSFT", {"in_position": True, "entry_price": 400.0, "peak_price": 410.0})
+    state.save_engine_state(
+        "MSFT", {"in_position": True, "entry_price": 400.0, "peak_price": 410.0}
+    )
 
     reloaded = BotState(temp_state_file)
     assert reloaded.get_engine_state("MSFT")["entry_price"] == 400.0

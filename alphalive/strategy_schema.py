@@ -369,7 +369,9 @@ class Strategy(BaseModel):
     def validate_and_normalize_parameters(self) -> "Strategy":
         model_cls = _STRATEGY_PARAM_MODELS.get(self.name)
         if model_cls is None:
-            raise ValueError(f"No parameter schema registered for strategy '{self.name}'")
+            raise ValueError(
+                f"No parameter schema registered for strategy '{self.name}'"
+            )
         validated = model_cls.model_validate(self.parameters)
         self.parameters = validated.model_dump()
         return self

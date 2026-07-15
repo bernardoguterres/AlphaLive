@@ -19,18 +19,24 @@ STRATEGIES = {
     "rsi_mean_reversion": {
         "name": "rsi_mean_reversion",
         "parameters": {"period": 14, "oversold": 30, "overbought": 70},
-        "description": "RSI mean reversion"
+        "description": "RSI mean reversion",
     },
     "ma_crossover": {
         "name": "ma_crossover",
         "parameters": {"fast_period": 10, "slow_period": 20},
-        "description": "MA crossover"
+        "description": "MA crossover",
     },
     "vwap_reversion": {
         "name": "vwap_reversion",
-        "parameters": {"deviation_threshold": 2.0, "rsi_period": 14, "oversold": 30, "overbought": 70, "vwap_std_period": 20},
-        "description": "VWAP reversion"
-    }
+        "parameters": {
+            "deviation_threshold": 2.0,
+            "rsi_period": 14,
+            "oversold": 30,
+            "overbought": 70,
+            "vwap_std_period": 20,
+        },
+        "description": "VWAP reversion",
+    },
 }
 
 # All 6 stocks
@@ -39,7 +45,7 @@ STOCKS = ["AAPL", "MSFT", "GOOGL", "AMZN", "SPY", "QQQ"]
 # Test periods
 PERIODS = {
     "pre_covid": {"start": "2015-01-01", "end": "2019-12-31", "name": "Pre-COVID"},
-    "post_covid": {"start": "2022-01-01", "end": "2024-12-31", "name": "Post-COVID"}
+    "post_covid": {"start": "2022-01-01", "end": "2024-12-31", "name": "Post-COVID"},
 }
 
 BASE_CONFIG = {
@@ -56,18 +62,14 @@ BASE_CONFIG = {
         "portfolio_max_positions": 10,
         "trailing_stop_enabled": False,
         "trailing_stop_pct": 3.0,
-        "commission_per_trade": 0.0
+        "commission_per_trade": 0.0,
     },
-    "execution": {
-        "order_type": "market",
-        "limit_offset_pct": 0.1,
-        "cooldown_bars": 1
-    },
+    "execution": {"order_type": "market", "limit_offset_pct": 0.1, "cooldown_bars": 1},
     "safety_limits": {
         "max_trades_per_day": 20,
         "max_api_calls_per_hour": 500,
         "signal_generation_timeout_seconds": 5.0,
-        "broker_degraded_mode_threshold_failures": 3
+        "broker_degraded_mode_threshold_failures": 3,
     },
     "metadata": {
         "exported_from": "AlphaLab",
@@ -83,9 +85,9 @@ BASE_CONFIG = {
             "win_rate_pct": 0.0,
             "profit_factor": 0.0,
             "total_trades": 0,
-            "calmar_ratio": 0.0
-        }
-    }
+            "calmar_ratio": 0.0,
+        },
+    },
 }
 
 
@@ -101,7 +103,7 @@ def create_config(strategy_name, strategy_data, ticker):
     config_path = f"configs/temp_{strategy_name}_{ticker}.json"
     Path("configs").mkdir(exist_ok=True)
 
-    with open(config_path, 'w') as f:
+    with open(config_path, "w") as f:
         json.dump(config, f, indent=2)
 
     return config_path
@@ -112,12 +114,16 @@ def run_test(strategy_name, ticker, period_name, period_data):
     config_path = create_config(strategy_name, strategy_data, ticker)
 
     cmd = [
-        sys.executable, "run.py",
-        "--config", config_path,
+        sys.executable,
+        "run.py",
+        "--config",
+        config_path,
         "--replay-mode",
-        "--replay-start", period_data["start"],
-        "--replay-end", period_data["end"],
-        "--dry-run"
+        "--replay-start",
+        period_data["start"],
+        "--replay-end",
+        period_data["end"],
+        "--dry-run",
     ]
 
     try:
@@ -128,7 +134,7 @@ def run_test(strategy_name, ticker, period_name, period_data):
         win_rate = 0.0
         total_pnl = 0.0
 
-        for line in output.split('\n'):
+        for line in output.split("\n"):
             if "Total Trades:" in line:
                 trades = int(line.split(":")[-1].strip())
             elif "Win Rate:" in line:
@@ -138,7 +144,9 @@ def run_test(strategy_name, ticker, period_name, period_data):
                 total_pnl = float(pnl_str)
 
                 status = "" if total_pnl > 0 else ""
-        print(f"{status} {ticker}: {trades:2} trades | {win_rate:5.1f}% win | ${total_pnl:>10,.2f}")
+        print(
+            f"{status} {ticker}: {trades:2} trades | {win_rate:5.1f}% win | ${total_pnl:>10,.2f}"
+        )
 
         return {
             "strategy": strategy_name,
@@ -147,7 +155,7 @@ def run_test(strategy_name, ticker, period_name, period_data):
             "trades": trades,
             "win_rate": win_rate,
             "total_pnl": total_pnl,
-            "success": result.returncode == 0
+            "success": result.returncode == 0,
         }
     except Exception as e:
         print(f"{ticker}: Error - {e}")
@@ -158,7 +166,7 @@ def run_test(strategy_name, ticker, period_name, period_data):
             "trades": 0,
             "win_rate": 0.0,
             "total_pnl": 0.0,
-            "success": False
+            "success": False,
         }
     finally:
         if os.path.exists(config_path):
@@ -166,14 +174,14 @@ def run_test(strategy_name, ticker, period_name, period_data):
 
 
 def main():
-    print("="*80)
+    print("=" * 80)
     print("FULL 6-STOCK AUDIT (30% Position Sizing)")
-    print("="*80)
+    print("=" * 80)
     print(f"Strategies: {len(STRATEGIES)} (profitable only)")
     print(f"Stocks: {len(STOCKS)} (all)")
     print(f"Periods: {len(PERIODS)} (pre/post COVID)")
     print(f"Total tests: {len(STRATEGIES) * len(STOCKS) * len(PERIODS)}")
-    print("="*80)
+    print("=" * 80)
 
     if not os.environ.get("ALPACA_API_KEY"):
         print("\n Error: ALPACA_API_KEY not set")
@@ -192,18 +200,25 @@ def main():
         print(f"{'='*80}")
 
         for period_name, period_data in PERIODS.items():
-            print(f"\n{period_data['name']} (2015-2019):" if period_name == "pre_covid" else f"\n{period_data['name']} (2022-2024):")
+            print(
+                f"\n{period_data['name']} (2015-2019):"
+                if period_name == "pre_covid"
+                else f"\n{period_data['name']} (2022-2024):"
+            )
 
             for ticker in STOCKS:
                 current_test += 1
-                print(f"[{current_test:2}/{total_tests}] {strategy_name:20} | {ticker:5} | ", end="")
+                print(
+                    f"[{current_test:2}/{total_tests}] {strategy_name:20} | {ticker:5} | ",
+                    end="",
+                )
                 result = run_test(strategy_name, ticker, period_name, period_data)
                 all_results.append(result)
 
     # Generate summary
-    print("\n\n" + "="*80)
+    print("\n\n" + "=" * 80)
     print("FINAL RESULTS SUMMARY")
-    print("="*80)
+    print("=" * 80)
 
     grand_total = 0
     for strategy_name in STRATEGIES.keys():
@@ -231,14 +246,16 @@ def main():
     # Per-stock breakdown
     print(f"\n{'='*80}")
     print("PER-STOCK PERFORMANCE (All 3 strategies combined)")
-    print("="*80)
+    print("=" * 80)
 
     for ticker in STOCKS:
         ticker_results = [r for r in all_results if r["ticker"] == ticker]
         ticker_total = sum(r["total_pnl"] for r in ticker_results)
         ticker_trades = sum(r["trades"] for r in ticker_results)
         status = "" if ticker_total > 0 else ""
-        print(f"{status} {ticker:5} | {ticker_trades:3} trades | ${ticker_total:>12,.2f}")
+        print(
+            f"{status} {ticker:5} | {ticker_trades:3} trades | ${ticker_total:>12,.2f}"
+        )
 
     print(f"\n{'='*80}")
     print(f"Completed at {datetime.now().strftime('%H:%M:%S')}")
@@ -246,14 +263,18 @@ def main():
 
     # Save detailed results
     with open("6_STOCK_AUDIT_RESULTS.json", "w") as f:
-        json.dump({
-            "test_date": datetime.now().isoformat(),
-            "position_size": "30%",
-            "capital": 100000,
-            "grand_total": grand_total,
-            "annual_roi": (grand_total / 100000 / 8 * 100),
-            "results": all_results
-        }, f, indent=2)
+        json.dump(
+            {
+                "test_date": datetime.now().isoformat(),
+                "position_size": "30%",
+                "capital": 100000,
+                "grand_total": grand_total,
+                "annual_roi": (grand_total / 100000 / 8 * 100),
+                "results": all_results,
+            },
+            f,
+            indent=2,
+        )
 
     print("\nDetailed results saved to: 6_STOCK_AUDIT_RESULTS.json")
 

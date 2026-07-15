@@ -31,12 +31,63 @@ from alphalive.strategy_schema import StrategySchema
 
 STRATEGIES = [
     {"name": "ma_crossover", "params": {"fast_period": 20, "slow_period": 50}},
-    {"name": "rsi_mean_reversion", "params": {"period": 14, "oversold": 30, "overbought": 70}},
-    {"name": "momentum_breakout", "params": {"lookback": 20, "surge_pct": 1.5, "atr_period": 14, "volume_ma_period": 20}},
-    {"name": "bollinger_breakout", "params": {"period": 20, "std_dev": 2.0, "confirmation_bars": 2, "volume_ma_period": 20}},
-    {"name": "vwap_reversion", "params": {"deviation_threshold": 2.0, "rsi_period": 14, "oversold": 30, "overbought": 70, "vwap_std_period": 20}},
-    {"name": "bollinger_rsi_combo", "params": {"bb_period": 20, "bb_std": 2.0, "rsi_period": 14, "rsi_oversold": 45, "rsi_overbought": 55, "exit_at_middle": True}},
-    {"name": "trend_adaptive_rsi", "params": {"rsi_period": 14, "trend_sma": 50, "trend_lookback": 5, "uptrend_buy": 45, "uptrend_sell": 65, "downtrend_buy": 35, "downtrend_sell": 55, "range_buy": 35, "range_sell": 65}},
+    {
+        "name": "rsi_mean_reversion",
+        "params": {"period": 14, "oversold": 30, "overbought": 70},
+    },
+    {
+        "name": "momentum_breakout",
+        "params": {
+            "lookback": 20,
+            "surge_pct": 1.5,
+            "atr_period": 14,
+            "volume_ma_period": 20,
+        },
+    },
+    {
+        "name": "bollinger_breakout",
+        "params": {
+            "period": 20,
+            "std_dev": 2.0,
+            "confirmation_bars": 2,
+            "volume_ma_period": 20,
+        },
+    },
+    {
+        "name": "vwap_reversion",
+        "params": {
+            "deviation_threshold": 2.0,
+            "rsi_period": 14,
+            "oversold": 30,
+            "overbought": 70,
+            "vwap_std_period": 20,
+        },
+    },
+    {
+        "name": "bollinger_rsi_combo",
+        "params": {
+            "bb_period": 20,
+            "bb_std": 2.0,
+            "rsi_period": 14,
+            "rsi_oversold": 45,
+            "rsi_overbought": 55,
+            "exit_at_middle": True,
+        },
+    },
+    {
+        "name": "trend_adaptive_rsi",
+        "params": {
+            "rsi_period": 14,
+            "trend_sma": 50,
+            "trend_lookback": 5,
+            "uptrend_buy": 45,
+            "uptrend_sell": 65,
+            "downtrend_buy": 35,
+            "downtrend_sell": 55,
+            "range_buy": 35,
+            "range_sell": 65,
+        },
+    },
 ]
 
 TICKERS = ["SPY", "MSFT"]
@@ -45,7 +96,9 @@ TICKERS = ["SPY", "MSFT"]
 def load_fixture(ticker: str) -> pd.DataFrame:
     path = PROJECT_ROOT / "tests" / "fixtures" / f"{ticker.lower()}_fixture_500bars.csv"
     if not path.exists():
-        pytest.skip(f"Fixture not found: {path}. Run tests/fixtures/generate_new_strategy_fixtures.py")
+        pytest.skip(
+            f"Fixture not found: {path}. Run tests/fixtures/generate_new_strategy_fixtures.py"
+        )
     df = pd.read_csv(path)
     df.columns = df.columns.str.lower()
     if "timestamp" in df.columns:
@@ -54,7 +107,12 @@ def load_fixture(ticker: str) -> pd.DataFrame:
 
 
 def load_expected_signals(ticker: str, strategy_name: str) -> pd.DataFrame:
-    path = PROJECT_ROOT / "tests" / "fixtures" / f"expected_signals_{ticker}_{strategy_name}.csv"
+    path = (
+        PROJECT_ROOT
+        / "tests"
+        / "fixtures"
+        / f"expected_signals_{ticker}_{strategy_name}.csv"
+    )
     if not path.exists():
         pytest.skip(f"Expected signals not found: {path}")
     return pd.read_csv(path)
@@ -66,8 +124,14 @@ def make_config(strategy_name: str, params: dict, ticker: str) -> StrategySchema
         strategy={"name": strategy_name, "parameters": params},
         ticker=ticker,
         timeframe="1Day",
-        risk={"stop_loss_pct": 2.0, "take_profit_pct": 5.0, "max_position_size_pct": 10.0,
-              "max_daily_loss_pct": 5.0, "max_open_positions": 3, "portfolio_max_positions": 10},
+        risk={
+            "stop_loss_pct": 2.0,
+            "take_profit_pct": 5.0,
+            "max_position_size_pct": 10.0,
+            "max_daily_loss_pct": 5.0,
+            "max_open_positions": 3,
+            "portfolio_max_positions": 10,
+        },
         execution={"order_type": "market"},
         safety_limits={},
         metadata={
@@ -76,9 +140,16 @@ def make_config(strategy_name: str, params: dict, ticker: str) -> StrategySchema
             "alphalab_version": "1.0.0",
             "backtest_id": f"parity_{strategy_name}_{ticker}",
             "backtest_period": {"start": "2022-01-01", "end": "2023-12-31"},
-            "performance": {"sharpe_ratio": 1.5, "sortino_ratio": 2.0, "total_return_pct": 25.0,
-                            "max_drawdown_pct": 10.0, "win_rate_pct": 55.0, "profit_factor": 1.8,
-                            "total_trades": 100, "calmar_ratio": 2.5},
+            "performance": {
+                "sharpe_ratio": 1.5,
+                "sortino_ratio": 2.0,
+                "total_return_pct": 25.0,
+                "max_drawdown_pct": 10.0,
+                "win_rate_pct": 55.0,
+                "profit_factor": 1.8,
+                "total_trades": 100,
+                "calmar_ratio": 2.5,
+            },
         },
     )
 
@@ -106,7 +177,11 @@ def run_parity_check(ticker: str, strategy_name: str, params: dict) -> dict:
         if actual != expected_signal:
             mismatches.append({"bar": i, "expected": expected_signal, "actual": actual})
 
-    return {"mismatches": len(mismatches), "signals": signal_count, "details": mismatches[:3]}
+    return {
+        "mismatches": len(mismatches),
+        "signals": signal_count,
+        "details": mismatches[:3],
+    }
 
 
 # Parametrize over all ticker × strategy combinations

@@ -44,7 +44,10 @@ def test_main_refuses_to_start_trailing_stop_strategy_without_persistent_storage
     monkeypatch.delenv("PERSISTENT_STORAGE", raising=False)
 
     with (
-        patch("alphalive.main.load_config_path", return_value=[trailing_stop_strategy_config]),
+        patch(
+            "alphalive.main.load_config_path",
+            return_value=[trailing_stop_strategy_config],
+        ),
         patch("alphalive.main.load_env", return_value=mock_app_config),
         patch("alphalive.main.validate_all", return_value=True),
         patch("alphalive.main.AlpacaBroker") as mock_broker_cls,
@@ -72,7 +75,10 @@ def test_main_starts_trailing_stop_strategy_with_persistent_storage(
     mock_broker.connect.return_value = False  # stop the test right after the gate
 
     with (
-        patch("alphalive.main.load_config_path", return_value=[trailing_stop_strategy_config]),
+        patch(
+            "alphalive.main.load_config_path",
+            return_value=[trailing_stop_strategy_config],
+        ),
         patch("alphalive.main.load_env", return_value=mock_app_config),
         patch("alphalive.main.validate_all", return_value=True),
         patch("alphalive.main.AlpacaBroker", return_value=mock_broker),

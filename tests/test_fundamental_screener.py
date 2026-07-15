@@ -78,7 +78,10 @@ def test_fetch_one_negative_pe_returns_none(screener):
 
 
 def test_fetch_one_yfinance_exception_returns_none(screener):
-    with patch("alphalive.screener.fundamental_screener.yf.Ticker", side_effect=RuntimeError("network down")):
+    with patch(
+        "alphalive.screener.fundamental_screener.yf.Ticker",
+        side_effect=RuntimeError("network down"),
+    ):
         assert screener._fetch_one("AAPL") is None
 
 
@@ -89,9 +92,15 @@ def test_fetch_one_yfinance_exception_returns_none(screener):
 
 def _result(ticker, ey_pe=20.0, roe=0.2, mcap_b=5.0, dte=0.5):
     return ScreenerResult(
-        ticker=ticker, company_name=ticker, sector="Tech",
-        earnings_yield=1.0 / ey_pe, return_on_equity=roe,
-        pe_ratio=ey_pe, market_cap_b=mcap_b, debt_to_equity=dte, combined_rank=0,
+        ticker=ticker,
+        company_name=ticker,
+        sector="Tech",
+        earnings_yield=1.0 / ey_pe,
+        return_on_equity=roe,
+        pe_ratio=ey_pe,
+        market_cap_b=mcap_b,
+        debt_to_equity=dte,
+        combined_rank=0,
     )
 
 
@@ -107,7 +116,7 @@ def test_filter_excludes_small_cap_and_high_leverage(screener):
 
 def test_rank_combines_earnings_yield_and_roe_ranks(screener):
     # A: best EY, worst ROE. B: worst EY, best ROE. C: middle on both.
-    a = _result("A", ey_pe=5.0, roe=0.05)   # EY rank 1, ROE rank 3 -> 4
+    a = _result("A", ey_pe=5.0, roe=0.05)  # EY rank 1, ROE rank 3 -> 4
     b = _result("B", ey_pe=50.0, roe=0.40)  # EY rank 3, ROE rank 1 -> 4
     c = _result("C", ey_pe=10.0, roe=0.20)  # EY rank 2, ROE rank 2 -> 4
 
@@ -146,8 +155,9 @@ def test_run_if_due_skips_when_not_first_of_month(screener):
 
 
 def test_run_if_due_runs_on_first_of_month(screener):
-    with patch("alphalive.screener.fundamental_screener.date") as m_date, \
-         patch("alphalive.screener.fundamental_screener.yf.Ticker") as m_ticker:
+    with patch("alphalive.screener.fundamental_screener.date") as m_date, patch(
+        "alphalive.screener.fundamental_screener.yf.Ticker"
+    ) as m_ticker:
         m_date.today.return_value = date(2024, 2, 1)
         m_ticker.return_value.info = _mock_yf_info()
         result = screener.run_if_due()

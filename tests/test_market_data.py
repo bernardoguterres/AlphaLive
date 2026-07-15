@@ -20,7 +20,9 @@ ET = ZoneInfo("America/New_York")
 @pytest.fixture
 def mock_alpaca_client():
     """Create a mock Alpaca client."""
-    with patch('alphalive.data.market_data.StockHistoricalDataClient') as mock_client_class:
+    with patch(
+        "alphalive.data.market_data.StockHistoricalDataClient"
+    ) as mock_client_class:
         mock_client = Mock()
         mock_client_class.return_value = mock_client
         yield mock_client
@@ -30,21 +32,24 @@ def mock_alpaca_client():
 def sample_bars_data():
     """Generate sample bar data for testing."""
     dates = pd.date_range(
-        start=datetime.now(ET) - timedelta(days=100),
-        end=datetime.now(ET),
-        freq='D'
+        start=datetime.now(ET) - timedelta(days=100), end=datetime.now(ET), freq="D"
     )
 
-    df = pd.DataFrame({
-        'open': [150.0 + i * 0.5 for i in range(len(dates))],
-        'high': [151.0 + i * 0.5 for i in range(len(dates))],
-        'low': [149.0 + i * 0.5 for i in range(len(dates))],
-        'close': [150.5 + i * 0.5 for i in range(len(dates))],
-        'volume': [1000000 + i * 1000 for i in range(len(dates))],
-    }, index=dates)
+    df = pd.DataFrame(
+        {
+            "open": [150.0 + i * 0.5 for i in range(len(dates))],
+            "high": [151.0 + i * 0.5 for i in range(len(dates))],
+            "low": [149.0 + i * 0.5 for i in range(len(dates))],
+            "close": [150.5 + i * 0.5 for i in range(len(dates))],
+            "volume": [1000000 + i * 1000 for i in range(len(dates))],
+        },
+        index=dates,
+    )
 
     # Create MultiIndex (symbol, timestamp) as Alpaca returns
-    df.index = pd.MultiIndex.from_product([['AAPL'], df.index], names=['symbol', 'timestamp'])
+    df.index = pd.MultiIndex.from_product(
+        [["AAPL"], df.index], names=["symbol", "timestamp"]
+    )
 
     return df
 
@@ -59,14 +64,16 @@ def market_data_fetcher(mock_alpaca_client):
 
 def test_market_data_fetcher_initialization():
     """Test MarketDataFetcher initialization."""
-    with patch('alphalive.data.market_data.StockHistoricalDataClient'):
+    with patch("alphalive.data.market_data.StockHistoricalDataClient"):
         fetcher = MarketDataFetcher(api_key="test_key", secret_key="test_secret")
 
         assert fetcher.cache == {}
         assert fetcher.cache_ttl_seconds == 300
 
 
-def test_get_latest_bars_success(market_data_fetcher, mock_alpaca_client, sample_bars_data):
+def test_get_latest_bars_success(
+    market_data_fetcher, mock_alpaca_client, sample_bars_data
+):
     """Test successful bar fetching."""
     # Mock the bars response
     mock_bars = Mock()
@@ -77,7 +84,7 @@ def test_get_latest_bars_success(market_data_fetcher, mock_alpaca_client, sample
 
     assert isinstance(result, pd.DataFrame)
     assert len(result) <= 200  # Should be truncated to lookback_bars
-    assert list(result.columns) == ['open', 'high', 'low', 'close', 'volume']
+    assert list(result.columns) == ["open", "high", "low", "close", "volume"]
     assert result.index.tz is not None  # Timezone-aware
 
     # Verify API was called
@@ -99,7 +106,7 @@ def test_get_latest_bars_from_cache(market_data_fetcher, sample_bars_data):
     market_data_fetcher.cache["AAPL"] = {
         "bars": df.tail(200),
         "timestamp": datetime.now(ET),
-        "timeframe": "1Day"
+        "timeframe": "1Day",
     }
 
     # Request should hit cache
@@ -110,7 +117,9 @@ def test_get_latest_bars_from_cache(market_data_fetcher, sample_bars_data):
     market_data_fetcher.client.get_stock_bars.assert_not_called()
 
 
-def test_get_latest_bars_cache_miss_timeframe_mismatch(market_data_fetcher, mock_alpaca_client, sample_bars_data):
+def test_get_latest_bars_cache_miss_timeframe_mismatch(
+    market_data_fetcher, mock_alpaca_client, sample_bars_data
+):
     """Test cache miss when timeframe doesn't match."""
     # Cache daily data
     df = sample_bars_data.copy()
@@ -121,7 +130,7 @@ def test_get_latest_bars_cache_miss_timeframe_mismatch(market_data_fetcher, mock
     market_data_fetcher.cache["AAPL"] = {
         "bars": df.tail(200),
         "timestamp": datetime.now(ET),
-        "timeframe": "1Day"
+        "timeframe": "1Day",
     }
 
     # Mock the bars response
@@ -136,7 +145,9 @@ def test_get_latest_bars_cache_miss_timeframe_mismatch(market_data_fetcher, mock
     mock_alpaca_client.get_stock_bars.assert_called_once()
 
 
-def test_get_latest_bars_cache_expired(market_data_fetcher, mock_alpaca_client, sample_bars_data):
+def test_get_latest_bars_cache_expired(
+    market_data_fetcher, mock_alpaca_client, sample_bars_data
+):
     """Test cache expiration after TTL."""
     # Cache data with old timestamp
     df = sample_bars_data.copy()
@@ -147,7 +158,7 @@ def test_get_latest_bars_cache_expired(market_data_fetcher, mock_alpaca_client, 
     market_data_fetcher.cache["AAPL"] = {
         "bars": df.tail(200),
         "timestamp": datetime.now(ET) - timedelta(seconds=400),  # Older than TTL (300s)
-        "timeframe": "1Day"
+        "timeframe": "1Day",
     }
 
     # Mock the bars response
@@ -177,20 +188,23 @@ def test_get_latest_bars_insufficient_bars(market_data_fetcher, mock_alpaca_clie
     """Test error when insufficient bars returned."""
     # Mock response with only 10 bars (less than minimum 20)
     dates = pd.date_range(
-        start=datetime.now(ET) - timedelta(days=10),
-        end=datetime.now(ET),
-        freq='D'
+        start=datetime.now(ET) - timedelta(days=10), end=datetime.now(ET), freq="D"
     )
 
-    df = pd.DataFrame({
-        'open': [150.0] * len(dates),
-        'high': [151.0] * len(dates),
-        'low': [149.0] * len(dates),
-        'close': [150.5] * len(dates),
-        'volume': [1000000] * len(dates),
-    }, index=dates)
+    df = pd.DataFrame(
+        {
+            "open": [150.0] * len(dates),
+            "high": [151.0] * len(dates),
+            "low": [149.0] * len(dates),
+            "close": [150.5] * len(dates),
+            "volume": [1000000] * len(dates),
+        },
+        index=dates,
+    )
 
-    df.index = pd.MultiIndex.from_product([['AAPL'], df.index], names=['symbol', 'timestamp'])
+    df.index = pd.MultiIndex.from_product(
+        [["AAPL"], df.index], names=["symbol", "timestamp"]
+    )
 
     mock_bars = Mock()
     mock_bars.df = df
@@ -205,20 +219,23 @@ def test_data_stale_error_15min(market_data_fetcher, mock_alpaca_client):
     # Create stale data (10 minutes old)
     stale_time = datetime.now(ET) - timedelta(minutes=10)
     dates = pd.date_range(
-        start=stale_time - timedelta(hours=10),
-        end=stale_time,
-        freq='15min'
+        start=stale_time - timedelta(hours=10), end=stale_time, freq="15min"
     )
 
-    df = pd.DataFrame({
-        'open': [150.0] * len(dates),
-        'high': [151.0] * len(dates),
-        'low': [149.0] * len(dates),
-        'close': [150.5] * len(dates),
-        'volume': [1000000] * len(dates),
-    }, index=dates)
+    df = pd.DataFrame(
+        {
+            "open": [150.0] * len(dates),
+            "high": [151.0] * len(dates),
+            "low": [149.0] * len(dates),
+            "close": [150.5] * len(dates),
+            "volume": [1000000] * len(dates),
+        },
+        index=dates,
+    )
 
-    df.index = pd.MultiIndex.from_product([['AAPL'], df.index], names=['symbol', 'timestamp'])
+    df.index = pd.MultiIndex.from_product(
+        [["AAPL"], df.index], names=["symbol", "timestamp"]
+    )
 
     mock_bars = Mock()
     mock_bars.df = df
@@ -233,20 +250,23 @@ def test_data_stale_error_1hour(market_data_fetcher, mock_alpaca_client):
     # Create stale data (20 minutes old)
     stale_time = datetime.now(ET) - timedelta(minutes=20)
     dates = pd.date_range(
-        start=stale_time - timedelta(hours=50),
-        end=stale_time,
-        freq='1h'
+        start=stale_time - timedelta(hours=50), end=stale_time, freq="1h"
     )
 
-    df = pd.DataFrame({
-        'open': [150.0] * len(dates),
-        'high': [151.0] * len(dates),
-        'low': [149.0] * len(dates),
-        'close': [150.5] * len(dates),
-        'volume': [1000000] * len(dates),
-    }, index=dates)
+    df = pd.DataFrame(
+        {
+            "open": [150.0] * len(dates),
+            "high": [151.0] * len(dates),
+            "low": [149.0] * len(dates),
+            "close": [150.5] * len(dates),
+            "volume": [1000000] * len(dates),
+        },
+        index=dates,
+    )
 
-    df.index = pd.MultiIndex.from_product([['AAPL'], df.index], names=['symbol', 'timestamp'])
+    df.index = pd.MultiIndex.from_product(
+        [["AAPL"], df.index], names=["symbol", "timestamp"]
+    )
 
     mock_bars = Mock()
     mock_bars.df = df
@@ -268,7 +288,9 @@ def test_get_current_price_success(market_data_fetcher, mock_alpaca_client):
     mock_alpaca_client.get_stock_latest_trade.assert_called_once()
 
 
-def test_get_current_price_fallback_to_cache(market_data_fetcher, mock_alpaca_client, sample_bars_data):
+def test_get_current_price_fallback_to_cache(
+    market_data_fetcher, mock_alpaca_client, sample_bars_data
+):
     """Test fallback to cached close price when API fails."""
     # Populate cache
     df = sample_bars_data.copy()
@@ -279,7 +301,7 @@ def test_get_current_price_fallback_to_cache(market_data_fetcher, mock_alpaca_cl
     market_data_fetcher.cache["AAPL"] = {
         "bars": df.tail(200),
         "timestamp": datetime.now(ET),
-        "timeframe": "1Day"
+        "timeframe": "1Day",
     }
 
     # Mock API failure
@@ -302,6 +324,7 @@ def test_get_current_price_no_fallback(market_data_fetcher, mock_alpaca_client):
 
 def test_fetch_with_retry_rate_limit(market_data_fetcher):
     """Test retry logic for 429 rate limit."""
+
     # Create a custom exception class that behaves like AlpacaAPIError
     class MockAlpacaError(Exception):
         def __init__(self, status_code, headers=None):
@@ -318,9 +341,9 @@ def test_fetch_with_retry_rate_limit(market_data_fetcher):
 
     mock_func.side_effect = [error1, error2, "success"]
 
-    with patch('time.sleep') as mock_sleep:
+    with patch("time.sleep") as mock_sleep:
         # Patch AlpacaAPIError to catch our mock exception
-        with patch('alphalive.data.market_data.AlpacaAPIError', MockAlpacaError):
+        with patch("alphalive.data.market_data.AlpacaAPIError", MockAlpacaError):
             result = market_data_fetcher._fetch_with_retry(mock_func, max_retries=3)
 
             assert result == "success"
@@ -333,6 +356,7 @@ def test_fetch_with_retry_rate_limit(market_data_fetcher):
 
 def test_fetch_with_retry_server_error(market_data_fetcher):
     """Test retry logic for 5xx server errors."""
+
     # Create a custom exception class that behaves like AlpacaAPIError
     class MockAlpacaError(Exception):
         def __init__(self, status_code):
@@ -347,9 +371,9 @@ def test_fetch_with_retry_server_error(market_data_fetcher):
 
     mock_func.side_effect = [error1, error2, "success"]
 
-    with patch('time.sleep') as mock_sleep:
+    with patch("time.sleep") as mock_sleep:
         # Patch AlpacaAPIError to catch our mock exception
-        with patch('alphalive.data.market_data.AlpacaAPIError', MockAlpacaError):
+        with patch("alphalive.data.market_data.AlpacaAPIError", MockAlpacaError):
             result = market_data_fetcher._fetch_with_retry(mock_func, max_retries=3)
 
             assert result == "success"
@@ -362,6 +386,7 @@ def test_fetch_with_retry_server_error(market_data_fetcher):
 
 def test_fetch_with_retry_non_retryable_error(market_data_fetcher):
     """Test that 4xx errors (except 429) are not retried."""
+
     # Create a custom exception class that behaves like AlpacaAPIError
     class MockAlpacaError(Exception):
         def __init__(self, status_code):
@@ -373,7 +398,7 @@ def test_fetch_with_retry_non_retryable_error(market_data_fetcher):
     error = MockAlpacaError(400)
     mock_func.side_effect = error
 
-    with patch('alphalive.data.market_data.AlpacaAPIError', MockAlpacaError):
+    with patch("alphalive.data.market_data.AlpacaAPIError", MockAlpacaError):
         # Should raise the error immediately
         with pytest.raises(MockAlpacaError):
             market_data_fetcher._fetch_with_retry(mock_func, max_retries=3)
@@ -384,6 +409,7 @@ def test_fetch_with_retry_non_retryable_error(market_data_fetcher):
 
 def test_fetch_with_retry_max_retries_exhausted(market_data_fetcher):
     """Test that retries are exhausted after max_retries."""
+
     # Create a custom exception class that behaves like AlpacaAPIError
     class MockAlpacaError(Exception):
         def __init__(self, status_code, headers=None):
@@ -401,8 +427,8 @@ def test_fetch_with_retry_max_retries_exhausted(market_data_fetcher):
 
     mock_func.side_effect = [error1, error2, error3]
 
-    with patch('time.sleep'):
-        with patch('alphalive.data.market_data.AlpacaAPIError', MockAlpacaError):
+    with patch("time.sleep"):
+        with patch("alphalive.data.market_data.AlpacaAPIError", MockAlpacaError):
             # Should raise after exhausting retries
             with pytest.raises(MockAlpacaError):
                 market_data_fetcher._fetch_with_retry(mock_func, max_retries=3)
@@ -415,7 +441,7 @@ def test_clear_cache_specific_ticker(market_data_fetcher):
     """Test clearing cache for specific ticker."""
     market_data_fetcher.cache = {
         "AAPL": {"bars": pd.DataFrame(), "timestamp": datetime.now(ET)},
-        "MSFT": {"bars": pd.DataFrame(), "timestamp": datetime.now(ET)}
+        "MSFT": {"bars": pd.DataFrame(), "timestamp": datetime.now(ET)},
     }
 
     market_data_fetcher.clear_cache("AAPL")
@@ -428,7 +454,7 @@ def test_clear_cache_all(market_data_fetcher):
     """Test clearing all cache."""
     market_data_fetcher.cache = {
         "AAPL": {"bars": pd.DataFrame(), "timestamp": datetime.now(ET)},
-        "MSFT": {"bars": pd.DataFrame(), "timestamp": datetime.now(ET)}
+        "MSFT": {"bars": pd.DataFrame(), "timestamp": datetime.now(ET)},
     }
 
     market_data_fetcher.clear_cache()

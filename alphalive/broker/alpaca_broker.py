@@ -705,9 +705,16 @@ class AlpacaBroker(BaseBroker):
 
         if isinstance(
             e,
-            (ConnectionError, TimeoutError, requests.exceptions.ConnectionError, requests.exceptions.Timeout),
+            (
+                ConnectionError,
+                TimeoutError,
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+            ),
         ):
-            return RetryOutcome(RetryDecision.RETRY, log_message=f"Connection error. Retrying: {e}")
+            return RetryOutcome(
+                RetryDecision.RETRY, log_message=f"Connection error. Retrying: {e}"
+            )
 
         # Unexpected errors - don't retry
         logger.error(f"Unexpected error: {e}", exc_info=True)

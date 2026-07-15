@@ -59,19 +59,47 @@ def test_should_run_signal_check_15min_not_enough_time_elapsed(mock_dt):
 
 
 def test_compute_daily_stats_pnl_from_equity_change():
-    stats = main_module._compute_daily_stats([], start_equity=100000.0, end_equity=101500.0)
+    stats = main_module._compute_daily_stats(
+        [], start_equity=100000.0, end_equity=101500.0
+    )
     assert stats["pnl"] == 1500.0
     assert stats["win_rate"] == 0.0  # No round trips
 
 
 def test_compute_daily_stats_win_rate_fifo_matching():
     orders = [
-        {"ticker": "AAPL", "side": "BUY", "qty": 10, "price": 100.0, "timestamp": "2024-01-02T09:35:00"},
-        {"ticker": "AAPL", "side": "SELL", "qty": 10, "price": 110.0, "timestamp": "2024-01-02T10:00:00"},
-        {"ticker": "AAPL", "side": "BUY", "qty": 5, "price": 120.0, "timestamp": "2024-01-02T11:00:00"},
-        {"ticker": "AAPL", "side": "SELL", "qty": 5, "price": 115.0, "timestamp": "2024-01-02T12:00:00"},
+        {
+            "ticker": "AAPL",
+            "side": "BUY",
+            "qty": 10,
+            "price": 100.0,
+            "timestamp": "2024-01-02T09:35:00",
+        },
+        {
+            "ticker": "AAPL",
+            "side": "SELL",
+            "qty": 10,
+            "price": 110.0,
+            "timestamp": "2024-01-02T10:00:00",
+        },
+        {
+            "ticker": "AAPL",
+            "side": "BUY",
+            "qty": 5,
+            "price": 120.0,
+            "timestamp": "2024-01-02T11:00:00",
+        },
+        {
+            "ticker": "AAPL",
+            "side": "SELL",
+            "qty": 5,
+            "price": 115.0,
+            "timestamp": "2024-01-02T12:00:00",
+        },
     ]
-    stats = main_module._compute_daily_stats(orders, start_equity=100000.0, end_equity=100050.0)
+    stats = main_module._compute_daily_stats(
+        orders, start_equity=100000.0, end_equity=100050.0
+    )
     # 1 win (110 > 100), 1 loss (115 < 120) => 50% win rate
     assert stats["win_rate"] == 50.0
     assert stats["pnl"] == 50.0
@@ -79,20 +107,54 @@ def test_compute_daily_stats_win_rate_fifo_matching():
 
 def test_compute_daily_stats_sell_without_matching_buy_ignored():
     orders = [
-        {"ticker": "AAPL", "side": "SELL", "qty": 10, "price": 110.0, "timestamp": "2024-01-02T10:00:00"},
+        {
+            "ticker": "AAPL",
+            "side": "SELL",
+            "qty": 10,
+            "price": 110.0,
+            "timestamp": "2024-01-02T10:00:00",
+        },
     ]
-    stats = main_module._compute_daily_stats(orders, start_equity=100000.0, end_equity=100000.0)
+    stats = main_module._compute_daily_stats(
+        orders, start_equity=100000.0, end_equity=100000.0
+    )
     assert stats["win_rate"] == 0.0
 
 
 def test_compute_daily_stats_multi_ticker_independent_queues():
     orders = [
-        {"ticker": "AAPL", "side": "BUY", "qty": 10, "price": 100.0, "timestamp": "2024-01-02T09:35:00"},
-        {"ticker": "MSFT", "side": "BUY", "qty": 10, "price": 200.0, "timestamp": "2024-01-02T09:36:00"},
-        {"ticker": "AAPL", "side": "SELL", "qty": 10, "price": 90.0, "timestamp": "2024-01-02T10:00:00"},
-        {"ticker": "MSFT", "side": "SELL", "qty": 10, "price": 210.0, "timestamp": "2024-01-02T10:01:00"},
+        {
+            "ticker": "AAPL",
+            "side": "BUY",
+            "qty": 10,
+            "price": 100.0,
+            "timestamp": "2024-01-02T09:35:00",
+        },
+        {
+            "ticker": "MSFT",
+            "side": "BUY",
+            "qty": 10,
+            "price": 200.0,
+            "timestamp": "2024-01-02T09:36:00",
+        },
+        {
+            "ticker": "AAPL",
+            "side": "SELL",
+            "qty": 10,
+            "price": 90.0,
+            "timestamp": "2024-01-02T10:00:00",
+        },
+        {
+            "ticker": "MSFT",
+            "side": "SELL",
+            "qty": 10,
+            "price": 210.0,
+            "timestamp": "2024-01-02T10:01:00",
+        },
     ]
-    stats = main_module._compute_daily_stats(orders, start_equity=100000.0, end_equity=100000.0)
+    stats = main_module._compute_daily_stats(
+        orders, start_equity=100000.0, end_equity=100000.0
+    )
     # AAPL loses (90<100), MSFT wins (210>200) -> 50%
     assert stats["win_rate"] == 50.0
 
@@ -104,15 +166,27 @@ def test_compute_daily_stats_multi_ticker_independent_queues():
 
 def test_send_eod_summary_aggregates_orders_and_notifies():
     order_manager_map = {
-        "AAPL": Mock(get_order_history=Mock(return_value=[
-            {"ticker": "AAPL", "side": "BUY", "qty": 10, "price": 100.0, "timestamp": "2024-01-02T09:35:00"},
-        ])),
+        "AAPL": Mock(
+            get_order_history=Mock(
+                return_value=[
+                    {
+                        "ticker": "AAPL",
+                        "side": "BUY",
+                        "qty": 10,
+                        "price": 100.0,
+                        "timestamp": "2024-01-02T09:35:00",
+                    },
+                ]
+            )
+        ),
     }
     broker = Mock()
     broker.get_account.return_value = Mock(equity=101000.0)
     notifier = Mock()
 
-    main_module._send_eod_summary(order_manager_map, broker, morning_equity=100000.0, notifier=notifier)
+    main_module._send_eod_summary(
+        order_manager_map, broker, morning_equity=100000.0, notifier=notifier
+    )
 
     notifier.send_daily_summary.assert_called_once()
     call_args = notifier.send_daily_summary.call_args[0][0]
@@ -218,7 +292,9 @@ def test_run_startup_warmup_generic_error_continues(sample_strategy_config):
     notifier.send_error_alert.assert_called_once()
 
 
-def test_run_startup_warmup_multi_strategy_sends_combined_message(sample_strategy_config):
+def test_run_startup_warmup_multi_strategy_sends_combined_message(
+    sample_strategy_config,
+):
     cfg2 = sample_strategy_config.model_copy(deep=True)
     cfg2.ticker = "MSFT"
 
@@ -255,7 +331,15 @@ def _make_ohlcv_df(n=5, base=100.0):
     rows = []
     for i in range(n):
         price = base + i
-        rows.append({"open": price, "high": price + 1, "low": price - 1, "close": price + 0.5, "volume": 1000})
+        rows.append(
+            {
+                "open": price,
+                "high": price + 1,
+                "low": price - 1,
+                "close": price + 0.5,
+                "volume": 1000,
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -266,8 +350,18 @@ def test_check_signal_for_strategy_1day_skips_outside_window(sample_strategy_con
     market_data = Mock()
 
     main_module._check_signal_for_strategy(
-        sample_strategy_config, now_et, morning_checks_done, last_signal_check_map,
-        market_data, {}, {}, None, Mock(), Mock(), main_module.GlobalRiskManager(), Mock(),
+        sample_strategy_config,
+        now_et,
+        morning_checks_done,
+        last_signal_check_map,
+        market_data,
+        {},
+        {},
+        None,
+        Mock(),
+        Mock(),
+        main_module.GlobalRiskManager(),
+        Mock(),
     )
 
     market_data.get_latest_bars.assert_not_called()
@@ -280,8 +374,18 @@ def test_check_signal_for_strategy_1day_skips_if_already_done(sample_strategy_co
     market_data = Mock()
 
     main_module._check_signal_for_strategy(
-        sample_strategy_config, now_et, morning_checks_done, {},
-        market_data, {}, {}, None, Mock(), Mock(), main_module.GlobalRiskManager(), Mock(),
+        sample_strategy_config,
+        now_et,
+        morning_checks_done,
+        {},
+        market_data,
+        {},
+        {},
+        None,
+        Mock(),
+        Mock(),
+        main_module.GlobalRiskManager(),
+        Mock(),
     )
 
     market_data.get_latest_bars.assert_not_called()
@@ -294,7 +398,9 @@ def test_check_signal_for_strategy_hold_signal_no_order(sample_strategy_config):
 
     signal_engine = Mock()
     signal_engine.generate_signal.return_value = {
-        "signal": "HOLD", "confidence": 0.3, "reason": "no edge",
+        "signal": "HOLD",
+        "confidence": 0.3,
+        "reason": "no edge",
     }
     signal_engine_map = {sample_strategy_config.ticker: signal_engine}
     order_manager = Mock()
@@ -302,9 +408,18 @@ def test_check_signal_for_strategy_hold_signal_no_order(sample_strategy_config):
     morning_checks_done = set()
 
     main_module._check_signal_for_strategy(
-        sample_strategy_config, now_et, morning_checks_done, {},
-        market_data, signal_engine_map, order_manager_map, None, Mock(), Mock(),
-        main_module.GlobalRiskManager(), Mock(),
+        sample_strategy_config,
+        now_et,
+        morning_checks_done,
+        {},
+        market_data,
+        signal_engine_map,
+        order_manager_map,
+        None,
+        Mock(),
+        Mock(),
+        main_module.GlobalRiskManager(),
+        Mock(),
     )
 
     order_manager.execute_signal.assert_not_called()
@@ -319,13 +434,18 @@ def test_check_signal_for_strategy_buy_signal_executes_order(sample_strategy_con
 
     signal_engine = Mock()
     signal_engine.generate_signal.return_value = {
-        "signal": "BUY", "confidence": 0.8, "reason": "ma cross",
+        "signal": "BUY",
+        "confidence": 0.8,
+        "reason": "ma cross",
     }
     signal_engine_map = {sample_strategy_config.ticker: signal_engine}
 
     order_manager = Mock()
     order_manager.execute_signal.return_value = {
-        "status": "success", "order_id": "o1", "filled_qty": 10, "filled_price": 150.0,
+        "status": "success",
+        "order_id": "o1",
+        "filled_qty": 10,
+        "filled_price": 150.0,
     }
     order_manager_map = {sample_strategy_config.ticker: order_manager}
 
@@ -337,9 +457,18 @@ def test_check_signal_for_strategy_buy_signal_executes_order(sample_strategy_con
     morning_checks_done = set()
 
     main_module._check_signal_for_strategy(
-        sample_strategy_config, now_et, morning_checks_done, {},
-        market_data, signal_engine_map, order_manager_map, None, broker, notifier,
-        main_module.GlobalRiskManager(), Mock(),
+        sample_strategy_config,
+        now_et,
+        morning_checks_done,
+        {},
+        market_data,
+        signal_engine_map,
+        order_manager_map,
+        None,
+        broker,
+        notifier,
+        main_module.GlobalRiskManager(),
+        Mock(),
     )
 
     order_manager.execute_signal.assert_called_once()
@@ -354,12 +483,17 @@ def test_check_signal_for_strategy_buy_signal_blocked(sample_strategy_config):
 
     signal_engine = Mock()
     signal_engine.generate_signal.return_value = {
-        "signal": "BUY", "confidence": 0.8, "reason": "ma cross",
+        "signal": "BUY",
+        "confidence": 0.8,
+        "reason": "ma cross",
     }
     signal_engine_map = {sample_strategy_config.ticker: signal_engine}
 
     order_manager = Mock()
-    order_manager.execute_signal.return_value = {"status": "blocked", "reason": "risk limit"}
+    order_manager.execute_signal.return_value = {
+        "status": "blocked",
+        "reason": "risk limit",
+    }
     order_manager_map = {sample_strategy_config.ticker: order_manager}
 
     broker = Mock()
@@ -368,9 +502,18 @@ def test_check_signal_for_strategy_buy_signal_blocked(sample_strategy_config):
     notifier = Mock()
 
     main_module._check_signal_for_strategy(
-        sample_strategy_config, now_et, set(), {},
-        market_data, signal_engine_map, order_manager_map, None, broker, notifier,
-        main_module.GlobalRiskManager(), Mock(),
+        sample_strategy_config,
+        now_et,
+        set(),
+        {},
+        market_data,
+        signal_engine_map,
+        order_manager_map,
+        None,
+        broker,
+        notifier,
+        main_module.GlobalRiskManager(),
+        Mock(),
     )
 
     notifier.send_trade_notification.assert_not_called()
@@ -384,12 +527,17 @@ def test_check_signal_for_strategy_buy_signal_error_status(sample_strategy_confi
 
     signal_engine = Mock()
     signal_engine.generate_signal.return_value = {
-        "signal": "BUY", "confidence": 0.8, "reason": "ma cross",
+        "signal": "BUY",
+        "confidence": 0.8,
+        "reason": "ma cross",
     }
     signal_engine_map = {sample_strategy_config.ticker: signal_engine}
 
     order_manager = Mock()
-    order_manager.execute_signal.return_value = {"status": "error", "reason": "broker down"}
+    order_manager.execute_signal.return_value = {
+        "status": "error",
+        "reason": "broker down",
+    }
     order_manager_map = {sample_strategy_config.ticker: order_manager}
 
     broker = Mock()
@@ -399,13 +547,24 @@ def test_check_signal_for_strategy_buy_signal_error_status(sample_strategy_confi
 
     # Should not raise
     main_module._check_signal_for_strategy(
-        sample_strategy_config, now_et, set(), {},
-        market_data, signal_engine_map, order_manager_map, None, broker, notifier,
-        main_module.GlobalRiskManager(), Mock(),
+        sample_strategy_config,
+        now_et,
+        set(),
+        {},
+        market_data,
+        signal_engine_map,
+        order_manager_map,
+        None,
+        broker,
+        notifier,
+        main_module.GlobalRiskManager(),
+        Mock(),
     )
 
 
-def test_check_signal_for_strategy_timeout_bounds_wall_clock_time(sample_strategy_config):
+def test_check_signal_for_strategy_timeout_bounds_wall_clock_time(
+    sample_strategy_config,
+):
     """Regression test for audit bug 2.7: the signal-generation timeout
     previously didn't bound wall-clock time at all, because the
     ThreadPoolExecutor was used as a `with ... as executor:` context
@@ -442,9 +601,18 @@ def test_check_signal_for_strategy_timeout_bounds_wall_clock_time(sample_strateg
 
     start = time_module.monotonic()
     main_module._check_signal_for_strategy(
-        sample_strategy_config, now_et, set(), {},
-        market_data, signal_engine_map, order_manager_map, None, Mock(), notifier,
-        main_module.GlobalRiskManager(), Mock(),
+        sample_strategy_config,
+        now_et,
+        set(),
+        {},
+        market_data,
+        signal_engine_map,
+        order_manager_map,
+        None,
+        Mock(),
+        notifier,
+        main_module.GlobalRiskManager(),
+        Mock(),
     )
     elapsed = time_module.monotonic() - start
 
@@ -462,13 +630,15 @@ def test_check_signal_for_strategy_timeout_bounds_wall_clock_time(sample_strateg
 
 def test_check_signal_for_strategy_corporate_action_detected(sample_strategy_config):
     now_et = datetime(2024, 1, 2, 9, 40, tzinfo=ET)
-    df = pd.DataFrame({
-        "open": [100.0, 130.0],
-        "high": [101.0, 131.0],
-        "low": [99.0, 129.0],
-        "close": [100.5, 130.5],
-        "volume": [1000, 1000],
-    })
+    df = pd.DataFrame(
+        {
+            "open": [100.0, 130.0],
+            "high": [101.0, 131.0],
+            "low": [99.0, 129.0],
+            "close": [100.5, 130.5],
+            "volume": [1000, 1000],
+        }
+    )
     market_data = Mock()
     market_data.get_latest_bars.return_value = df
     signal_engine_map = {sample_strategy_config.ticker: Mock()}
@@ -476,9 +646,18 @@ def test_check_signal_for_strategy_corporate_action_detected(sample_strategy_con
     morning_checks_done = set()
 
     main_module._check_signal_for_strategy(
-        sample_strategy_config, now_et, morning_checks_done, {},
-        market_data, signal_engine_map, {}, None, Mock(), notifier,
-        main_module.GlobalRiskManager(), Mock(),
+        sample_strategy_config,
+        now_et,
+        morning_checks_done,
+        {},
+        market_data,
+        signal_engine_map,
+        {},
+        None,
+        Mock(),
+        notifier,
+        main_module.GlobalRiskManager(),
+        Mock(),
     )
 
     notifier.send_alert.assert_called_once()
@@ -487,7 +666,9 @@ def test_check_signal_for_strategy_corporate_action_detected(sample_strategy_con
     signal_engine_map[sample_strategy_config.ticker].generate_signal.assert_not_called()
 
 
-def test_check_signal_for_strategy_not_delayed_by_hanging_telegram(sample_strategy_config):
+def test_check_signal_for_strategy_not_delayed_by_hanging_telegram(
+    sample_strategy_config,
+):
     """Regression test for audit bug 2.8: TelegramNotifier.send_message()
     used to make the actual blocking HTTP call inline on the caller's
     thread (up to ~37s worst case with retries/backoff), and was called
@@ -504,13 +685,15 @@ def test_check_signal_for_strategy_not_delayed_by_hanging_telegram(sample_strate
     from alphalive.notifications.telegram_bot import TelegramNotifier
 
     now_et = datetime(2024, 1, 2, 9, 40, tzinfo=ET)
-    df = pd.DataFrame({
-        "open": [100.0, 130.0],
-        "high": [101.0, 131.0],
-        "low": [99.0, 129.0],
-        "close": [100.5, 130.5],
-        "volume": [1000, 1000],
-    })
+    df = pd.DataFrame(
+        {
+            "open": [100.0, 130.0],
+            "high": [101.0, 131.0],
+            "low": [99.0, 129.0],
+            "close": [100.5, 130.5],
+            "volume": [1000, 1000],
+        }
+    )
     market_data = Mock()
     market_data.get_latest_bars.return_value = df
     signal_engine_map = {sample_strategy_config.ticker: Mock()}
@@ -524,9 +707,18 @@ def test_check_signal_for_strategy_not_delayed_by_hanging_telegram(sample_strate
     with mock_patch("httpx.post", side_effect=_hanging_post):
         start = time_module.monotonic()
         main_module._check_signal_for_strategy(
-            sample_strategy_config, now_et, morning_checks_done, {},
-            market_data, signal_engine_map, {}, None, Mock(), notifier,
-            main_module.GlobalRiskManager(), Mock(),
+            sample_strategy_config,
+            now_et,
+            morning_checks_done,
+            {},
+            market_data,
+            signal_engine_map,
+            {},
+            None,
+            Mock(),
+            notifier,
+            main_module.GlobalRiskManager(),
+            Mock(),
         )
         elapsed = time_module.monotonic() - start
 
@@ -546,9 +738,18 @@ def test_check_signal_for_strategy_data_stale_error(sample_strategy_config):
     morning_checks_done = set()
 
     main_module._check_signal_for_strategy(
-        sample_strategy_config, now_et, morning_checks_done, {},
-        market_data, {}, {}, None, Mock(), notifier,
-        main_module.GlobalRiskManager(), Mock(),
+        sample_strategy_config,
+        now_et,
+        morning_checks_done,
+        {},
+        market_data,
+        {},
+        {},
+        None,
+        Mock(),
+        notifier,
+        main_module.GlobalRiskManager(),
+        Mock(),
     )
 
     notifier.send_error_alert.assert_called_once()
@@ -563,32 +764,56 @@ def test_check_signal_for_strategy_generic_exception(sample_strategy_config):
     morning_checks_done = set()
 
     main_module._check_signal_for_strategy(
-        sample_strategy_config, now_et, morning_checks_done, {},
-        market_data, {}, {}, None, Mock(), notifier,
-        main_module.GlobalRiskManager(), Mock(),
+        sample_strategy_config,
+        now_et,
+        morning_checks_done,
+        {},
+        market_data,
+        {},
+        {},
+        None,
+        Mock(),
+        notifier,
+        main_module.GlobalRiskManager(),
+        Mock(),
     )
 
     notifier.send_error_alert.assert_called_once()
     assert sample_strategy_config.ticker in morning_checks_done
 
 
-def test_check_signal_for_strategy_intraday_uses_should_run_check(sample_strategy_config):
+def test_check_signal_for_strategy_intraday_uses_should_run_check(
+    sample_strategy_config,
+):
     intraday_cfg = sample_strategy_config.model_copy(deep=True)
     intraday_cfg.timeframe = "15Min"
     now_et = datetime(2024, 1, 2, 10, 0, tzinfo=ET)
     market_data = Mock()
 
-    with patch("alphalive.main.should_run_signal_check", return_value=False) as mock_should_run:
+    with patch(
+        "alphalive.main.should_run_signal_check", return_value=False
+    ) as mock_should_run:
         main_module._check_signal_for_strategy(
-            intraday_cfg, now_et, set(), {},
-            market_data, {}, {}, None, Mock(), Mock(),
-            main_module.GlobalRiskManager(), Mock(),
+            intraday_cfg,
+            now_et,
+            set(),
+            {},
+            market_data,
+            {},
+            {},
+            None,
+            Mock(),
+            Mock(),
+            main_module.GlobalRiskManager(),
+            Mock(),
         )
         mock_should_run.assert_called_once()
     market_data.get_latest_bars.assert_not_called()
 
 
-def test_check_signal_for_strategy_with_pre_execution_checks_blocked(sample_strategy_config):
+def test_check_signal_for_strategy_with_pre_execution_checks_blocked(
+    sample_strategy_config,
+):
     """When the sentiment filter blocks execution, no order is placed."""
     now_et = datetime(2024, 1, 2, 9, 40, tzinfo=ET)
     market_data = Mock()
@@ -596,7 +821,9 @@ def test_check_signal_for_strategy_with_pre_execution_checks_blocked(sample_stra
 
     signal_engine = Mock()
     signal_engine.generate_signal.return_value = {
-        "signal": "BUY", "confidence": 0.8, "reason": "ma cross",
+        "signal": "BUY",
+        "confidence": 0.8,
+        "reason": "ma cross",
     }
     signal_engine_map = {sample_strategy_config.ticker: signal_engine}
     order_manager = Mock()
@@ -609,10 +836,18 @@ def test_check_signal_for_strategy_with_pre_execution_checks_blocked(sample_stra
         return_value=(False, {"sentiment_score": -0.9}),
     ):
         main_module._check_signal_for_strategy(
-            sample_strategy_config, now_et, set(), {},
-            market_data, signal_engine_map, order_manager_map,
-            alphasignal_client, Mock(), Mock(),
-            main_module.GlobalRiskManager(), Mock(),
+            sample_strategy_config,
+            now_et,
+            set(),
+            {},
+            market_data,
+            signal_engine_map,
+            order_manager_map,
+            alphasignal_client,
+            Mock(),
+            Mock(),
+            main_module.GlobalRiskManager(),
+            Mock(),
         )
 
     order_manager.execute_signal.assert_not_called()
@@ -623,7 +858,9 @@ def test_check_signal_for_strategy_with_pre_execution_checks_blocked(sample_stra
 # ---------------------------------------------------------------------------
 
 
-def _mock_position(symbol="AAPL", qty=10.0, side="long", avg_entry=100.0, current=105.0):
+def _mock_position(
+    symbol="AAPL", qty=10.0, side="long", avg_entry=100.0, current=105.0
+):
     pos = Mock()
     pos.symbol = symbol
     pos.qty = qty
@@ -641,7 +878,15 @@ def test_run_exit_checks_no_positions_noop():
     app_config = Mock(dry_run=False)
     notifier = Mock()
 
-    main_module._run_exit_checks(broker, market_data, {}, bot_state, app_config, notifier, main_module.GlobalRiskManager())
+    main_module._run_exit_checks(
+        broker,
+        market_data,
+        {},
+        bot_state,
+        app_config,
+        notifier,
+        main_module.GlobalRiskManager(),
+    )
 
     bot_state.set_position_high.assert_not_called()
 
@@ -655,7 +900,15 @@ def test_run_exit_checks_no_order_manager_for_ticker_skips():
     app_config = Mock(dry_run=False)
     notifier = Mock()
 
-    main_module._run_exit_checks(broker, market_data, {}, bot_state, app_config, notifier, main_module.GlobalRiskManager())
+    main_module._run_exit_checks(
+        broker,
+        market_data,
+        {},
+        bot_state,
+        app_config,
+        notifier,
+        main_module.GlobalRiskManager(),
+    )
     # No order manager for AAPL registered -> loop should skip without error
 
 
@@ -679,9 +932,19 @@ def test_run_exit_checks_exit_fires_and_closes_position():
     app_config = Mock(dry_run=False)
     notifier = Mock()
 
-    main_module._run_exit_checks(broker, market_data, order_manager_map, bot_state, app_config, notifier, main_module.GlobalRiskManager())
+    main_module._run_exit_checks(
+        broker,
+        market_data,
+        order_manager_map,
+        bot_state,
+        app_config,
+        notifier,
+        main_module.GlobalRiskManager(),
+    )
 
-    order_manager.close_position.assert_called_once_with(ticker="AAPL", reason="stop_loss")
+    order_manager.close_position.assert_called_once_with(
+        ticker="AAPL", reason="stop_loss"
+    )
     bot_state.clear_position_high.assert_called_once_with("AAPL")
     notifier.send_position_closed_notification.assert_called_once()
 
@@ -704,7 +967,15 @@ def test_run_exit_checks_dry_run_skips_close():
     app_config = Mock(dry_run=True)
     notifier = Mock()
 
-    main_module._run_exit_checks(broker, market_data, order_manager_map, bot_state, app_config, notifier, main_module.GlobalRiskManager())
+    main_module._run_exit_checks(
+        broker,
+        market_data,
+        order_manager_map,
+        bot_state,
+        app_config,
+        notifier,
+        main_module.GlobalRiskManager(),
+    )
 
     order_manager.close_position.assert_not_called()
 
@@ -725,7 +996,15 @@ def test_run_exit_checks_price_fetch_failure_falls_back_to_position_price():
     app_config = Mock(dry_run=False)
     notifier = Mock()
 
-    main_module._run_exit_checks(broker, market_data, order_manager_map, bot_state, app_config, notifier, main_module.GlobalRiskManager())
+    main_module._run_exit_checks(
+        broker,
+        market_data,
+        order_manager_map,
+        bot_state,
+        app_config,
+        notifier,
+        main_module.GlobalRiskManager(),
+    )
 
     # check_exits still called with the fallback price map
     order_manager.check_exits.assert_called_once()
@@ -742,7 +1021,15 @@ def test_run_exit_checks_broker_error_caught_and_alerted():
     notifier = Mock()
 
     # Should not raise
-    main_module._run_exit_checks(broker, market_data, {}, bot_state, app_config, notifier, main_module.GlobalRiskManager())
+    main_module._run_exit_checks(
+        broker,
+        market_data,
+        {},
+        bot_state,
+        app_config,
+        notifier,
+        main_module.GlobalRiskManager(),
+    )
 
     notifier.send_error_alert.assert_called_once()
 
@@ -785,7 +1072,12 @@ def test_run_exit_checks_broker_failure_recorded_on_risk_manager():
     notifier = Mock()
 
     main_module._run_exit_checks(
-        broker, market_data, order_manager_map, bot_state, app_config, notifier,
+        broker,
+        market_data,
+        order_manager_map,
+        bot_state,
+        app_config,
+        notifier,
         main_module.GlobalRiskManager(),
     )
 
@@ -803,7 +1095,12 @@ def test_run_exit_checks_broker_success_recorded_on_risk_manager():
     notifier = Mock()
 
     main_module._run_exit_checks(
-        broker, market_data, order_manager_map, bot_state, app_config, notifier,
+        broker,
+        market_data,
+        order_manager_map,
+        bot_state,
+        app_config,
+        notifier,
         main_module.GlobalRiskManager(),
     )
 
@@ -981,7 +1278,9 @@ def test_sync_position_ledger_broker_error_skips_quietly():
 # ---------------------------------------------------------------------------
 
 
-def _run_signal_check_with_result(sample_strategy_config, signal, exec_result, dry_run=False):
+def _run_signal_check_with_result(
+    sample_strategy_config, signal, exec_result, dry_run=False
+):
     now_et = datetime(2024, 1, 2, 9, 40, tzinfo=ET)
     market_data = Mock()
     market_data.get_latest_bars.return_value = _make_ohlcv_df()
@@ -989,7 +1288,9 @@ def _run_signal_check_with_result(sample_strategy_config, signal, exec_result, d
 
     signal_engine = Mock()
     signal_engine.generate_signal.return_value = {
-        "signal": signal, "confidence": 0.8, "reason": "test",
+        "signal": signal,
+        "confidence": 0.8,
+        "reason": "test",
     }
     order_manager = Mock()
     order_manager.dry_run = dry_run
@@ -1001,20 +1302,32 @@ def _run_signal_check_with_result(sample_strategy_config, signal, exec_result, d
     bot_state = Mock()
 
     main_module._check_signal_for_strategy(
-        sample_strategy_config, now_et, set(), {},
+        sample_strategy_config,
+        now_et,
+        set(),
+        {},
         market_data,
         {sample_strategy_config.ticker: signal_engine},
         {sample_strategy_config.ticker: order_manager},
-        None, broker, Mock(),
-        main_module.GlobalRiskManager(), bot_state,
+        None,
+        broker,
+        Mock(),
+        main_module.GlobalRiskManager(),
+        bot_state,
     )
     return bot_state
 
 
 def test_buy_success_records_position_in_ledger(sample_strategy_config):
     bot_state = _run_signal_check_with_result(
-        sample_strategy_config, "BUY",
-        {"status": "success", "order_id": "o1", "filled_qty": 10, "filled_price": 150.0},
+        sample_strategy_config,
+        "BUY",
+        {
+            "status": "success",
+            "order_id": "o1",
+            "filled_qty": 10,
+            "filled_price": 150.0,
+        },
     )
     bot_state.record_position_open.assert_called_once_with(
         sample_strategy_config.ticker, 10, 150.0
@@ -1024,20 +1337,36 @@ def test_buy_success_records_position_in_ledger(sample_strategy_config):
 
 def test_sell_success_clears_ledger_and_tracking(sample_strategy_config):
     bot_state = _run_signal_check_with_result(
-        sample_strategy_config, "SELL",
-        {"status": "success", "order_id": "o2", "filled_qty": 10, "filled_price": 160.0},
+        sample_strategy_config,
+        "SELL",
+        {
+            "status": "success",
+            "order_id": "o2",
+            "filled_qty": 10,
+            "filled_price": 160.0,
+        },
     )
-    bot_state.record_position_close.assert_called_once_with(sample_strategy_config.ticker)
+    bot_state.record_position_close.assert_called_once_with(
+        sample_strategy_config.ticker
+    )
     bot_state.clear_position_high.assert_called_once_with(sample_strategy_config.ticker)
-    bot_state.clear_entry_timestamp.assert_called_once_with(sample_strategy_config.ticker)
+    bot_state.clear_entry_timestamp.assert_called_once_with(
+        sample_strategy_config.ticker
+    )
 
 
 def test_dry_run_buy_does_not_touch_ledger(sample_strategy_config):
     """Dry-run fills place no real order - recording them in the ledger would
     make the next reconciliation see phantom drift and auto-halt."""
     bot_state = _run_signal_check_with_result(
-        sample_strategy_config, "BUY",
-        {"status": "success", "order_id": "DRY_RUN_x", "filled_qty": 10, "filled_price": 150.0},
+        sample_strategy_config,
+        "BUY",
+        {
+            "status": "success",
+            "order_id": "DRY_RUN_x",
+            "filled_qty": 10,
+            "filled_price": 150.0,
+        },
         dry_run=True,
     )
     bot_state.record_position_open.assert_not_called()
@@ -1045,7 +1374,8 @@ def test_dry_run_buy_does_not_touch_ledger(sample_strategy_config):
 
 def test_blocked_trade_does_not_touch_ledger(sample_strategy_config):
     bot_state = _run_signal_check_with_result(
-        sample_strategy_config, "BUY",
+        sample_strategy_config,
+        "BUY",
         {"status": "blocked", "reason": "risk limit"},
     )
     bot_state.record_position_open.assert_not_called()
@@ -1058,7 +1388,11 @@ def test_blocked_trade_does_not_touch_ledger(sample_strategy_config):
 
 def _restore_setup(sample_strategy_config, ledger=None, saved=None, position_high=None):
     engine = Mock()
-    engine.get_state.return_value = {"in_position": True, "entry_price": 1.0, "peak_price": 1.0}
+    engine.get_state.return_value = {
+        "in_position": True,
+        "entry_price": 1.0,
+        "peak_price": 1.0,
+    }
     bot_state = Mock()
     bot_state.get_open_positions.return_value = ledger or {}
     bot_state.get_engine_state.return_value = saved
@@ -1076,8 +1410,13 @@ def test_restore_engine_states_no_ledger_position_forces_flat(sample_strategy_co
     engine, bot_state = _restore_setup(
         sample_strategy_config,
         ledger={},
-        saved={"in_position": True, "entry_price": 150.0, "peak_price": 160.0,
-               "vwap_position": 0, "vwap_bars_since_signal": 2},
+        saved={
+            "in_position": True,
+            "entry_price": 150.0,
+            "peak_price": 160.0,
+            "vwap_position": 0,
+            "vwap_bars_since_signal": 2,
+        },
     )
     restored = engine.restore_state.call_args[0][0]
     assert restored["in_position"] is False
@@ -1118,7 +1457,9 @@ def test_restore_engine_states_ledger_and_saved_state_restores(sample_strategy_c
     bot_state.save_engine_state.assert_called_once()
 
 
-def test_restore_engine_states_ledger_without_saved_state_rebuilds(sample_strategy_config):
+def test_restore_engine_states_ledger_without_saved_state_rebuilds(
+    sample_strategy_config,
+):
     """Position in ledger but no saved engine state (pre-persistence state
     file): rebuild in-position state from ledger entry + tracked high."""
     ticker = sample_strategy_config.ticker
@@ -1154,12 +1495,16 @@ def test_warmup_snapshots_and_restores_engine_state(sample_strategy_config):
     pre_state = {"in_position": False, "entry_price": 0.0, "peak_price": 0.0}
     engine.get_state.return_value = pre_state
     engine.generate_signal.return_value = {
-        "warmup_complete": True, "signal": "BUY", "confidence": 0.8,
+        "warmup_complete": True,
+        "signal": "BUY",
+        "confidence": 0.8,
     }
 
     main_module._run_startup_warmup(
-        [sample_strategy_config], market_data,
-        {sample_strategy_config.ticker: engine}, Mock(),
+        [sample_strategy_config],
+        market_data,
+        {sample_strategy_config.ticker: engine},
+        Mock(),
     )
 
     engine.restore_state.assert_called_once_with(pre_state)
@@ -1186,8 +1531,14 @@ def test_exit_close_resets_engine_state():
     app_config = Mock(dry_run=False)
 
     main_module._run_exit_checks(
-        broker, market_data, {"AAPL": order_manager}, bot_state, app_config,
-        Mock(), main_module.GlobalRiskManager(), {"AAPL": engine},
+        broker,
+        market_data,
+        {"AAPL": order_manager},
+        bot_state,
+        app_config,
+        Mock(),
+        main_module.GlobalRiskManager(),
+        {"AAPL": engine},
     )
 
     engine.restore_state.assert_called_once_with(
@@ -1198,7 +1549,8 @@ def test_exit_close_resets_engine_state():
 
 def test_signal_check_persists_engine_state(sample_strategy_config):
     bot_state = _run_signal_check_with_result(
-        sample_strategy_config, "HOLD",
+        sample_strategy_config,
+        "HOLD",
         {"status": "blocked", "reason": "non-actionable"},
     )
     bot_state.save_engine_state.assert_called_once()
@@ -1243,9 +1595,7 @@ def test_wire_min_hold_checkers_defaults_to_52_weeks(sample_strategy_config):
     bot_state = Mock()
     bot_state.is_min_hold_met.return_value = True
 
-    main_module._wire_min_hold_checkers(
-        [gb_cfg], {gb_cfg.ticker: engine}, bot_state
-    )
+    main_module._wire_min_hold_checkers([gb_cfg], {gb_cfg.ticker: engine}, bot_state)
 
     assert engine.min_hold_checker() is True
     bot_state.is_min_hold_met.assert_called_once_with(gb_cfg.ticker, 52)
@@ -1307,7 +1657,9 @@ def test_run_monthly_screener_skips_same_month():
 def test_run_monthly_screener_none_is_noop():
     # Disabled screener: must not raise or touch state
     bot_state = Mock()
-    main_module._run_monthly_screener(None, bot_state, Mock(), datetime(2026, 7, 1, tzinfo=ET))
+    main_module._run_monthly_screener(
+        None, bot_state, Mock(), datetime(2026, 7, 1, tzinfo=ET)
+    )
     bot_state.set_last_screener_month.assert_not_called()
 
 
@@ -1348,7 +1700,13 @@ def test_compute_daily_stats_qty_aware_fifo():
         {"ticker": "AAPL", "side": "BUY", "qty": 10, "price": 120.0, "timestamp": "t2"},
         # Sells all 20 @ 111: avg cost = 110 -> win (old price-only FIFO would
         # have judged against the first lot only)
-        {"ticker": "AAPL", "side": "SELL", "qty": 20, "price": 111.0, "timestamp": "t3"},
+        {
+            "ticker": "AAPL",
+            "side": "SELL",
+            "qty": 20,
+            "price": 111.0,
+            "timestamp": "t3",
+        },
     ]
     stats = main_module._compute_daily_stats(orders, 100000.0, 100020.0)
     assert stats["win_rate"] == 100.0
@@ -1357,8 +1715,20 @@ def test_compute_daily_stats_qty_aware_fifo():
 def test_compute_daily_stats_partial_sell_leaves_remaining_lot():
     orders = [
         {"ticker": "AAPL", "side": "BUY", "qty": 10, "price": 100.0, "timestamp": "t1"},
-        {"ticker": "AAPL", "side": "SELL", "qty": 4, "price": 90.0, "timestamp": "t2"},   # loss
-        {"ticker": "AAPL", "side": "SELL", "qty": 6, "price": 110.0, "timestamp": "t3"},  # win
+        {
+            "ticker": "AAPL",
+            "side": "SELL",
+            "qty": 4,
+            "price": 90.0,
+            "timestamp": "t2",
+        },  # loss
+        {
+            "ticker": "AAPL",
+            "side": "SELL",
+            "qty": 6,
+            "price": 110.0,
+            "timestamp": "t3",
+        },  # win
     ]
     stats = main_module._compute_daily_stats(orders, 100000.0, 100000.0)
     assert stats["win_rate"] == 50.0
@@ -1379,15 +1749,23 @@ def test_exit_check_pnl_uses_fill_price_when_available():
     ]
     # Actual fill came back worse than the decision price (slippage)
     order_manager.close_position.return_value = {
-        "status": "success", "order_id": "o9",
-        "filled_price": 89.5, "filled_qty": 10.0,
+        "status": "success",
+        "order_id": "o9",
+        "filled_price": 89.5,
+        "filled_qty": 10.0,
     }
     order_manager.config.risk.commission_per_trade = 0.0
 
     notifier = Mock()
     main_module._run_exit_checks(
-        broker, market_data, {"AAPL": order_manager}, Mock(), Mock(dry_run=False),
-        notifier, main_module.GlobalRiskManager(), {"AAPL": Mock()},
+        broker,
+        market_data,
+        {"AAPL": order_manager},
+        Mock(),
+        Mock(dry_run=False),
+        notifier,
+        main_module.GlobalRiskManager(),
+        {"AAPL": Mock()},
     )
 
     kwargs = notifier.send_position_closed_notification.call_args.kwargs
@@ -1409,15 +1787,23 @@ def test_exit_check_pnl_falls_back_to_decision_price():
         {"ticker": "AAPL", "reason": "Stop loss hit", "current_price": 90.0}
     ]
     order_manager.close_position.return_value = {
-        "status": "success", "order_id": "o9",
-        "filled_price": None, "filled_qty": None,
+        "status": "success",
+        "order_id": "o9",
+        "filled_price": None,
+        "filled_qty": None,
     }
     order_manager.config.risk.commission_per_trade = 0.0
 
     notifier = Mock()
     main_module._run_exit_checks(
-        broker, market_data, {"AAPL": order_manager}, Mock(), Mock(dry_run=False),
-        notifier, main_module.GlobalRiskManager(), {"AAPL": Mock()},
+        broker,
+        market_data,
+        {"AAPL": order_manager},
+        Mock(),
+        Mock(dry_run=False),
+        notifier,
+        main_module.GlobalRiskManager(),
+        {"AAPL": Mock()},
     )
 
     kwargs = notifier.send_position_closed_notification.call_args.kwargs

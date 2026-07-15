@@ -16,10 +16,10 @@ from pathlib import Path
 STOCKS_TO_TEST = [
     "AAPL",  # Apple
     "MSFT",  # Microsoft
-    "GOOGL", # Google
+    "GOOGL",  # Google
     "AMZN",  # Amazon
-    "SPY",   # S&P 500 ETF
-    "QQQ",   # Nasdaq 100 ETF
+    "SPY",  # S&P 500 ETF
+    "QQQ",  # Nasdaq 100 ETF
 ]
 
 # Test period (pre-COVID)
@@ -31,11 +31,8 @@ BASE_CONFIG = {
     "schema_version": "1.0",
     "strategy": {
         "name": "ma_crossover",
-        "parameters": {
-            "fast_period": 10,
-            "slow_period": 20
-        },
-        "description": "Fast/slow MA crossover"
+        "parameters": {"fast_period": 10, "slow_period": 20},
+        "description": "Fast/slow MA crossover",
     },
     "ticker": "PLACEHOLDER",  # Will be replaced
     "timeframe": "1Day",
@@ -48,28 +45,21 @@ BASE_CONFIG = {
         "portfolio_max_positions": 10,
         "trailing_stop_enabled": False,
         "trailing_stop_pct": 3.0,
-        "commission_per_trade": 0.0
+        "commission_per_trade": 0.0,
     },
-    "execution": {
-        "order_type": "market",
-        "limit_offset_pct": 0.1,
-        "cooldown_bars": 1
-    },
+    "execution": {"order_type": "market", "limit_offset_pct": 0.1, "cooldown_bars": 1},
     "safety_limits": {
         "max_trades_per_day": 20,
         "max_api_calls_per_hour": 500,
         "signal_generation_timeout_seconds": 5.0,
-        "broker_degraded_mode_threshold_failures": 3
+        "broker_degraded_mode_threshold_failures": 3,
     },
     "metadata": {
         "exported_from": "AlphaLab",
         "exported_at": "2024-01-01T00:00:00Z",
         "alphalab_version": "0.2.0",
         "backtest_id": "test",
-        "backtest_period": {
-            "start": "2015-01-01",
-            "end": "2019-12-31"
-        },
+        "backtest_period": {"start": "2015-01-01", "end": "2019-12-31"},
         "performance": {
             "sharpe_ratio": 0.0,
             "sortino_ratio": 0.0,
@@ -78,9 +68,9 @@ BASE_CONFIG = {
             "win_rate_pct": 0.0,
             "profit_factor": 0.0,
             "total_trades": 0,
-            "calmar_ratio": 0.0
-        }
-    }
+            "calmar_ratio": 0.0,
+        },
+    },
 }
 
 
@@ -98,7 +88,7 @@ def create_config_for_stock(ticker):
     config_path = f"configs/temp_ma_crossover_{ticker}.json"
     Path("configs").mkdir(exist_ok=True)
 
-    with open(config_path, 'w') as f:
+    with open(config_path, "w") as f:
         json.dump(config, f, indent=2)
 
     return config_path
@@ -115,20 +105,21 @@ def run_replay_for_stock(ticker):
 
     # Run replay mode
     cmd = [
-        "python", "run.py",
-        "--config", config_path,
+        "python",
+        "run.py",
+        "--config",
+        config_path,
         "--replay-mode",
-        "--replay-start", START_DATE,
-        "--replay-end", END_DATE,
-        "--dry-run"
+        "--replay-start",
+        START_DATE,
+        "--replay-end",
+        END_DATE,
+        "--dry-run",
     ]
 
     try:
         result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=300  # 5 minutes max
+            cmd, capture_output=True, text=True, timeout=300  # 5 minutes max
         )
 
         # Extract results from output
@@ -139,7 +130,7 @@ def run_replay_for_stock(ticker):
         win_rate = 0.0
         total_pnl = 0.0
 
-        for line in output.split('\n'):
+        for line in output.split("\n"):
             if "Total Trades:" in line:
                 trades = int(line.split(":")[-1].strip())
             elif "Win Rate:" in line:
@@ -153,7 +144,7 @@ def run_replay_for_stock(ticker):
             "trades": trades,
             "win_rate": win_rate,
             "total_pnl": total_pnl,
-            "success": result.returncode == 0
+            "success": result.returncode == 0,
         }
 
     except subprocess.TimeoutExpired:
@@ -163,7 +154,7 @@ def run_replay_for_stock(ticker):
             "trades": 0,
             "win_rate": 0.0,
             "total_pnl": 0.0,
-            "success": False
+            "success": False,
         }
     except Exception as e:
         print(f"Error testing {ticker}: {e}")
@@ -172,7 +163,7 @@ def run_replay_for_stock(ticker):
             "trades": 0,
             "win_rate": 0.0,
             "total_pnl": 0.0,
-            "success": False
+            "success": False,
         }
     finally:
         # Cleanup temp config
@@ -182,13 +173,13 @@ def run_replay_for_stock(ticker):
 
 def main():
     """Test multiple stocks and show results."""
-    print("="*80)
+    print("=" * 80)
     print("AlphaLive - Multi-Stock Replay Test")
-    print("="*80)
+    print("=" * 80)
     print(f"Strategy: MA Crossover (10/20)")
     print(f"Period: {START_DATE} to {END_DATE}")
     print(f"Stocks: {', '.join(STOCKS_TO_TEST)}")
-    print("="*80)
+    print("=" * 80)
 
     # Check environment
     if not os.environ.get("ALPACA_API_KEY"):
@@ -212,36 +203,42 @@ def main():
 
         # Show quick summary
         if result["success"]:
-            print(f"{ticker}: {result['trades']} trades, "
-                  f"{result['win_rate']:.1f}% win rate, "
-                  f"${result['total_pnl']:,.2f} P&L")
+            print(
+                f"{ticker}: {result['trades']} trades, "
+                f"{result['win_rate']:.1f}% win rate, "
+                f"${result['total_pnl']:,.2f} P&L"
+            )
         else:
             print(f"{ticker}: Failed to test")
 
     # Final summary
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("RESULTS SUMMARY (2015-2019)")
-    print("="*80)
+    print("=" * 80)
     print(f"{'Ticker':<8} {'Trades':<8} {'Win Rate':<12} {'Total P&L':<15} {'Status'}")
-    print("-"*80)
+    print("-" * 80)
 
     successful_results = [r for r in results if r["success"]]
 
-    for result in sorted(successful_results, key=lambda x: x["total_pnl"], reverse=True):
+    for result in sorted(
+        successful_results, key=lambda x: x["total_pnl"], reverse=True
+    ):
         status = "" if result["total_pnl"] > 0 else ""
-        print(f"{result['ticker']:<8} {result['trades']:<8} "
-              f"{result['win_rate']:.1f}%{'':<8} "
-              f"${result['total_pnl']:>12,.2f} {status}")
+        print(
+            f"{result['ticker']:<8} {result['trades']:<8} "
+            f"{result['win_rate']:.1f}%{'':<8} "
+            f"${result['total_pnl']:>12,.2f} {status}"
+        )
 
     # Show best performer
     if successful_results:
         best = max(successful_results, key=lambda x: x["total_pnl"])
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print(f"BEST PERFORMER: {best['ticker']}")
         print(f"   Total P&L: ${best['total_pnl']:,.2f}")
         print(f"   Win Rate: {best['win_rate']:.1f}%")
         print(f"   Trades: {best['trades']}")
-        print("="*80)
+        print("=" * 80)
 
         print("\n Recommendation:")
     profitable = [r for r in successful_results if r["total_pnl"] > 0]

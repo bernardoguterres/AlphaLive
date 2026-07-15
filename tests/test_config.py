@@ -10,7 +10,14 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-from alphalive.config import load_config, load_strategy, load_strategies, load_config_path, load_env, validate_all
+from alphalive.config import (
+    load_config,
+    load_strategy,
+    load_strategies,
+    load_config_path,
+    load_env,
+    validate_all,
+)
 from alphalive.migrations import migrate_schema
 from alphalive.strategy_schema import StrategySchema
 
@@ -45,14 +52,14 @@ def test_schema_validation_fails_on_invalid_version():
             "portfolio_max_positions": 10,
             "trailing_stop_enabled": False,
             "trailing_stop_pct": None,
-            "commission_per_trade": 0.0
+            "commission_per_trade": 0.0,
         },
         "execution": {"order_type": "market", "cooldown_bars": 1},
         "safety_limits": {
             "max_trades_per_day": 20,
             "max_api_calls_per_hour": 500,
             "signal_generation_timeout_seconds": 5.0,
-            "broker_degraded_mode_threshold_failures": 3
+            "broker_degraded_mode_threshold_failures": 3,
         },
         "metadata": {
             "exported_from": "AlphaLab",
@@ -68,9 +75,9 @@ def test_schema_validation_fails_on_invalid_version():
                 "win_rate_pct": 58.2,
                 "profit_factor": 1.75,
                 "total_trades": 47,
-                "calmar_ratio": 2.64
-            }
-        }
+                "calmar_ratio": 2.64,
+            },
+        },
     }
 
     with pytest.raises(ValidationError):
@@ -93,7 +100,7 @@ def test_backward_compatibility_safety_limits():
             "portfolio_max_positions": 10,
             "trailing_stop_enabled": False,
             "trailing_stop_pct": None,
-            "commission_per_trade": 0.0
+            "commission_per_trade": 0.0,
         },
         "execution": {"order_type": "market", "cooldown_bars": 1},
         "metadata": {
@@ -110,9 +117,9 @@ def test_backward_compatibility_safety_limits():
                 "win_rate_pct": 58.2,
                 "profit_factor": 1.75,
                 "total_trades": 47,
-                "calmar_ratio": 2.64
-            }
-        }
+                "calmar_ratio": 2.64,
+            },
+        },
         # safety_limits is missing
     }
 
@@ -136,12 +143,16 @@ def test_load_multiple_strategies_from_directory(sample_strategy_dict):
         strategy2 = copy.deepcopy(sample_strategy_dict)
         strategy2["ticker"] = "TSLA"
         strategy2["strategy"]["name"] = "rsi_mean_reversion"
-        strategy2["strategy"]["parameters"] = {"period": 14, "oversold": 30, "overbought": 70}
+        strategy2["strategy"]["parameters"] = {
+            "period": 14,
+            "oversold": 30,
+            "overbought": 70,
+        }
 
-        with open(Path(temp_dir) / "strategy1.json", 'w') as f:
+        with open(Path(temp_dir) / "strategy1.json", "w") as f:
             json.dump(strategy1, f)
 
-        with open(Path(temp_dir) / "strategy2.json", 'w') as f:
+        with open(Path(temp_dir) / "strategy2.json", "w") as f:
             json.dump(strategy2, f)
 
         strategies = load_strategies(temp_dir)
@@ -157,7 +168,7 @@ def test_load_config_path_single_file(sample_strategy_dict):
     with tempfile.TemporaryDirectory() as temp_dir:
         # Create one strategy file
         strategy_path = Path(temp_dir) / "strategy.json"
-        with open(strategy_path, 'w') as f:
+        with open(strategy_path, "w") as f:
             json.dump(sample_strategy_dict, f)
 
         # Load using load_config_path (file mode)
@@ -178,10 +189,10 @@ def test_load_config_path_directory(sample_strategy_dict):
         strategy2 = sample_strategy_dict.copy()
         strategy2["ticker"] = "TSLA"
 
-        with open(Path(temp_dir) / "strategy1.json", 'w') as f:
+        with open(Path(temp_dir) / "strategy1.json", "w") as f:
             json.dump(strategy1, f)
 
-        with open(Path(temp_dir) / "strategy2.json", 'w') as f:
+        with open(Path(temp_dir) / "strategy2.json", "w") as f:
             json.dump(strategy2, f)
 
         # Load using load_config_path (directory mode)
@@ -257,9 +268,10 @@ def test_validate_all_prints_summary_and_returns_true(
 ):
     """Test that validate_all() logs summary and returns True for valid config."""
     import logging
+
     caplog.set_level(logging.INFO)
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         json.dump(sample_strategy_dict, f)
         temp_path = f.name
 

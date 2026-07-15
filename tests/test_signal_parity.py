@@ -53,12 +53,63 @@ from alphalive.strategy_schema import StrategySchema
 # Strategy configurations (must match the parameters used to generate expected signals)
 STRATEGIES = [
     {"name": "ma_crossover", "params": {"fast_period": 20, "slow_period": 50}},
-    {"name": "rsi_mean_reversion", "params": {"period": 14, "oversold": 30, "overbought": 70}},
-    {"name": "momentum_breakout", "params": {"lookback": 20, "surge_pct": 1.5, "atr_period": 14, "volume_ma_period": 20}},
-    {"name": "bollinger_breakout", "params": {"period": 20, "std_dev": 2.0, "confirmation_bars": 2, "volume_ma_period": 20}},
-    {"name": "vwap_reversion", "params": {"deviation_threshold": 2.0, "rsi_period": 14, "oversold": 30, "overbought": 70, "vwap_std_period": 20}},
-    {"name": "bollinger_rsi_combo", "params": {"bb_period": 20, "bb_std": 2.0, "rsi_period": 14, "rsi_oversold": 45, "rsi_overbought": 55, "exit_at_middle": True}},
-    {"name": "trend_adaptive_rsi", "params": {"rsi_period": 14, "trend_sma": 50, "trend_lookback": 5, "uptrend_buy": 45, "uptrend_sell": 65, "downtrend_buy": 35, "downtrend_sell": 55, "range_buy": 35, "range_sell": 65}},
+    {
+        "name": "rsi_mean_reversion",
+        "params": {"period": 14, "oversold": 30, "overbought": 70},
+    },
+    {
+        "name": "momentum_breakout",
+        "params": {
+            "lookback": 20,
+            "surge_pct": 1.5,
+            "atr_period": 14,
+            "volume_ma_period": 20,
+        },
+    },
+    {
+        "name": "bollinger_breakout",
+        "params": {
+            "period": 20,
+            "std_dev": 2.0,
+            "confirmation_bars": 2,
+            "volume_ma_period": 20,
+        },
+    },
+    {
+        "name": "vwap_reversion",
+        "params": {
+            "deviation_threshold": 2.0,
+            "rsi_period": 14,
+            "oversold": 30,
+            "overbought": 70,
+            "vwap_std_period": 20,
+        },
+    },
+    {
+        "name": "bollinger_rsi_combo",
+        "params": {
+            "bb_period": 20,
+            "bb_std": 2.0,
+            "rsi_period": 14,
+            "rsi_oversold": 45,
+            "rsi_overbought": 55,
+            "exit_at_middle": True,
+        },
+    },
+    {
+        "name": "trend_adaptive_rsi",
+        "params": {
+            "rsi_period": 14,
+            "trend_sma": 50,
+            "trend_lookback": 5,
+            "uptrend_buy": 45,
+            "uptrend_sell": 65,
+            "downtrend_buy": 35,
+            "downtrend_sell": 55,
+            "range_buy": 35,
+            "range_sell": 65,
+        },
+    },
 ]
 
 
@@ -76,11 +127,11 @@ def load_fixture():
     df.columns = df.columns.str.lower()
 
     # Parse timestamp/date column
-    if 'timestamp' in df.columns:
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-    elif 'date' in df.columns:
-        df['timestamp'] = pd.to_datetime(df['date'])
-        df = df.drop(columns=['date'])
+    if "timestamp" in df.columns:
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+    elif "date" in df.columns:
+        df["timestamp"] = pd.to_datetime(df["date"])
+        df = df.drop(columns=["date"])
 
     return df
 
@@ -90,7 +141,9 @@ def load_expected_signals(strategy_name: str):
     Load expected signals from AlphaLab backtest results.
     Format: CSV with columns [bar_index, signal, confidence, reason]
     """
-    signals_path = PROJECT_ROOT / "tests" / "fixtures" / f"expected_signals_{strategy_name}.csv"
+    signals_path = (
+        PROJECT_ROOT / "tests" / "fixtures" / f"expected_signals_{strategy_name}.csv"
+    )
     if not signals_path.exists():
         raise FileNotFoundError(
             f"Expected signals not found: {signals_path}\n"
@@ -138,7 +191,9 @@ def create_strategy_config(strategy_name: str, params: dict) -> StrategySchema:
     )
 
 
-def run_parity_check(strategy_config: StrategySchema, expected_signals: pd.DataFrame, df: pd.DataFrame) -> Dict[str, Any]:
+def run_parity_check(
+    strategy_config: StrategySchema, expected_signals: pd.DataFrame, df: pd.DataFrame
+) -> Dict[str, Any]:
     """
     Run AlphaLive signal engine and compare with expected signals.
 
@@ -155,41 +210,55 @@ def run_parity_check(strategy_config: StrategySchema, expected_signals: pd.DataF
         # Feed bars incrementally (simulate real-time)
         # Start from bar 0 so stateful strategies build position state correctly.
         # The signal engine handles warmup internally (returns HOLD on NaN bars).
-        df_slice = df.iloc[:i+1].copy()
+        df_slice = df.iloc[: i + 1].copy()
 
         result = engine.generate_signal(df_slice)
-        actual_signal = result['signal']
+        actual_signal = result["signal"]
 
         # Store signal
-        alphalive_signals.append({
-            'bar_index': i,
-            'signal': actual_signal,
-            'confidence': float(result.get('confidence', 0.0)),
-            'reason': result.get('reason', ''),
-            'warmup_complete': bool(result.get('warmup_complete', True)),
-        })
+        alphalive_signals.append(
+            {
+                "bar_index": i,
+                "signal": actual_signal,
+                "confidence": float(result.get("confidence", 0.0)),
+                "reason": result.get("reason", ""),
+                "warmup_complete": bool(result.get("warmup_complete", True)),
+            }
+        )
 
         # Get expected signal for this bar (skip bars with no expectation)
-        expected_row = expected_signals[expected_signals['bar_index'] == i]
+        expected_row = expected_signals[expected_signals["bar_index"] == i]
         if expected_row.empty:
             continue
 
-        expected_signal = expected_row.iloc[0]['signal']
+        expected_signal = expected_row.iloc[0]["signal"]
 
-        if expected_signal != 'HOLD':
+        if expected_signal != "HOLD":
             signal_count += 1
 
         if actual_signal != expected_signal:
-            mismatches.append({
-                'bar_index': i,
-                'timestamp': str(df.iloc[i]['timestamp']) if 'timestamp' in df.columns else str(i),
-                'expected': expected_signal,
-                'actual': actual_signal,
-                'price': float(df.iloc[i]['close']),
-                'warmup_complete': result.get('warmup_complete', True),
-                'indicators': {k: float(v) if isinstance(v, (int, float, np.number)) else str(v)
-                              for k, v in result.get('indicators', {}).items()},
-            })
+            mismatches.append(
+                {
+                    "bar_index": i,
+                    "timestamp": (
+                        str(df.iloc[i]["timestamp"])
+                        if "timestamp" in df.columns
+                        else str(i)
+                    ),
+                    "expected": expected_signal,
+                    "actual": actual_signal,
+                    "price": float(df.iloc[i]["close"]),
+                    "warmup_complete": result.get("warmup_complete", True),
+                    "indicators": {
+                        k: (
+                            float(v)
+                            if isinstance(v, (int, float, np.number))
+                            else str(v)
+                        )
+                        for k, v in result.get("indicators", {}).items()
+                    },
+                }
+            )
 
     return {
         "strategy": strategy_config.strategy.name,
@@ -218,11 +287,11 @@ def save_results(results: List[Dict[str, Any]], output_dir: Path):
         "test_type": "C1_Signal_Parity",
         "dataset": "AAPL 2022-2023 (500 bars)",
         "strategies_tested": len(results),
-        "overall_pass": all(r['mismatches'] == 0 for r in results),
+        "overall_pass": all(r["mismatches"] == 0 for r in results),
         "results": results,
     }
 
-    with open(output_file, 'w') as f:
+    with open(output_file, "w") as f:
         json.dump(summary, f, indent=2)
 
         print(f"\n Results saved to: {output_file}")
@@ -243,33 +312,39 @@ def print_results(results: List[Dict[str, Any]]) -> bool:
     all_match = True
 
     for result in results:
-        strategy = result['strategy']
-        total = result['total_bars']
-        signals = result['signals_generated']
-        mismatches = result['mismatches']
+        strategy = result["strategy"]
+        total = result["total_bars"]
+        signals = result["signals_generated"]
+        mismatches = result["mismatches"]
 
         status = "" if mismatches == 0 else ""
-        print(f"{status} {strategy}: {total} bars, {signals} signals, {mismatches} mismatches")
+        print(
+            f"{status} {strategy}: {total} bars, {signals} signals, {mismatches} mismatches"
+        )
 
         if mismatches > 0:
             all_match = False
 
             # Show first 5 mismatches with detailed info
-            details = result['mismatch_details'][:5]
+            details = result["mismatch_details"][:5]
             for mm in details:
-                print(f"   Bar {mm['bar_index']} ({mm['timestamp']}): "
-                      f"Expected {mm['expected']}, Got {mm['actual']}")
+                print(
+                    f"   Bar {mm['bar_index']} ({mm['timestamp']}): "
+                    f"Expected {mm['expected']}, Got {mm['actual']}"
+                )
 
-                if not mm['warmup_complete']:
+                if not mm["warmup_complete"]:
                     print(f"Warmup incomplete")
 
                 print(f"      Price: ${mm['price']:.2f}")
 
-                if mm.get('indicators'):
+                if mm.get("indicators"):
                     print(f"      Indicators: {mm['indicators']}")
 
-            if len(result['mismatch_details']) > 5:
-                print(f"   ... and {len(result['mismatch_details']) - 5} more mismatches")
+            if len(result["mismatch_details"]) > 5:
+                print(
+                    f"   ... and {len(result['mismatch_details']) - 5} more mismatches"
+                )
 
     print("\n" + "=" * 70)
     if all_match:
@@ -317,7 +392,7 @@ def main():
     results = []
 
     for strat in STRATEGIES:
-        strategy_name = strat['name']
+        strategy_name = strat["name"]
         print(f"Testing {strategy_name}...", end=" ", flush=True)
 
         try:
@@ -325,13 +400,13 @@ def main():
             expected_signals = load_expected_signals(strategy_name)
 
             # Create strategy config
-            config = create_strategy_config(strategy_name, strat['params'])
+            config = create_strategy_config(strategy_name, strat["params"])
 
             # Run parity check
             result = run_parity_check(config, expected_signals, df)
             results.append(result)
 
-            if result['mismatches'] == 0:
+            if result["mismatches"] == 0:
                 print(f"{result['signals_generated']} signals, 0 mismatches")
             else:
                 print(f"{result['mismatches']} mismatches")
@@ -339,26 +414,31 @@ def main():
         except FileNotFoundError as e:
             print(f"SKIP (missing expected signals)")
             print(f"     {e}")
-            results.append({
-                "strategy": strategy_name,
-                "total_bars": 0,
-                "signals_generated": 0,
-                "matches": 0,
-                "mismatches": 0,
-                "error": "Missing expected signals file",
-            })
+            results.append(
+                {
+                    "strategy": strategy_name,
+                    "total_bars": 0,
+                    "signals_generated": 0,
+                    "matches": 0,
+                    "mismatches": 0,
+                    "error": "Missing expected signals file",
+                }
+            )
         except Exception as e:
             print(f"ERROR: {e}")
             import traceback
+
             traceback.print_exc()
-            results.append({
-                "strategy": strategy_name,
-                "total_bars": 0,
-                "signals_generated": 0,
-                "matches": 0,
-                "mismatches": 0,
-                "error": str(e),
-            })
+            results.append(
+                {
+                    "strategy": strategy_name,
+                    "total_bars": 0,
+                    "signals_generated": 0,
+                    "matches": 0,
+                    "mismatches": 0,
+                    "error": str(e),
+                }
+            )
 
     # Print summary
     all_match = print_results(results)

@@ -65,17 +65,25 @@ def fetch_bars(ticker: str, timeframe: str) -> pd.DataFrame:
         df = pd.read_csv(cache_file, index_col=0, parse_dates=True)
     else:
         raw = yf.download(
-            ticker, period=period, interval=interval,
-            auto_adjust=True, progress=False,
+            ticker,
+            period=period,
+            interval=interval,
+            auto_adjust=True,
+            progress=False,
         )
         if raw.empty:
             raise RuntimeError(f"yfinance returned no data for {ticker} {interval}")
         if isinstance(raw.columns, pd.MultiIndex):
             raw.columns = raw.columns.get_level_values(0)
-        df = raw.rename(columns={
-            "Open": "open", "High": "high", "Low": "low",
-            "Close": "close", "Volume": "volume",
-        })[["open", "high", "low", "close", "volume"]]
+        df = raw.rename(
+            columns={
+                "Open": "open",
+                "High": "high",
+                "Low": "low",
+                "Close": "close",
+                "Volume": "volume",
+            }
+        )[["open", "high", "low", "close", "volume"]]
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         df.to_csv(cache_file)
 
@@ -114,16 +122,22 @@ def replay_config(config, df: pd.DataFrame, warmup_bars: int = 200) -> list[dict
         sig = result["signal"]
         if sig == "BUY" and not holding:
             holding = True
-            orders.append({
-                "timestamp": df.index[i], "side": "BUY",
-                "reason": result["reason"][:70],
-            })
+            orders.append(
+                {
+                    "timestamp": df.index[i],
+                    "side": "BUY",
+                    "reason": result["reason"][:70],
+                }
+            )
         elif sig == "SELL" and holding:
             holding = False
-            orders.append({
-                "timestamp": df.index[i], "side": "SELL",
-                "reason": result["reason"][:70],
-            })
+            orders.append(
+                {
+                    "timestamp": df.index[i],
+                    "side": "SELL",
+                    "reason": result["reason"][:70],
+                }
+            )
     return orders
 
 
@@ -138,7 +152,9 @@ def count_in_windows(orders: list[dict], data_end: pd.Timestamp) -> dict:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--configs", nargs="*", default=None,
+        "--configs",
+        nargs="*",
+        default=None,
         help="Specific config filenames (default: all in configs/production/)",
     )
     args = parser.parse_args()
@@ -169,14 +185,16 @@ def main():
         counts = count_in_windows(orders, data_end)
         coverage_days = (df.index[-1] - df.index[0]).days
 
-        rows.append({
-            "config": cf.name.replace(".json", ""),
-            "timeframe": config.timeframe,
-            "bars": len(df),
-            "coverage": f"{coverage_days}d",
-            **counts,
-            "total": len(orders),
-        })
+        rows.append(
+            {
+                "config": cf.name.replace(".json", ""),
+                "timeframe": config.timeframe,
+                "bars": len(df),
+                "coverage": f"{coverage_days}d",
+                **counts,
+                "total": len(orders),
+            }
+        )
         all_orders[cf.name] = orders
         print(
             f"done {cf.name}: {len(orders)} orders over {coverage_days}d "
@@ -184,30 +202,33 @@ def main():
         )
 
     print("\n" + "=" * 100)
-    print(f"{'config':<38} {'tf':<6} {'bars':>5} {'coverage':>9} "
-          f"{'week':>5} {'month':>6} {'year':>5} {'total':>6}")
+    print(
+        f"{'config':<38} {'tf':<6} {'bars':>5} {'coverage':>9} "
+        f"{'week':>5} {'month':>6} {'year':>5} {'total':>6}"
+    )
     print("-" * 100)
     for r in rows:
-        print(f"{r['config']:<38} {r['timeframe']:<6} {r['bars']:>5} "
-              f"{r['coverage']:>9} {r['last_week']:>5} {r['last_month']:>6} "
-              f"{r['last_year']:>5} {r['total']:>6}")
+        print(
+            f"{r['config']:<38} {r['timeframe']:<6} {r['bars']:>5} "
+            f"{r['coverage']:>9} {r['last_week']:>5} {r['last_month']:>6} "
+            f"{r['last_year']:>5} {r['total']:>6}"
+        )
     print("=" * 100)
 
     # Dump full order log for inspection
     log_path = DATA_DIR / "order_activity_log.json"
-    log_path.write_text(json.dumps(
-        {
-            "generated_at": datetime.now().isoformat(),
-            "orders": {
-                k: [
-                    {**o, "timestamp": o["timestamp"].isoformat()}
-                    for o in v
-                ]
-                for k, v in all_orders.items()
+    log_path.write_text(
+        json.dumps(
+            {
+                "generated_at": datetime.now().isoformat(),
+                "orders": {
+                    k: [{**o, "timestamp": o["timestamp"].isoformat()} for o in v]
+                    for k, v in all_orders.items()
+                },
             },
-        },
-        indent=2,
-    ))
+            indent=2,
+        )
+    )
     print(f"\nFull order log: {log_path}")
 
 

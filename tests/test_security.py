@@ -32,7 +32,7 @@ def test_no_secrets_in_configs():
         for file in files:
             if file.endswith(".json"):
                 file_path = os.path.join(root, file)
-                with open(file_path, 'r') as f:
+                with open(file_path, "r") as f:
                     content = f.read()
 
                 for pattern in secret_patterns:
@@ -62,7 +62,7 @@ def test_telegram_commands_check_chat_id():
         risk_manager=risk_manager,
         broker=broker,
         notifier=notifier,
-        config=config
+        config=config,
     )
 
     # Simulate message from WRONG chat_id in _poll_loop
@@ -70,17 +70,24 @@ def test_telegram_commands_check_chat_id():
     # We can verify the code checks msg_chat_id == self.chat_id
 
     # Read the source code to verify chat_id check exists
-    source_file = Path(__file__).parent.parent / "alphalive" / "notifications" / "telegram_commands.py"
-    with open(source_file, 'r') as f:
+    source_file = (
+        Path(__file__).parent.parent
+        / "alphalive"
+        / "notifications"
+        / "telegram_commands.py"
+    )
+    with open(source_file, "r") as f:
         source_code = f.read()
 
     # Verify chat_id check is present
-    assert "msg_chat_id == self.chat_id" in source_code, \
-        "Telegram commands MUST check chat_id for security"
+    assert (
+        "msg_chat_id == self.chat_id" in source_code
+    ), "Telegram commands MUST check chat_id for security"
 
     # Verify unauthorized chats are logged as warnings
-    assert 'logger.warning' in source_code and 'unauthorized chat' in source_code.lower(), \
-        "Unauthorized commands should be logged as warnings"
+    assert (
+        "logger.warning" in source_code and "unauthorized chat" in source_code.lower()
+    ), "Unauthorized commands should be logged as warnings"
 
 
 def test_telegram_rate_limiting():
@@ -108,7 +115,7 @@ def test_telegram_rate_limiting():
         risk_manager=risk_manager,
         broker=broker,
         notifier=notifier,
-        config=config
+        config=config,
     )
 
     # Send 10 commands rapidly (should all succeed)
@@ -136,26 +143,29 @@ def test_env_file_not_in_git():
     if not gitignore_path.exists():
         pytest.skip(".gitignore not found")
 
-    with open(gitignore_path, 'r') as f:
+    with open(gitignore_path, "r") as f:
         gitignore_content = f.read()
 
     # Check .env is in .gitignore
-    assert ".env" in gitignore_content, \
-        ".env file MUST be in .gitignore to prevent credential leaks"
+    assert (
+        ".env" in gitignore_content
+    ), ".env file MUST be in .gitignore to prevent credential leaks"
 
     # If .env exists, verify it's not tracked by git
     env_path = Path(__file__).parent.parent / ".env"
     if env_path.exists():
         import subprocess
+
         try:
             result = subprocess.run(
                 ["git", "ls-files", ".env"],
                 cwd=Path(__file__).parent.parent,
                 capture_output=True,
-                text=True
+                text=True,
             )
-            assert result.stdout.strip() == "", \
-                ".env file is tracked by git! Remove with: git rm --cached .env"
+            assert (
+                result.stdout.strip() == ""
+            ), ".env file is tracked by git! Remove with: git rm --cached .env"
         except FileNotFoundError:
             # Git not installed or not a git repo
             pytest.skip("Git not available")
@@ -166,23 +176,27 @@ def test_health_endpoint_requires_secret():
     from alphalive.health import HealthCheckHandler
 
     # Verify handler has secret attribute
-    assert hasattr(HealthCheckHandler, 'secret'), \
-        "HealthCheckHandler must have secret class variable"
+    assert hasattr(
+        HealthCheckHandler, "secret"
+    ), "HealthCheckHandler must have secret class variable"
 
     # Read source to verify authentication check exists
     source_file = Path(__file__).parent.parent / "alphalive" / "health.py"
-    with open(source_file, 'r') as f:
+    with open(source_file, "r") as f:
         source_code = f.read()
 
     # Verify authentication check is present
-    assert "X-Health-Secret" in source_code, \
-        "Health endpoint must check X-Health-Secret header"
+    assert (
+        "X-Health-Secret" in source_code
+    ), "Health endpoint must check X-Health-Secret header"
 
-    assert "401" in source_code or "Unauthorized" in source_code, \
-        "Health endpoint must return 401 for wrong secret"
+    assert (
+        "401" in source_code or "Unauthorized" in source_code
+    ), "Health endpoint must return 401 for wrong secret"
 
-    assert "503" in source_code or "disabled" in source_code.lower(), \
-        "Health endpoint should return 503 when HEALTH_SECRET not set"
+    assert (
+        "503" in source_code or "disabled" in source_code.lower()
+    ), "Health endpoint should return 503 when HEALTH_SECRET not set"
 
 
 def test_no_print_statements_with_secrets():
@@ -204,7 +218,7 @@ def test_no_print_statements_with_secrets():
             if any(exc in str(file_path) for exc in excluded_files):
                 continue
 
-            with open(file_path, 'r') as f:
+            with open(file_path, "r") as f:
                 lines = f.readlines()
 
             for i, line in enumerate(lines, 1):
@@ -215,9 +229,9 @@ def test_no_print_statements_with_secrets():
                     continue
 
                 # Check for print() statements
-                if re.search(r'\bprint\s*\(', line) and 'logger' not in line:
+                if re.search(r"\bprint\s*\(", line) and "logger" not in line:
                     # Allow print in specific contexts (banners, startup)
-                    if 'banner' in str(file_path).lower() or 'run.py' in str(file_path):
+                    if "banner" in str(file_path).lower() or "run.py" in str(file_path):
                         continue
 
                     pytest.fail(

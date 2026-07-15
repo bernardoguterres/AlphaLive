@@ -29,11 +29,40 @@ from alphalive.strategy_schema import StrategySchema
 # Strategy configs with default parameters
 STRATEGIES = [
     {"name": "ma_crossover", "params": {"fast_period": 20, "slow_period": 50}},
-    {"name": "rsi_mean_reversion", "params": {"period": 14, "oversold": 30, "overbought": 70}},
-    {"name": "momentum_breakout", "params": {"lookback": 20, "surge_pct": 1.5, "atr_period": 14, "volume_ma_period": 20}},
-    {"name": "bollinger_breakout", "params": {"period": 20, "std_dev": 2.0, "confirmation_bars": 2, "volume_ma_period": 20}},
-    {"name": "vwap_reversion", "params": {"deviation_threshold": 2.0, "rsi_period": 14, "oversold": 30, "overbought": 70, "vwap_std_period": 20}},
+    {
+        "name": "rsi_mean_reversion",
+        "params": {"period": 14, "oversold": 30, "overbought": 70},
+    },
+    {
+        "name": "momentum_breakout",
+        "params": {
+            "lookback": 20,
+            "surge_pct": 1.5,
+            "atr_period": 14,
+            "volume_ma_period": 20,
+        },
+    },
+    {
+        "name": "bollinger_breakout",
+        "params": {
+            "period": 20,
+            "std_dev": 2.0,
+            "confirmation_bars": 2,
+            "volume_ma_period": 20,
+        },
+    },
+    {
+        "name": "vwap_reversion",
+        "params": {
+            "deviation_threshold": 2.0,
+            "rsi_period": 14,
+            "oversold": 30,
+            "overbought": 70,
+            "vwap_std_period": 20,
+        },
+    },
 ]
+
 
 def load_fixture():
     """Load the canonical 500-bar fixture."""
@@ -48,13 +77,14 @@ def load_fixture():
     df.columns = df.columns.str.lower()
 
     # Parse timestamp/date column
-    if 'timestamp' in df.columns:
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-    elif 'date' in df.columns:
-        df['timestamp'] = pd.to_datetime(df['date'])
-        df = df.drop(columns=['date'])
+    if "timestamp" in df.columns:
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+    elif "date" in df.columns:
+        df["timestamp"] = pd.to_datetime(df["date"])
+        df = df.drop(columns=["date"])
 
     return df
+
 
 def load_alphalab_signals(strategy_name):
     """
@@ -70,6 +100,7 @@ def load_alphalab_signals(strategy_name):
 
     return pd.read_csv(signals_path)
 
+
 def run_parity_check(strategy_config, expected_signals, df):
     """Run signal engine and compare with expected signals."""
     engine = SignalEngine(strategy_config)
@@ -79,34 +110,39 @@ def run_parity_check(strategy_config, expected_signals, df):
 
     for i in range(len(df)):
         # Feed bars incrementally (simulate real-time)
-        df_slice = df.iloc[:i+1].copy()
+        df_slice = df.iloc[: i + 1].copy()
 
         if len(df_slice) < 50:  # Skip warmup period
             continue
 
         result = engine.generate_signal(df_slice)
-        actual_signal = result['signal']
+        actual_signal = result["signal"]
 
         # Get expected signal for this bar
-        expected_row = expected_signals[expected_signals['bar_index'] == i]
+        expected_row = expected_signals[expected_signals["bar_index"] == i]
         if expected_row.empty:
             continue
 
-        expected_signal = expected_row.iloc[0]['signal']
+        expected_signal = expected_row.iloc[0]["signal"]
 
-        if expected_signal != 'HOLD':
+        if expected_signal != "HOLD":
             signal_count += 1
 
         if actual_signal != expected_signal:
-            mismatches.append({
-                'bar': i,
-                'timestamp': df.iloc[i]['timestamp'] if 'timestamp' in df.columns else i,
-                'expected': expected_signal,
-                'actual': actual_signal,
-                'warmup_complete': result['warmup_complete']
-            })
+            mismatches.append(
+                {
+                    "bar": i,
+                    "timestamp": (
+                        df.iloc[i]["timestamp"] if "timestamp" in df.columns else i
+                    ),
+                    "expected": expected_signal,
+                    "actual": actual_signal,
+                    "warmup_complete": result["warmup_complete"],
+                }
+            )
 
     return mismatches, signal_count
+
 
 def main():
     print("=" * 60)
@@ -127,7 +163,7 @@ def main():
     all_passed = True
 
     for strat in STRATEGIES:
-        strategy_name = strat['name']
+        strategy_name = strat["name"]
         print(f"Testing {strategy_name}...", end=" ")
 
         # Load expected signals from AlphaLab
@@ -141,7 +177,7 @@ def main():
         try:
             config = StrategySchema(
                 schema_version="1.0",
-                strategy={"name": strategy_name, "parameters": strat['params']},
+                strategy={"name": strategy_name, "parameters": strat["params"]},
                 ticker="AAPL",
                 timeframe="1Day",
                 risk={
@@ -150,21 +186,16 @@ def main():
                     "max_position_size_pct": 10.0,
                     "max_daily_loss_pct": 5.0,
                     "max_open_positions": 3,
-                    "portfolio_max_positions": 10
+                    "portfolio_max_positions": 10,
                 },
-                execution={
-                    "order_type": "market"
-                },
+                execution={"order_type": "market"},
                 safety_limits={},
                 metadata={
                     "exported_from": "AlphaLive-MiniCheckpoint",
                     "exported_at": "2024-01-01T00:00:00Z",
                     "alphalab_version": "1.0.0",
                     "backtest_id": f"checkpoint_{strategy_name}",
-                    "backtest_period": {
-                        "start": "2022-01-01",
-                        "end": "2023-12-31"
-                    },
+                    "backtest_period": {"start": "2022-01-01", "end": "2023-12-31"},
                     "performance": {
                         "sharpe_ratio": 1.5,
                         "sortino_ratio": 2.0,
@@ -173,9 +204,9 @@ def main():
                         "win_rate_pct": 55.0,
                         "profit_factor": 1.8,
                         "total_trades": 100,
-                        "calmar_ratio": 2.5
-                    }
-                }
+                        "calmar_ratio": 2.5,
+                    },
+                },
             )
         except Exception as e:
             print(f"ERROR creating config: {e}")
@@ -191,14 +222,19 @@ def main():
             else:
                 print(f"{len(mismatches)} mismatches")
                 for mm in mismatches[:5]:  # Show first 5
-                    warmup_status = "(warmup incomplete)" if not mm['warmup_complete'] else ""
-                    print(f"   Bar {mm['bar']} ({mm['timestamp']}): expected {mm['expected']}, got {mm['actual']} {warmup_status}")
+                    warmup_status = (
+                        "(warmup incomplete)" if not mm["warmup_complete"] else ""
+                    )
+                    print(
+                        f"   Bar {mm['bar']} ({mm['timestamp']}): expected {mm['expected']}, got {mm['actual']} {warmup_status}"
+                    )
                 if len(mismatches) > 5:
                     print(f"   ... and {len(mismatches)-5} more")
                 all_passed = False
         except Exception as e:
             print(f"ERROR during parity check: {e}")
             import traceback
+
             traceback.print_exc()
             all_passed = False
 
@@ -212,6 +248,7 @@ def main():
         print("FAIL: Fix mismatches before proceeding to B5.")
         print("=" * 60)
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

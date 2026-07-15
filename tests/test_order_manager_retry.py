@@ -28,9 +28,17 @@ def _api_error(message, status_code):
 
 def _order(qty=66.0, filled_qty=66.0, filled_avg_price=150.0):
     return Order(
-        id="order_123", symbol="AAPL", qty=qty, side="buy", order_type="market",
-        limit_price=None, status="filled", filled_qty=filled_qty,
-        filled_avg_price=filled_avg_price, submitted_at=datetime.now(ET), filled_at=datetime.now(ET),
+        id="order_123",
+        symbol="AAPL",
+        qty=qty,
+        side="buy",
+        order_type="market",
+        limit_price=None,
+        status="filled",
+        filled_qty=filled_qty,
+        filled_avg_price=filled_avg_price,
+        submitted_at=datetime.now(ET),
+        filled_at=datetime.now(ET),
     )
 
 
@@ -38,23 +46,37 @@ def _order(qty=66.0, filled_qty=66.0, filled_avg_price=150.0):
 def sample_config():
     return StrategySchema(
         schema_version="1.0",
-        strategy={"name": "ma_crossover", "parameters": {"fast_period": 10, "slow_period": 20}},
+        strategy={
+            "name": "ma_crossover",
+            "parameters": {"fast_period": 10, "slow_period": 20},
+        },
         ticker="AAPL",
         timeframe="1Day",
         risk={
-            "stop_loss_pct": 2.0, "take_profit_pct": 5.0, "max_position_size_pct": 10.0,
-            "max_daily_loss_pct": 3.0, "max_open_positions": 5, "portfolio_max_positions": 10,
+            "stop_loss_pct": 2.0,
+            "take_profit_pct": 5.0,
+            "max_position_size_pct": 10.0,
+            "max_daily_loss_pct": 3.0,
+            "max_open_positions": 5,
+            "portfolio_max_positions": 10,
         },
         execution={"order_type": "market", "limit_offset_pct": 0.1, "cooldown_bars": 1},
         safety_limits={},
         metadata={
-            "exported_from": "AlphaLab", "exported_at": "2024-01-01T00:00:00Z",
-            "alphalab_version": "1.0.0", "backtest_id": "test",
+            "exported_from": "AlphaLab",
+            "exported_at": "2024-01-01T00:00:00Z",
+            "alphalab_version": "1.0.0",
+            "backtest_id": "test",
             "backtest_period": {"start": "2022-01-01", "end": "2023-12-31"},
             "performance": {
-                "sharpe_ratio": 1.5, "sortino_ratio": 2.0, "total_return_pct": 25.0,
-                "max_drawdown_pct": 10.0, "win_rate_pct": 55.0, "profit_factor": 1.8,
-                "total_trades": 100, "calmar_ratio": 2.5,
+                "sharpe_ratio": 1.5,
+                "sortino_ratio": 2.0,
+                "total_return_pct": 25.0,
+                "max_drawdown_pct": 10.0,
+                "win_rate_pct": 55.0,
+                "profit_factor": 1.8,
+                "total_trades": 100,
+                "calmar_ratio": 2.5,
             },
         },
     )
@@ -74,8 +96,11 @@ def om(sample_config, mock_risk_manager):
     broker = Mock()
     notifier = Mock()
     manager = OrderManager(
-        broker=broker, risk_manager=mock_risk_manager, config=sample_config,
-        notifier=notifier, dry_run=False,
+        broker=broker,
+        risk_manager=mock_risk_manager,
+        config=sample_config,
+        notifier=notifier,
+        dry_run=False,
     )
     return manager
 
@@ -170,7 +195,9 @@ def test_place_with_retry_recovers_via_wrapped_order_error_on_409(om):
 
     assert result is existing
     om.broker.get_order_by_client_id.assert_called_once_with("AAPL_buy_20260714_093500")
-    assert om.broker.place_market_order.call_count == 1  # no blind retry, no duplicate order
+    assert (
+        om.broker.place_market_order.call_count == 1
+    )  # no blind retry, no duplicate order
 
 
 def test_place_with_retry_wrapped_order_error_403_no_retry(om):
@@ -240,6 +267,7 @@ def test_place_with_retry_422_invalid_symbol_pauses_trading(om):
         with pytest.raises(ValueError, match="Invalid symbol"):
             om._place_with_retry(lambda: om.broker.place_market_order(), ticker="XYZ")
         import os
+
         assert os.environ["TRADING_PAUSED"] == "true"
 
 
@@ -304,7 +332,10 @@ def test_place_with_retry_5xx_exhausts_retries(om):
 
 
 def test_place_with_retry_non_api_exception_retries_then_succeeds(om):
-    om.broker.place_market_order.side_effect = [ConnectionError("network blip"), _order()]
+    om.broker.place_market_order.side_effect = [
+        ConnectionError("network blip"),
+        _order(),
+    ]
 
     with patch("time.sleep"):
         result = om._place_with_retry(
@@ -334,8 +365,12 @@ def test_execute_signal_limit_order_uses_calculated_limit_price(om):
     om.broker.place_limit_order.return_value = _order()
 
     result = om.execute_signal(
-        ticker="AAPL", signal={"signal": "BUY", "reason": "test"}, current_price=150.0,
-        account_equity=100000.0, current_positions_count=0, total_portfolio_positions=0,
+        ticker="AAPL",
+        signal={"signal": "BUY", "reason": "test"},
+        current_price=150.0,
+        account_equity=100000.0,
+        current_positions_count=0,
+        total_portfolio_positions=0,
     )
 
     assert result["status"] == "success"
@@ -349,12 +384,18 @@ def test_execute_signal_high_slippage_sends_alert(om):
     om.broker.place_market_order.return_value = _order(filled_avg_price=160.0)
 
     om.execute_signal(
-        ticker="AAPL", signal={"signal": "BUY", "reason": "test"}, current_price=150.0,
-        account_equity=100000.0, current_positions_count=0, total_portfolio_positions=0,
+        ticker="AAPL",
+        signal={"signal": "BUY", "reason": "test"},
+        current_price=150.0,
+        account_equity=100000.0,
+        current_positions_count=0,
+        total_portfolio_positions=0,
     )
 
     slippage_alerts = [
-        c.args[0] for c in om.notifier.send_alert.call_args_list if "slippage" in c.args[0].lower()
+        c.args[0]
+        for c in om.notifier.send_alert.call_args_list
+        if "slippage" in c.args[0].lower()
     ]
     assert len(slippage_alerts) == 1
 
@@ -363,13 +404,19 @@ def test_execute_signal_partial_fill_sends_alert(om):
     om.broker.place_market_order.return_value = _order(qty=66.0, filled_qty=30.0)
 
     result = om.execute_signal(
-        ticker="AAPL", signal={"signal": "BUY", "reason": "test"}, current_price=150.0,
-        account_equity=100000.0, current_positions_count=0, total_portfolio_positions=0,
+        ticker="AAPL",
+        signal={"signal": "BUY", "reason": "test"},
+        current_price=150.0,
+        account_equity=100000.0,
+        current_positions_count=0,
+        total_portfolio_positions=0,
     )
 
     assert result["filled_qty"] == 30.0
     partial_alerts = [
-        c.args[0] for c in om.notifier.send_alert.call_args_list if "partial" in c.args[0].lower()
+        c.args[0]
+        for c in om.notifier.send_alert.call_args_list
+        if "partial" in c.args[0].lower()
     ]
     assert len(partial_alerts) == 1
 
@@ -378,8 +425,12 @@ def test_execute_signal_order_error_returns_error_status(om):
     om.broker.place_market_order.side_effect = RuntimeError("broker unreachable")
 
     result = om.execute_signal(
-        ticker="AAPL", signal={"signal": "BUY", "reason": "test"}, current_price=150.0,
-        account_equity=100000.0, current_positions_count=0, total_portfolio_positions=0,
+        ticker="AAPL",
+        signal={"signal": "BUY", "reason": "test"},
+        current_price=150.0,
+        account_equity=100000.0,
+        current_positions_count=0,
+        total_portfolio_positions=0,
     )
 
     assert result["status"] == "error"

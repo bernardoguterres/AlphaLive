@@ -30,8 +30,10 @@ PROJECT_ROOT = Path(__file__).parent.parent
 from alphalive.strategy.signal_engine import SignalEngine
 from alphalive.strategy_schema import StrategySchema
 
-FIXTURE_PATH  = PROJECT_ROOT / "tests" / "fixtures" / "aapl_weekly_fixture.csv"
-EXPECTED_PATH = PROJECT_ROOT / "tests" / "fixtures" / "expected_signals_greenblatt_weekly.csv"
+FIXTURE_PATH = PROJECT_ROOT / "tests" / "fixtures" / "aapl_weekly_fixture.csv"
+EXPECTED_PATH = (
+    PROJECT_ROOT / "tests" / "fixtures" / "expected_signals_greenblatt_weekly.csv"
+)
 
 STRATEGY_PARAMS = {
     "fast_sma": 10,
@@ -99,18 +101,21 @@ def _run_engine(df: pd.DataFrame) -> list[dict]:
     for i in range(len(df)):
         slice_ = df.iloc[: i + 1].copy()
         result = engine.generate_signal(slice_)
-        results.append({
-            "bar_index": i,
-            "signal": result["signal"],
-            "confidence": result.get("confidence", 0.0),
-            "reason": result.get("reason", ""),
-        })
+        results.append(
+            {
+                "bar_index": i,
+                "signal": result["signal"],
+                "confidence": result.get("confidence", 0.0),
+                "reason": result.get("reason", ""),
+            }
+        )
     return results
 
 
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestGreenblattWeeklyParity:
 
@@ -132,8 +137,8 @@ class TestGreenblattWeeklyParity:
                     f"| reason: {self.actual[i]['reason'][:80]}"
                 )
 
-        assert mismatches == [], (
-            f"{len(mismatches)} mismatch(es):\n" + "\n".join(mismatches)
+        assert mismatches == [], f"{len(mismatches)} mismatch(es):\n" + "\n".join(
+            mismatches
         )
 
     def test_buy_signals_match(self):
@@ -144,9 +149,9 @@ class TestGreenblattWeeklyParity:
             if r["signal"] == "BUY"
         )
         actual_buys = {r["bar_index"] for r in self.actual if r["signal"] == "BUY"}
-        assert expected_buys == actual_buys, (
-            f"BUY bar mismatch - expected {sorted(expected_buys)}, got {sorted(actual_buys)}"
-        )
+        assert (
+            expected_buys == actual_buys
+        ), f"BUY bar mismatch - expected {sorted(expected_buys)}, got {sorted(actual_buys)}"
 
     def test_sell_signals_match(self):
         """Every SELL produced by AlphaLab must appear in AlphaLive at the same bar."""
@@ -156,9 +161,9 @@ class TestGreenblattWeeklyParity:
             if r["signal"] == "SELL"
         )
         actual_sells = {r["bar_index"] for r in self.actual if r["signal"] == "SELL"}
-        assert expected_sells == actual_sells, (
-            f"SELL bar mismatch - expected {sorted(expected_sells)}, got {sorted(actual_sells)}"
-        )
+        assert (
+            expected_sells == actual_sells
+        ), f"SELL bar mismatch - expected {sorted(expected_sells)}, got {sorted(actual_sells)}"
 
     def test_no_spurious_signals(self):
         """AlphaLive must not generate signals that AlphaLab did not."""
@@ -177,7 +182,9 @@ class TestGreenblattWeeklyParity:
 
     def test_entry_state_resets_correctly(self):
         """After each SELL, the next BUY must be possible (state resets)."""
-        signals = [(r["bar_index"], r["signal"]) for r in self.actual if r["signal"] != "HOLD"]
+        signals = [
+            (r["bar_index"], r["signal"]) for r in self.actual if r["signal"] != "HOLD"
+        ]
         pairs = list(zip(signals, signals[1:]))
         for (b1, s1), (b2, s2) in pairs:
             if s1 == "SELL":
@@ -190,14 +197,22 @@ class TestGreenblattWeeklyParity:
         """SELL signals must all be trailing-stop exits (optional exits are disabled)."""
         for _, r in self.expected.iterrows():
             if r["signal"] == "SELL":
-                assert "trailing stop" in str(r["reason"]).lower(), (
-                    f"SELL at bar {int(r['bar_index'])} is not a trailing stop: {r['reason']}"
-                )
+                assert (
+                    "trailing stop" in str(r["reason"]).lower()
+                ), f"SELL at bar {int(r['bar_index'])} is not a trailing stop: {r['reason']}"
 
     def test_min_hold_respected_between_entry_and_trailing_stop(self):
         """Trailing stop can fire before min_hold; all other exits must not."""
-        buy_bars  = [int(r["bar_index"]) for _, r in self.expected.iterrows() if r["signal"] == "BUY"]
-        sell_bars = [int(r["bar_index"]) for _, r in self.expected.iterrows() if r["signal"] == "SELL"]
+        buy_bars = [
+            int(r["bar_index"])
+            for _, r in self.expected.iterrows()
+            if r["signal"] == "BUY"
+        ]
+        sell_bars = [
+            int(r["bar_index"])
+            for _, r in self.expected.iterrows()
+            if r["signal"] == "SELL"
+        ]
         for entry, exit_ in zip(buy_bars, sell_bars):
             hold_weeks = exit_ - entry
             assert hold_weeks >= 1, (
@@ -210,16 +225,16 @@ class TestGreenblattWeeklyParity:
 
     def test_fixture_has_required_columns(self):
         required = {"timestamp", "open", "high", "low", "close", "volume"}
-        assert required.issubset(set(self.df.columns)), (
-            f"Missing columns: {required - set(self.df.columns)}"
-        )
+        assert required.issubset(
+            set(self.df.columns)
+        ), f"Missing columns: {required - set(self.df.columns)}"
 
     def test_expected_signal_count(self):
         non_hold = self.expected[self.expected["signal"] != "HOLD"]
         assert len(non_hold) == 5, f"Expected 5 non-HOLD signals, got {len(non_hold)}"
 
     def test_entry_exit_balance(self):
-        buys  = len([r for _, r in self.expected.iterrows() if r["signal"] == "BUY"])
+        buys = len([r for _, r in self.expected.iterrows() if r["signal"] == "BUY"])
         sells = len([r for _, r in self.expected.iterrows() if r["signal"] == "SELL"])
         assert buys == sells + 1 or buys == sells, (
             f"Unbalanced entries/exits: {buys} BUY, {sells} SELL "
@@ -232,7 +247,10 @@ class TestGreenblattWeeklyParity:
 # ---------------------------------------------------------------------------
 
 EXPECTED_RSI_EXIT_PATH = (
-    PROJECT_ROOT / "tests" / "fixtures" / "expected_signals_greenblatt_weekly_rsi_exit.csv"
+    PROJECT_ROOT
+    / "tests"
+    / "fixtures"
+    / "expected_signals_greenblatt_weekly_rsi_exit.csv"
 )
 
 
@@ -253,7 +271,8 @@ def _run_engine_with_min_hold(df: pd.DataFrame) -> list[dict]:
     hold = {"entry_bar": None, "current_bar": 0}
     engine.min_hold_checker = lambda: (
         hold["entry_bar"] is not None
-        and (hold["current_bar"] - hold["entry_bar"]) >= STRATEGY_PARAMS["min_hold_bars"]
+        and (hold["current_bar"] - hold["entry_bar"])
+        >= STRATEGY_PARAMS["min_hold_bars"]
     )
 
     results = []
@@ -264,7 +283,9 @@ def _run_engine_with_min_hold(df: pd.DataFrame) -> list[dict]:
             hold["entry_bar"] = i
         elif result["signal"] == "SELL":
             hold["entry_bar"] = None
-        results.append({"bar_index": i, "signal": result["signal"], "reason": result["reason"]})
+        results.append(
+            {"bar_index": i, "signal": result["signal"], "reason": result["reason"]}
+        )
     return results
 
 
@@ -292,22 +313,24 @@ class TestGreenblattWeeklyParityRsiExit:
                     f"bar {i}: expected {exp_row['signal']}, got {self.actual[i]['signal']} "
                     f"| reason: {self.actual[i]['reason'][:80]}"
                 )
-        assert mismatches == [], (
-            f"{len(mismatches)} mismatch(es):\n" + "\n".join(mismatches)
+        assert mismatches == [], f"{len(mismatches)} mismatch(es):\n" + "\n".join(
+            mismatches
         )
 
     def test_rsi_exits_respect_min_hold(self):
         """Every RSI-overbought SELL in the expected set held >= 52 weeks."""
-        non_hold = self.expected[self.expected["signal"] != "HOLD"].reset_index(drop=True)
+        non_hold = self.expected[self.expected["signal"] != "HOLD"].reset_index(
+            drop=True
+        )
         entry_bar = None
         for _, row in non_hold.iterrows():
             if row["signal"] == "BUY":
                 entry_bar = int(row["bar_index"])
             elif "RSI overbought" in str(row["reason"]):
                 held = int(row["bar_index"]) - entry_bar
-                assert held >= STRATEGY_PARAMS["min_hold_bars"], (
-                    f"RSI exit at bar {int(row['bar_index'])} held only {held}w"
-                )
+                assert (
+                    held >= STRATEGY_PARAMS["min_hold_bars"]
+                ), f"RSI exit at bar {int(row['bar_index'])} held only {held}w"
 
     def test_gate_is_load_bearing(self):
         """Without the min-hold gate the engine must exit EARLIER than

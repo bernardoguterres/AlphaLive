@@ -51,10 +51,7 @@ class TelegramNotifier:
     """
 
     def __init__(
-        self,
-        bot_token: Optional[str],
-        chat_id: Optional[str],
-        enabled: bool = True
+        self, bot_token: Optional[str], chat_id: Optional[str], enabled: bool = True
     ):
         """
         Initialize Telegram notifier.
@@ -186,11 +183,7 @@ class TelegramNotifier:
                 self.last_retry_attempt = current_time
 
         def _post_once() -> httpx.Response:
-            payload = {
-                "chat_id": self.chat_id,
-                "text": text,
-                "parse_mode": parse_mode
-            }
+            payload = {"chat_id": self.chat_id, "text": text, "parse_mode": parse_mode}
             response = httpx.post(self.api_url, json=payload, timeout=10.0)
             if response.status_code != 200:
                 # Not a raise-for-status HTTP client error - raise our own
@@ -205,7 +198,9 @@ class TelegramNotifier:
                     RetryDecision.RETRY,
                     log_message=f"Telegram API error: {e.status_code} - {e.body}",
                 )
-            return RetryOutcome(RetryDecision.RETRY, log_message=f"Telegram send failed: {e}")
+            return RetryOutcome(
+                RetryDecision.RETRY, log_message=f"Telegram send failed: {e}"
+            )
 
         try:
             # Max 3 retries with exponential backoff (1s, 2s, 4s).
@@ -231,7 +226,9 @@ class TelegramNotifier:
         logger.debug("Telegram message sent successfully")
         return True
 
-    def send_startup_notification(self, strategy_name: str, ticker: str, config: Dict[str, Any]):
+    def send_startup_notification(
+        self, strategy_name: str, ticker: str, config: Dict[str, Any]
+    ):
         """
         Send bot startup notification.
 
@@ -272,12 +269,7 @@ class TelegramNotifier:
         self.send_message(text)
 
     def send_trade_notification(
-        self,
-        ticker: str,
-        side: str,
-        qty: float,
-        price: float,
-        reason: str
+        self, ticker: str, side: str, qty: float, price: float, reason: str
     ):
         """
         Send trade execution notification.
@@ -310,7 +302,7 @@ class TelegramNotifier:
         exit_price: float,
         pnl: float,
         pnl_pct: float,
-        reason: str
+        reason: str,
     ):
         """
         Send position closed notification.
@@ -371,7 +363,7 @@ class TelegramNotifier:
             stats: Daily statistics dict with keys:
                    trades, pnl, win_rate, start_equity, end_equity
         """
-        pnl = stats.get('pnl', 0.0)
+        pnl = stats.get("pnl", 0.0)
         emoji = "📈" if pnl > 0 else "📉" if pnl < 0 else "➖"
 
         text = (

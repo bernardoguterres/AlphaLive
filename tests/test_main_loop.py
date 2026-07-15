@@ -52,19 +52,29 @@ def _sleep_raises_after(n_calls):
 @pytest.fixture
 def main_mocks(sample_strategy_config):
     """Patch every external dependency main() touches."""
-    with patch("alphalive.main.load_config_path") as m_load_cfg, \
-         patch("alphalive.main.load_env") as m_load_env, \
-         patch("alphalive.main.validate_all") as m_validate, \
-         patch("alphalive.main.BotState") as m_state_cls, \
-         patch("alphalive.main.AlpacaBroker") as m_broker_cls, \
-         patch("alphalive.main.MarketDataFetcher") as m_md_cls, \
-         patch("alphalive.main.SignalEngine") as m_signal_cls, \
-         patch("alphalive.main.RiskManager") as m_risk_cls, \
-         patch("alphalive.main.OrderManager") as m_om_cls, \
-         patch("alphalive.main.TelegramNotifier") as m_notifier_cls, \
-         patch("alphalive.main.TelegramCommandListener") as m_cmd_cls, \
-         patch("alphalive.main.signal.signal"), \
-         patch("alphalive.main.time.sleep") as m_sleep:
+    with patch("alphalive.main.load_config_path") as m_load_cfg, patch(
+        "alphalive.main.load_env"
+    ) as m_load_env, patch("alphalive.main.validate_all") as m_validate, patch(
+        "alphalive.main.BotState"
+    ) as m_state_cls, patch(
+        "alphalive.main.AlpacaBroker"
+    ) as m_broker_cls, patch(
+        "alphalive.main.MarketDataFetcher"
+    ) as m_md_cls, patch(
+        "alphalive.main.SignalEngine"
+    ) as m_signal_cls, patch(
+        "alphalive.main.RiskManager"
+    ) as m_risk_cls, patch(
+        "alphalive.main.OrderManager"
+    ) as m_om_cls, patch(
+        "alphalive.main.TelegramNotifier"
+    ) as m_notifier_cls, patch(
+        "alphalive.main.TelegramCommandListener"
+    ) as m_cmd_cls, patch(
+        "alphalive.main.signal.signal"
+    ), patch(
+        "alphalive.main.time.sleep"
+    ) as m_sleep:
 
         m_load_cfg.return_value = [sample_strategy_config]
         m_load_env.return_value = _make_app_config()
@@ -85,14 +95,23 @@ def main_mocks(sample_strategy_config):
 
         m_md = m_md_cls.return_value
         import pandas as pd
-        m_md.get_latest_bars.return_value = pd.DataFrame({
-            "open": [100.0] * 5, "high": [101.0] * 5, "low": [99.0] * 5,
-            "close": [100.5] * 5, "volume": [1000] * 5,
-        })
+
+        m_md.get_latest_bars.return_value = pd.DataFrame(
+            {
+                "open": [100.0] * 5,
+                "high": [101.0] * 5,
+                "low": [99.0] * 5,
+                "close": [100.5] * 5,
+                "volume": [1000] * 5,
+            }
+        )
 
         m_signal_engine = m_signal_cls.return_value
         m_signal_engine.generate_signal.return_value = {
-            "warmup_complete": True, "signal": "HOLD", "confidence": 0.5, "reason": "n/a",
+            "warmup_complete": True,
+            "signal": "HOLD",
+            "confidence": 0.5,
+            "reason": "n/a",
         }
 
         m_notifier = m_notifier_cls.return_value
@@ -158,7 +177,9 @@ def test_main_weekend_sleep_path(main_mocks):
     # Saturday
     with patch("alphalive.main.datetime") as m_dt:
         m_dt.now.return_value = datetime(2024, 1, 6, 10, 0, tzinfo=ET)  # Sat
-        main_module.main(config_path="dummy.json")  # returns after KeyboardInterrupt break
+        main_module.main(
+            config_path="dummy.json"
+        )  # returns after KeyboardInterrupt break
 
     main_mocks["notifier"].send_message.assert_called()  # startup message sent
 
@@ -177,7 +198,9 @@ def test_main_market_open_runs_signal_and_exit_checks(main_mocks):
     main_mocks["sleep"].side_effect = _sleep_raises_after(1)
 
     with patch("alphalive.main.datetime") as m_dt:
-        m_dt.now.return_value = datetime(2024, 1, 2, 9, 40, tzinfo=ET)  # Tue, market open
+        m_dt.now.return_value = datetime(
+            2024, 1, 2, 9, 40, tzinfo=ET
+        )  # Tue, market open
         main_module.main(config_path="dummy.json")
 
     # Exit checks and signal checks should have touched the broker
@@ -246,7 +269,9 @@ def test_main_after_hours_sends_eod_summary_then_sleeps(main_mocks):
     main_mocks["sleep"].side_effect = _sleep_raises_after(1)
 
     with patch("alphalive.main.datetime") as m_dt:
-        m_dt.now.return_value = datetime(2024, 1, 2, 16, 30, tzinfo=ET)  # Tue, after hours
+        m_dt.now.return_value = datetime(
+            2024, 1, 2, 16, 30, tzinfo=ET
+        )  # Tue, after hours
         main_module.main(config_path="dummy.json")
 
     main_mocks["notifier"].send_daily_summary.assert_called_once()
@@ -300,8 +325,9 @@ def test_main_alphasignal_enabled(main_mocks):
     main_mocks["broker"].is_market_open.return_value = False
     main_mocks["sleep"].side_effect = _sleep_raises_after(1)
 
-    with patch("alphalive.main.AlphaSignalClient") as m_alphasignal_cls, \
-         patch("alphalive.main.datetime") as m_dt:
+    with patch("alphalive.main.AlphaSignalClient") as m_alphasignal_cls, patch(
+        "alphalive.main.datetime"
+    ) as m_dt:
         m_dt.now.return_value = datetime(2024, 1, 6, 10, 0, tzinfo=ET)
         main_module.main(config_path="dummy.json")
 
@@ -325,6 +351,7 @@ def test_main_sigterm_handler_sends_shutdown_notification(main_mocks):
             main_module.main(config_path="dummy.json")
 
     import signal as signal_mod
+
     handler = captured_handler[signal_mod.SIGTERM]
 
     with pytest.raises(SystemExit) as exc_info:

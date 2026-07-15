@@ -12,15 +12,31 @@ import pytest
 
 from alphalive.utils.env_bool import parse_bool_env, read_bool_env
 
-
 TRUTHY_INPUTS = [
-    "true", "True", "TRUE", " true ", "true ", " true",
-    "1", "yes", "Yes", "on", "ON",
+    "true",
+    "True",
+    "TRUE",
+    " true ",
+    "true ",
+    " true",
+    "1",
+    "yes",
+    "Yes",
+    "on",
+    "ON",
 ]
 
 FALSY_INPUTS = [
-    "false", "False", "FALSE", " false ", "false ",
-    "0", "no", "No", "off", "OFF",
+    "false",
+    "False",
+    "FALSE",
+    " false ",
+    "false ",
+    "0",
+    "no",
+    "No",
+    "off",
+    "OFF",
 ]
 
 

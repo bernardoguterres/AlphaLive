@@ -81,7 +81,9 @@ def retry_with_backoff(
             if outcome.decision is RetryDecision.FATAL or attempt >= max_retries:
                 raise
 
-            wait = outcome.delay_override if outcome.delay_override is not None else delay
+            wait = (
+                outcome.delay_override if outcome.delay_override is not None else delay
+            )
             logger.warning(
                 outcome.log_message
                 or f"Retryable error (attempt {attempt}/{max_retries}): {e}. "

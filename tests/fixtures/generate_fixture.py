@@ -13,7 +13,7 @@ np.random.seed(42)
 
 # Generate 500 bars starting from 2022-01-03
 start_date = datetime(2022, 1, 3)
-dates = pd.date_range(start=start_date, periods=500, freq='B')  # Business days
+dates = pd.date_range(start=start_date, periods=500, freq="B")  # Business days
 
 # Generate realistic price movement (random walk with drift)
 initial_price = 180.0
@@ -28,7 +28,7 @@ low_prices = close_prices * (1 - np.random.uniform(0.002, 0.015, 500))
 open_prices = np.zeros(500)
 open_prices[0] = close_prices[0] * (1 + np.random.normal(0, 0.005))
 for i in range(1, 500):
-    open_prices[i] = close_prices[i-1] * (1 + np.random.normal(0, 0.005))
+    open_prices[i] = close_prices[i - 1] * (1 + np.random.normal(0, 0.005))
 
 # Ensure high is highest and low is lowest
 for i in range(500):
@@ -41,17 +41,19 @@ base_volume = 80_000_000
 volume = np.random.lognormal(np.log(base_volume), 0.3, 500).astype(int)
 
 # Create DataFrame
-df = pd.DataFrame({
-    'timestamp': dates,
-    'open': open_prices,
-    'high': high_prices,
-    'low': low_prices,
-    'close': close_prices,
-    'volume': volume
-})
+df = pd.DataFrame(
+    {
+        "timestamp": dates,
+        "open": open_prices,
+        "high": high_prices,
+        "low": low_prices,
+        "close": close_prices,
+        "volume": volume,
+    }
+)
 
 # Save to CSV
-output_path = 'tests/fixtures/aapl_fixture_500bars.csv'
+output_path = "tests/fixtures/aapl_fixture_500bars.csv"
 df.to_csv(output_path, index=False)
 
 print(f"Generated {len(df)} bars of synthetic AAPL data")

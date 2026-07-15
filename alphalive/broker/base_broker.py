@@ -15,6 +15,7 @@ from typing import List, Optional, Dict, Any
 @dataclass
 class Position:
     """Represents an open position."""
+
     symbol: str
     qty: float
     side: str  # "long" or "short"
@@ -28,6 +29,7 @@ class Position:
 @dataclass
 class Order:
     """Represents an order."""
+
     id: str
     symbol: str
     qty: float
@@ -44,6 +46,7 @@ class Order:
 @dataclass
 class Account:
     """Represents account information."""
+
     equity: float
     cash: float
     buying_power: float
@@ -75,16 +78,19 @@ class BrokerError(Exception):
 
 class AuthenticationError(BrokerError):
     """Raised when authentication fails."""
+
     pass
 
 
 class RateLimitError(BrokerError):
     """Raised when API rate limit is exceeded."""
+
     pass
 
 
 class OrderError(BrokerError):
     """Raised when order placement/management fails."""
+
     pass
 
 
@@ -332,7 +338,7 @@ class BaseBroker(ABC):
         timeframe: str,
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
-        limit: Optional[int] = None
+        limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         Get historical bars (OHLCV data).
@@ -364,11 +370,7 @@ class BaseBroker(ABC):
 
     @abstractmethod
     def get_historical_bars(
-        self,
-        symbol: str,
-        timeframe: str,
-        start: datetime,
-        end: datetime
+        self, symbol: str, timeframe: str, start: datetime, end: datetime
     ):
         """
         Get historical bars for replay mode (returns pandas DataFrame).

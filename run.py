@@ -27,13 +27,17 @@ def print_banner(args, paper):
     print("=" * 80)
     print(f"  Config: {args.config}")
 
-    if hasattr(args, 'replay_mode') and args.replay_mode:
+    if hasattr(args, "replay_mode") and args.replay_mode:
         print(f"Mode: REPLAY MODE (Historical Data Testing - FREE)")
         print(f"  Period: {args.replay_start} to {args.replay_end}")
     else:
-        print(f"Mode: {'DRY RUN (no real orders)' if args.dry_run else ('PAPER TRADING' if paper else 'LIVE TRADING ')}")
+        print(
+            f"Mode: {'DRY RUN (no real orders)' if args.dry_run else ('PAPER TRADING' if paper else 'LIVE TRADING ')}"
+        )
 
-    print(f"  Platform: {'Railway' if os.environ.get('RAILWAY_ENVIRONMENT') else 'Local'}")
+    print(
+        f"  Platform: {'Railway' if os.environ.get('RAILWAY_ENVIRONMENT') else 'Local'}"
+    )
     print("=" * 80)
 
 
@@ -89,54 +93,55 @@ Environment Variables:
   DRY_RUN               - Log trades without executing (true/false, default: false)
   LOG_LEVEL             - Logging level (DEBUG/INFO/WARNING/ERROR, default: INFO)
   TRADING_PAUSED        - Pause all trading (true/false, default: false)
-        """
+        """,
     )
 
     parser.add_argument(
         "--config",
-        default=os.environ.get("STRATEGY_CONFIG_DIR") or os.environ.get("STRATEGY_CONFIG", "configs/strategy.json"),
-        help="Path to strategy JSON file or directory (default: STRATEGY_CONFIG_DIR or STRATEGY_CONFIG env var)"
+        default=os.environ.get("STRATEGY_CONFIG_DIR")
+        or os.environ.get("STRATEGY_CONFIG", "configs/strategy.json"),
+        help="Path to strategy JSON file or directory (default: STRATEGY_CONFIG_DIR or STRATEGY_CONFIG env var)",
     )
 
     parser.add_argument(
         "--dry-run",
         action="store_true",
         default=_read_bool_env_or_exit("DRY_RUN", default=False),
-        help="Log all actions but don't place real orders"
+        help="Log all actions but don't place real orders",
     )
 
     parser.add_argument(
         "--validate-only",
         action="store_true",
-        help="Validate config and connections, then exit"
+        help="Validate config and connections, then exit",
     )
 
     # Replay mode arguments
     parser.add_argument(
         "--replay-mode",
         action="store_true",
-        help="Run in replay mode using historical data (FREE - no subscription needed)"
+        help="Run in replay mode using historical data (FREE - no subscription needed)",
     )
 
     parser.add_argument(
         "--replay-start",
         type=str,
         default="2015-01-01",
-        help="Replay start date (YYYY-MM-DD) - Default: 2015-01-01 (pre-COVID)"
+        help="Replay start date (YYYY-MM-DD) - Default: 2015-01-01 (pre-COVID)",
     )
 
     parser.add_argument(
         "--replay-end",
         type=str,
         default="2019-12-31",
-        help="Replay end date (YYYY-MM-DD) - Default: 2019-12-31 (pre-COVID)"
+        help="Replay end date (YYYY-MM-DD) - Default: 2019-12-31 (pre-COVID)",
     )
 
     parser.add_argument(
         "--replay-speed",
         type=int,
         default=0,
-        help="Replay speed multiplier (0=instant, 1=1sec per day, etc.) - Default: 0"
+        help="Replay speed multiplier (0=instant, 1=1sec per day, etc.) - Default: 0",
     )
 
     args = parser.parse_args()
@@ -184,7 +189,7 @@ Environment Variables:
                 api_key=app_config.broker.api_key,
                 secret_key=app_config.broker.secret_key,
                 paper=app_config.broker.paper,
-                base_url=app_config.broker.base_url
+                base_url=app_config.broker.base_url,
             )
 
             if broker.connect():
@@ -202,18 +207,18 @@ Environment Variables:
 
             market_data = MarketDataFetcher(
                 api_key=app_config.broker.api_key,
-                secret_key=app_config.broker.secret_key
+                secret_key=app_config.broker.secret_key,
             )
 
             test_strategy = strategy_configs[0]  # Use first strategy for testing
 
             try:
                 df = market_data.get_latest_bars(
-                    test_strategy.ticker,
-                    test_strategy.timeframe,
-                    lookback_bars=50
+                    test_strategy.ticker, test_strategy.timeframe, lookback_bars=50
                 )
-                print(f"Market data OK ({len(df)} bars fetched for {test_strategy.ticker})")
+                print(
+                    f"Market data OK ({len(df)} bars fetched for {test_strategy.ticker})"
+                )
                 print()
             except Exception as e:
                 print(f"Market data error: {e}")
@@ -243,6 +248,7 @@ Environment Variables:
         except Exception as e:
             print(f"Validation error: {e}")
             import traceback
+
             traceback.print_exc()
             sys.exit(1)
 
@@ -260,6 +266,7 @@ Environment Variables:
 
     # Setup logging
     from alphalive.utils.logger import setup_logger
+
     setup_logger()
 
     # Run main loop
@@ -273,7 +280,7 @@ Environment Variables:
             replay_mode=args.replay_mode,
             replay_start=args.replay_start,
             replay_end=args.replay_end,
-            replay_speed=args.replay_speed
+            replay_speed=args.replay_speed,
         )
     except KeyboardInterrupt:
         print()
@@ -282,6 +289,7 @@ Environment Variables:
     except Exception as e:
         print(f"Fatal error: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

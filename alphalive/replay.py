@@ -187,9 +187,7 @@ class ReplaySimulator:
             bars = self._get_bars_up_to_date(ticker, current_date, lookback_bars=250)
 
             if len(bars) < 50:
-                logger.warning(
-                f"Insufficient data for {ticker} (need warmup period)"
-                )
+                logger.warning(f"Insufficient data for {ticker} (need warmup period)")
                 continue
 
             # Generate signal
@@ -287,7 +285,7 @@ class ReplaySimulator:
         cost = shares * current_price
 
         logger.info(
-        f"[REPLAY] {side} {shares} {ticker} @ ${current_price:.2f} (${cost:,.2f})"
+            f"[REPLAY] {side} {shares} {ticker} @ ${current_price:.2f} (${cost:,.2f})"
         )
 
         # Track position

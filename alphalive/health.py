@@ -90,14 +90,14 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             "status": "ok",
             "uptime": uptime,
             "last_check": datetime.now(ET).isoformat(),
-            **self.health_data
+            **self.health_data,
         }
 
         # Send response
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
-        self.wfile.write(json.dumps(payload).encode('utf-8'))
+        self.wfile.write(json.dumps(payload).encode("utf-8"))
 
         logger.debug(f"Health check successful from {self.client_address[0]}")
 
@@ -155,9 +155,7 @@ class HealthServer:
 
             # Start server in daemon thread (won't block main loop)
             self.thread = threading.Thread(
-                target=self.server.serve_forever,
-                daemon=True,
-                name="HealthCheckServer"
+                target=self.server.serve_forever, daemon=True, name="HealthCheckServer"
             )
             self.thread.start()
 
@@ -189,7 +187,9 @@ class HealthServer:
             logger.info("Health check server stopped")
 
 
-def create_health_server(config, dry_run: bool = False, paper: bool = True) -> HealthServer:
+def create_health_server(
+    config, dry_run: bool = False, paper: bool = True
+) -> HealthServer:
     """
     Create and start health check server.
 
@@ -215,13 +215,13 @@ def create_health_server(config, dry_run: bool = False, paper: bool = True) -> H
 
     health_data = {
         "warmup_complete": True,  # Updated after first signal check
-        "bars_loaded": 0,         # Updated after market data fetch
+        "bars_loaded": 0,  # Updated after market data fetch
         "trading_paused": trading_paused_display,
         "dry_run": dry_run,
         "paper": paper,
         "strategy": config.strategy.name,
         "ticker": config.ticker,
-        "timeframe": config.timeframe
+        "timeframe": config.timeframe,
     }
 
     health = HealthServer(port=port, health_data=health_data)
