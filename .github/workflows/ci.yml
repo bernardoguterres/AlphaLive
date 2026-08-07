@@ -12,6 +12,23 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: AlphaLive
+
+      # Checks out AlphaLab as a sibling directory so test_schema_contract.py
+      # (cross-repo StrategyExportSchema/StrategySchema parity check) actually
+      # runs in CI instead of hitting its own "AlphaLive not found" skip branch
+      # (the test lives in both repos; this side needs AlphaLab present).
+      # Uses ALPHA_CROSS_REPO_PAT if set (needed if AlphaLab is private), else
+      # falls back to the default token (works if AlphaLab is public).
+      # continue-on-error so a missing/misscoped secret degrades to a skipped
+      # contract test rather than failing the whole build.
+      - uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          repository: bernardoguterres/AlphaLab
+          path: AlphaLab
+          token: ${{ secrets.ALPHA_CROSS_REPO_PAT || github.token }}
 
       - uses: actions/setup-python@v5
         with:
@@ -22,9 +39,11 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install -r dashboard/requirements.txt
+        working-directory: AlphaLive
 
       - name: Run tests
         run: pytest tests/ -v --tb=short
+        working-directory: AlphaLive
         env:
           # Broker + Telegram are fully mocked in tests - dummy values prevent
           # any accidental real API calls while satisfying import-time env checks.
