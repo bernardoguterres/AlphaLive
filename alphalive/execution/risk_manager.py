@@ -7,7 +7,6 @@ Checks position sizing, stop loss, take profit, daily limits, and circuit breake
 Critical: This is the last line of defense against runaway losses.
 """
 
-import os
 import logging
 from datetime import datetime, date
 from typing import Dict, List, Tuple, Optional

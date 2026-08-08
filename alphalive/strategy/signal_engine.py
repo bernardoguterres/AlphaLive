@@ -486,7 +486,6 @@ class SignalEngine:
         IMPORTANT: Parameter key is "confirmation_bars" (not "confirm_bars")
         """
         period = self.params.get("period", 20)
-        std_dev = self.params.get("std_dev", 2.0)
         confirmation_bars = self.params.get("confirmation_bars", 2)
         volume_ma_period = self.params.get("volume_ma_period", 20)
 

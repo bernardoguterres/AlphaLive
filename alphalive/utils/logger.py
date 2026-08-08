@@ -14,6 +14,8 @@ from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 from typing import Optional
 
+from .env_bool import read_bool_env
+
 
 class JsonFormatter(logging.Formatter):
     """Emit one JSON object per log line - machine-readable on Railway / log aggregators.
@@ -96,7 +98,7 @@ def setup_logger(log_level: Optional[str] = None):
     root_logger.addHandler(stdout_handler)
 
     # Optionally add file handler (for local runs and analysis)
-    enable_file_logs = os.getenv("ENABLE_FILE_LOGS", "false").lower() == "true"
+    enable_file_logs = read_bool_env("ENABLE_FILE_LOGS", default=False)
     if enable_file_logs:
         log_dir = Path(os.getenv("LOG_DIR", "./logs"))
         log_dir.mkdir(parents=True, exist_ok=True)
