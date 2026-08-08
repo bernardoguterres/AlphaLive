@@ -7,7 +7,6 @@ error handling and retry logic.
 """
 
 import logging
-import time
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
@@ -468,7 +467,7 @@ class AlpacaBroker(BaseBroker):
             logger.debug(f"Fetched {len(result)} bars for {symbol} @ {timeframe}")
             return result
 
-        except ValueError as e:
+        except ValueError:
             raise  # Re-raise ValueError for invalid timeframe
         except Exception as e:
             logger.error(f"Failed to fetch bars for {symbol}: {e}", exc_info=True)
@@ -561,7 +560,7 @@ class AlpacaBroker(BaseBroker):
 
             return df
 
-        except ValueError as e:
+        except ValueError:
             raise  # Re-raise ValueError
         except Exception as e:
             logger.error(
