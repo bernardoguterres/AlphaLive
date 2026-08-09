@@ -5,7 +5,6 @@ Fetches historical and real-time market data from Alpaca using alpaca-py.
 Includes caching, data validation, and rate limit handling.
 """
 
-import time
 import logging
 from datetime import datetime, timedelta
 from typing import Optional, Callable, Any
@@ -423,7 +422,9 @@ class MarketDataFetcher:
             logger.error(f"Alpaca API error ({e.status_code}): {e}. Not retryable.")
             return RetryOutcome(RetryDecision.FATAL)
 
-        return RetryOutcome(RetryDecision.RETRY, log_message=f"Data fetch failed: {e}. Retrying...")
+        return RetryOutcome(
+            RetryDecision.RETRY, log_message=f"Data fetch failed: {e}. Retrying..."
+        )
 
     def _fetch_with_retry(
         self, fetch_func: Callable[[], Any], max_retries: int = 3

@@ -3,17 +3,12 @@ Tests for alphalive.migrations.schema_migrations.
 
 test_config.py's test_backward_compatibility_safety_limits already covers
 the v1.0 safety_limits backfill via load_strategy(); this covers
-migrate_schema() directly (including the unknown-version error) plus the
-placeholder future-migration functions.
+migrate_schema() directly, including the unknown-version error.
 """
 
 import pytest
 
-from alphalive.migrations.schema_migrations import (
-    migrate_schema,
-    migrate_1_0_to_2_0,
-    migrate_2_0_to_2_1,
-)
+from alphalive.migrations.schema_migrations import migrate_schema
 
 
 def test_migrate_schema_v1_adds_default_safety_limits():
@@ -46,17 +41,3 @@ def test_migrate_schema_unknown_version_raises():
 
     with pytest.raises(ValueError, match="Unknown schema version"):
         migrate_schema(config)
-
-
-def test_migrate_1_0_to_2_0_sets_version():
-    config = {"schema_version": "1.0"}
-    result = migrate_1_0_to_2_0(config)
-
-    assert result["schema_version"] == "2.0"
-
-
-def test_migrate_2_0_to_2_1_sets_version():
-    config = {"schema_version": "2.0"}
-    result = migrate_2_0_to_2_1(config)
-
-    assert result["schema_version"] == "2.1"

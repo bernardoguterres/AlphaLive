@@ -1,11 +1,14 @@
 """Greenblatt Magic Formula screener for AlphaLive production use.
 
-Runs on the 1st of each month and writes a candidates JSON file.
+Runs once per calendar month and writes a candidates JSON file.
 AlphaLive's main loop reads this file to decide which tickers to monitor.
 
-Usage (called from main.py):
+Usage (called from main.py's _run_monthly_screener, which tracks the last-run
+month in BotState rather than checking date.today().day == 1 - the latter
+would re-run every 30s all day on the 1st and skip the month entirely if the
+bot was down that day):
     screener = FundamentalScreener(universe=MY_UNIVERSE, output_path="screener_output.json")
-    candidates = screener.run_if_due()  # Returns list only if 1st of month
+    candidates = screener.run()
 """
 
 from __future__ import annotations
@@ -14,7 +17,7 @@ import json
 import logging
 import time
 from dataclasses import asdict, dataclass
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -71,20 +74,6 @@ class FundamentalScreener:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-
-    def run_if_due(self) -> list[ScreenerResult] | None:
-        """Run the screen only on the 1st of the month.
-
-        Returns the candidate list if the screen ran, None otherwise.
-        Writes output_path regardless so the main loop always has a valid file.
-        """
-        today = date.today()
-        if today.day != 1:
-            logger.debug(f"Screener not due (today is {today}, runs on 1st of month)")
-            return None
-
-        logger.info(f"Monthly screener due - screening {len(self.universe)} tickers")
-        return self.run()
 
     def run(self) -> list[ScreenerResult]:
         """Run the full screen immediately regardless of date."""

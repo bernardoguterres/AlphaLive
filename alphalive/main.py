@@ -1226,7 +1226,6 @@ def main(
             strategy_configs=all_strategy_configs,
             signal_engines=signal_engine_map,
             risk_managers=risk_manager_map,
-            order_managers=order_manager_map,
             notifier=notifier,
         )
 

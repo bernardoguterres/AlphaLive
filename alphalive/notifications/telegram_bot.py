@@ -226,31 +226,6 @@ class TelegramNotifier:
         logger.debug("Telegram message sent successfully")
         return True
 
-    def send_startup_notification(
-        self, strategy_name: str, ticker: str, config: Dict[str, Any]
-    ):
-        """
-        Send bot startup notification.
-
-        Args:
-            strategy_name: Strategy name
-            ticker: Trading ticker
-            config: Strategy configuration dict
-        """
-        text = (
-            f"🚀 <b>AlphaLive Started</b>\n\n"
-            f"<b>Strategy:</b> {strategy_name}\n"
-            f"<b>Ticker:</b> {ticker}\n"
-            f"<b>Timeframe:</b> {config.get('timeframe', 'N/A')}\n"
-            f"<b>Stop Loss:</b> {config.get('stop_loss_pct', 'N/A')}%\n"
-            f"<b>Take Profit:</b> {config.get('take_profit_pct', 'N/A')}%\n"
-            f"<b>Max Position Size:</b> {config.get('max_position_size_pct', 'N/A')}%\n"
-            f"<b>Max Daily Loss:</b> {config.get('max_daily_loss_pct', 'N/A')}%\n\n"
-            f"Bot is now monitoring the market 24/7."
-        )
-
-        self.send_message(text)
-
     def send_shutdown_notification(self, daily_stats: Dict[str, Any]):
         """
         Send bot shutdown notification with daily stats.

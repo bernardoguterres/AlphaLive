@@ -6,8 +6,7 @@ the output file so nothing leaks outside the pytest sandbox.
 """
 
 import json
-from datetime import date
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -128,7 +127,7 @@ def test_rank_combines_earnings_yield_and_roe_ranks(screener):
 
 
 # ---------------------------------------------------------------------------
-# run() / run_if_due()
+# run()
 # ---------------------------------------------------------------------------
 
 
@@ -143,27 +142,6 @@ def test_run_fetches_filters_ranks_and_saves(screener):
     saved = json.loads(screener.output_path.read_text())
     assert saved["universe_size"] == 3
     assert len(saved["candidates"]) == 2
-
-
-def test_run_if_due_skips_when_not_first_of_month(screener):
-    with patch("alphalive.screener.fundamental_screener.date") as m_date:
-        m_date.today.return_value = date(2024, 1, 15)
-        result = screener.run_if_due()
-
-    assert result is None
-    assert not screener.output_path.exists()
-
-
-def test_run_if_due_runs_on_first_of_month(screener):
-    with patch("alphalive.screener.fundamental_screener.date") as m_date, patch(
-        "alphalive.screener.fundamental_screener.yf.Ticker"
-    ) as m_ticker:
-        m_date.today.return_value = date(2024, 2, 1)
-        m_ticker.return_value.info = _mock_yf_info()
-        result = screener.run_if_due()
-
-    assert result is not None
-    assert len(result) == 2
 
 
 # ---------------------------------------------------------------------------

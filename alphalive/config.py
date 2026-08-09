@@ -667,21 +667,3 @@ def validate_all(
     logger.info("=" * 80 + "\n")
 
     return all_valid
-
-
-# =============================================================================
-# Helper Functions (Backward Compatibility)
-# =============================================================================
-
-
-def load_config(config_path: str) -> StrategySchema:
-    """
-    Backward compatibility wrapper for load_strategy().
-
-    Args:
-        config_path: Path to strategy JSON file
-
-    Returns:
-        Validated StrategySchema instance
-    """
-    return load_strategy(config_path)

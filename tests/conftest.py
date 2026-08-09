@@ -167,7 +167,6 @@ def mock_telegram():
     """
     notifier = Mock()
     notifier.send_message.return_value = True
-    notifier.send_startup_notification.return_value = True
     notifier.send_trade_notification.return_value = True
     notifier.send_position_closed_notification.return_value = True
     notifier.send_error_alert.return_value = True
