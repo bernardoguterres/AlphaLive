@@ -192,7 +192,7 @@ def main():
         print("   export ALPACA_SECRET_KEY='your_secret'")
         sys.exit(1)
 
-        print("\n Environment configured")
+    print("\n Environment configured")
     print("\nStarting tests... (this may take 5-10 minutes)\n")
 
     # Test each stock
@@ -241,13 +241,13 @@ def main():
         print("=" * 80)
 
         print("\n Recommendation:")
-    profitable = [r for r in successful_results if r["total_pnl"] > 0]
-    if len(profitable) >= len(successful_results) * 0.6:
-        print("MA Crossover (10/20) looks promising!")
-        print("   Consider testing with Post-COVID data (2022-2024) next.")
-    else:
-        print("Strategy underperformed on most stocks.")
-        print("   Consider adjusting parameters in AlphaLab before live trading.")
+        profitable = [r for r in successful_results if r["total_pnl"] > 0]
+        if len(profitable) >= len(successful_results) * 0.6:
+            print("MA Crossover (10/20) looks promising!")
+            print("   Consider testing with Post-COVID data (2022-2024) next.")
+        else:
+            print("Strategy underperformed on most stocks.")
+            print("   Consider adjusting parameters in AlphaLab before live trading.")
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ Run this periodically to track strategy performance vs backtest expectations.
 
 Usage:
     python scripts/performance_tracker.py --config configs/production/rsi_simple_SPY_15Min.json
-    python scripts/performance_tracker.py --all  # Track all configs
+    python scripts/performance_tracker.py --config configs/production/rsi_simple_SPY_15Min.json --save
 """
 
 import json
@@ -58,7 +58,7 @@ def resolve_config_path(config_path: str) -> str:
     if os.path.exists(config_full_path):
         return config_full_path
 
-        print(f"Error: Config file not found: {config_path}")
+    print(f"Error: Config file not found: {config_path}")
     print(f"   Looked in:")
     print(f"   - {os.path.abspath(config_path)}")
     print(f"   - {config_full_path}")

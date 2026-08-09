@@ -127,16 +127,26 @@ def run(dry_run: bool = False, force: bool = False) -> int:
 
 
 def _notify(message: str) -> None:
-    """Best-effort Telegram confirmation - failures never break the buy."""
+    """Best-effort Telegram confirmation - failures never break the buy.
+
+    send_message() only enqueues onto TelegramNotifier's background worker
+    thread (by design - see telegram_bot.py's audit bug 2.8, so the
+    long-running bot process never blocks on a slow/down Telegram). This
+    script is short-lived and exits right after calling this function, so
+    without waiting here the process would exit before the worker thread
+    gets scheduled and the message would silently never be sent (confirmed
+    by direct reproduction - the queue is non-empty and unsent immediately
+    after send_message() returns).
+    """
     try:
         from alphalive.notifications.telegram_bot import TelegramNotifier
 
         token = os.getenv("TELEGRAM_BOT_TOKEN")
         chat_id = os.getenv("TELEGRAM_CHAT_ID")
         if token and chat_id:
-            TelegramNotifier(
-                bot_token=token, chat_id=chat_id, enabled=True
-            ).send_message(message)
+            notifier = TelegramNotifier(bot_token=token, chat_id=chat_id, enabled=True)
+            notifier.send_message(message)
+            notifier._queue.join()
     except Exception as e:
         logger.warning(f"Telegram notification failed (buy unaffected): {e}")
 

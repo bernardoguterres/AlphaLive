@@ -244,7 +244,7 @@ def main():
         print("\n Error: ALPACA_SECRET_KEY not set")
         sys.exit(1)
 
-        print("\n Environment configured")
+    print("\n Environment configured")
     print(f"\nStarting audit at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("This will take approximately 30-60 minutes...\n")
 

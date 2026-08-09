@@ -62,7 +62,7 @@ def resolve_config_path(config_path: str) -> str:
     if os.path.exists(config_full_path):
         return config_full_path
 
-        print(f"Error: Config file not found: {config_path}")
+    print(f"Error: Config file not found: {config_path}")
     print(f"   Looked in:")
     print(f"   - {os.path.abspath(config_path)}")
     print(f"   - {config_full_path}")

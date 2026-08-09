@@ -166,7 +166,7 @@ def run_test(strategy_name, ticker, period_name, period_data):
                 pnl_str = line.split("$")[-1].replace(",", "").strip()
                 total_pnl = float(pnl_str)
 
-                status = "" if total_pnl > 0 else ""
+        status = "" if total_pnl > 0 else ""
         print(
             f"{status} {ticker}: {trades} trades, {win_rate:.1f}% win, ${total_pnl:,.2f} P&L"
         )
