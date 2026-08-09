@@ -20,6 +20,7 @@ import pandas as pd
 
 from alphalive.strategy_schema import StrategySchema
 from alphalive.strategy import indicators
+from alphalive.utils.env_bool import parse_bool_env
 
 logger = logging.getLogger(__name__)
 
@@ -1087,7 +1088,8 @@ class SignalEngine:
         """Return True if price is below a declining trend SMA (bear market condition).
 
         For daily strategies: uses SMA_200 (200-day moving average).
-        For greenblatt_weekly: uses the strategy's slow_sma (default 40 weeks ≈ 200 trading days).
+        For greenblatt_weekly: uses the strategy's slow_sma (default 50 weeks ≈ 200 trading days -
+        AlphaLab's FeatureEngineer only computes SMA_10/20/50/100/200, SMA_40 does not exist).
 
         Requires both:
           1. Current price < trend SMA
@@ -1099,11 +1101,26 @@ class SignalEngine:
         # 2026-05 but it was never implemented - the filter was always-on.
         # Parity tests also need it off: the filter is a deliberate
         # AlphaLive-only overlay, not part of the shared signal logic.
-        if os.environ.get("ENABLE_BEAR_MARKET_FILTER", "true").lower() in (
-            "false",
-            "0",
-            "no",
-        ):
+        #
+        # Uses the shared parse_bool_env rather than an ad-hoc string check
+        # (was `.lower() in ("false", "0", "no")`, missed in the earlier
+        # boolean-env-parsing consolidation since it doesn't match the
+        # os.getenv(...) == "true" shape that pass was grepped for). Unlike
+        # that consolidation's other call sites, a malformed value here must
+        # NOT raise - this check runs outside generate_signal's try/except
+        # (see the "Route to strategy-specific logic" block above), so an
+        # uncaught ValueError would crash signal generation entirely. Fail
+        # toward the filter staying ON (the protective direction, and what
+        # the old code already did for any unrecognized value) instead.
+        try:
+            filter_enabled = parse_bool_env(
+                os.environ.get("ENABLE_BEAR_MARKET_FILTER"),
+                var_name="ENABLE_BEAR_MARKET_FILTER",
+                default=True,
+            )
+        except ValueError:
+            filter_enabled = True
+        if not filter_enabled:
             return False
 
         # Weekly strategies use slow_sma as the trend filter equivalent of SMA_200
