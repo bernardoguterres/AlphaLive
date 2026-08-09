@@ -2,12 +2,11 @@
 """
 Automated Weekly Report Generator
 
-Generates comprehensive weekly performance report and optionally sends via email.
+Generates comprehensive weekly performance report and optionally sends via Telegram.
 Run this as a cron job every Sunday night to get automated weekly summaries.
 
 Usage:
     python scripts/automated_weekly_report.py
-    python scripts/automated_weekly_report.py --email your@email.com
     python scripts/automated_weekly_report.py --telegram
     python scripts/automated_weekly_report.py --save-only
 """

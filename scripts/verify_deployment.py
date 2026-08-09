@@ -89,7 +89,7 @@ def check_strategy_configs():
             issues.append("No strategies found")
             return issues
 
-            print(f"Loaded {len(strategies)} strategy(ies)")
+        print(f"Loaded {len(strategies)} strategy(ies)")
 
         # Validate each strategy
         for i, strategy in enumerate(strategies, 1):
@@ -114,7 +114,7 @@ def check_strategy_configs():
                     f"WARNING: High trade frequency ({strategy.safety_limits.max_trades_per_day}/day)"
                 )
 
-                print(f"\n All {len(strategies)} strategies validated successfully")
+        print(f"\n All {len(strategies)} strategies validated successfully")
 
     except Exception as e:
         print(f"Strategy validation failed: {e}")
@@ -217,7 +217,6 @@ def check_files():
         "railway.toml",
         "CLAUDE.md",
         "README.md",
-        "SETUP.md",
         "alphalive/main.py",
         "alphalive/config.py",
         "alphalive/strategy_schema.py",
@@ -262,7 +261,7 @@ def main():
         print(f"{len(all_issues)} issue(s) found:\n")
         for i, issue in enumerate(all_issues, 1):
             print(f"  {i}. {issue}")
-            print("\n Fix issues above before deploying.")
+        print("\n Fix issues above before deploying.")
         return 1
 
 
