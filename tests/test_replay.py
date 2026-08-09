@@ -324,7 +324,6 @@ def test_simulate_trading_day_insufficient_data_skips(
         strategy_configs=[strategy_config],
         signal_engines={"AAPL": signal_engine},
         risk_managers={"AAPL": risk_manager},
-        order_managers={"AAPL": Mock()},
         notifier=notifier,
     )
 
@@ -345,7 +344,6 @@ def test_simulate_trading_day_warmup_incomplete_skips(
         strategy_configs=[strategy_config],
         signal_engines={"AAPL": signal_engine},
         risk_managers={"AAPL": risk_manager},
-        order_managers={"AAPL": Mock()},
         notifier=notifier,
     )
 
@@ -371,7 +369,6 @@ def test_simulate_trading_day_buy_signal_opens_position(
         strategy_configs=[strategy_config],
         signal_engines={"AAPL": signal_engine},
         risk_managers={"AAPL": risk_manager},
-        order_managers={"AAPL": Mock()},
         notifier=notifier,
     )
 
@@ -403,7 +400,6 @@ def test_simulate_trading_day_sell_signal_closes_position(
         strategy_configs=[strategy_config],
         signal_engines={"AAPL": signal_engine},
         risk_managers={"AAPL": risk_manager},
-        order_managers={"AAPL": Mock()},
         notifier=notifier,
     )
 
@@ -432,7 +428,6 @@ def test_simulate_trading_day_sleeps_when_speed_multiplier_set(
             strategy_configs=[strategy_config],
             signal_engines={"AAPL": signal_engine},
             risk_managers={"AAPL": risk_manager},
-            order_managers={"AAPL": Mock()},
             notifier=Mock(),
         )
 
@@ -462,7 +457,6 @@ def test_run_executes_full_loop_and_sends_summary(
         strategy_configs=[strategy_config],
         signal_engines={"AAPL": signal_engine},
         risk_managers={"AAPL": risk_manager},
-        order_managers={"AAPL": Mock()},
         notifier=notifier,
     )
 

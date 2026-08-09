@@ -11,7 +11,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from alphalive.config import (
-    load_config,
     load_strategy,
     load_strategies,
     load_config_path,
@@ -25,7 +24,7 @@ from alphalive.strategy_schema import StrategySchema
 def test_load_example_config():
     """Test loading example strategy config."""
     config_path = Path(__file__).parent.parent / "configs" / "example_strategy.json"
-    config = load_config(str(config_path))
+    config = load_strategy(str(config_path))
 
     assert config.schema_version == "1.0"
     assert config.strategy.name == "ma_crossover"

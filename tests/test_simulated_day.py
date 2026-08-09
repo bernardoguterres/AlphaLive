@@ -115,7 +115,6 @@ def mock_trading_components(sample_strategy_dict):
     # Mock telegram
     telegram = Mock()
     telegram.send_message.return_value = True
-    telegram.send_startup_notification.return_value = True
     telegram.send_trade_notification.return_value = True
     telegram.send_position_closed_notification.return_value = True
     telegram.send_daily_summary.return_value = True

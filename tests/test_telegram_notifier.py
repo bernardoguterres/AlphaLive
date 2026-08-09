@@ -13,7 +13,7 @@ HTTP call/retry/backoff/graceful-degradation logic moved to _send_now(),
 which only ever runs on a dedicated background worker thread. Tests for
 that retry/backoff/degradation logic now call _send_now() directly (it's
 the actual unit doing blocking work); tests for the convenience methods
-(send_startup_notification etc.) call notifier._queue.join() after
+(send_shutdown_notification etc.) call notifier._queue.join() after
 invoking them to deterministically wait for the background worker to
 finish before asserting on the httpx mock - they go through the real
 public send_message() -> queue -> worker path, same as production.
@@ -21,7 +21,7 @@ public send_message() -> queue -> worker path, same as production.
 
 import time
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 from alphalive.notifications.telegram_bot import TelegramNotifier
 
@@ -314,31 +314,6 @@ def test_send_message_disabled_does_not_enqueue():
 # each test waits on notifier._queue.join() before asserting on the httpx
 # mock.
 # ---------------------------------------------------------------------------
-
-
-def test_send_startup_notification(mock_httpx_success):
-    """Test startup notification."""
-    notifier = TelegramNotifier("test_token", "123456")
-
-    config = {
-        "timeframe": "1Day",
-        "stop_loss_pct": 2.0,
-        "take_profit_pct": 5.0,
-        "max_position_size_pct": 10.0,
-        "max_daily_loss_pct": 3.0,
-    }
-
-    notifier.send_startup_notification("ma_crossover", "AAPL", config)
-    notifier._queue.join()
-
-    mock_httpx_success.assert_called_once()
-    call_args = mock_httpx_success.call_args
-    message = call_args[1]["json"]["text"]
-
-    assert "AlphaLive Started" in message
-    assert "ma_crossover" in message
-    assert "AAPL" in message
-    assert "2.0%" in message  # stop loss
 
 
 def test_send_shutdown_notification(mock_httpx_success):

@@ -427,34 +427,3 @@ class StrategySchema(BaseModel):
             f"Max Positions: {self.risk.max_open_positions} (Portfolio: {self.risk.portfolio_max_positions})"
         )
         return self
-
-
-# Backward compatibility helper
-def load_strategy_with_defaults(data: Dict[str, Any]) -> StrategySchema:
-    """
-    Load a strategy configuration with backward compatibility.
-
-    If safety_limits is missing from the input data, default values are applied:
-    - max_trades_per_day: 20
-    - max_api_calls_per_hour: 500
-    - signal_generation_timeout_seconds: 5.0
-    - broker_degraded_mode_threshold_failures: 3
-
-    Args:
-        data: Raw strategy configuration dictionary
-
-    Returns:
-        Validated StrategySchema instance
-    """
-    if "safety_limits" not in data:
-        logger.info(
-            "safety_limits block missing - applying defaults for backward compatibility"
-        )
-        data["safety_limits"] = {
-            "max_trades_per_day": 20,
-            "max_api_calls_per_hour": 500,
-            "signal_generation_timeout_seconds": 5.0,
-            "broker_degraded_mode_threshold_failures": 3,
-        }
-
-    return StrategySchema(**data)

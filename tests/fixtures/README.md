@@ -41,6 +41,9 @@ bar_index,signal
 - `expected_signals_momentum_breakout.csv`
 - `expected_signals_bollinger_breakout.csv`
 - `expected_signals_vwap_reversion.csv`
+- `expected_signals_bollinger_rsi_combo.csv`
+- `expected_signals_trend_adaptive_rsi.csv`
+- `expected_signals_greenblatt_weekly.csv` (weekly fixture - see `test_greenblatt_parity.py`, not the AAPL daily fixture below)
 
 **How to generate:**
 
@@ -103,32 +106,16 @@ These MUST match exactly between AlphaLab and AlphaLive:
 }
 ```
 
-## Running the Mini-Checkpoint
+## Running the Parity Check
 
 Once all fixture files are in place:
 
 ```bash
-python scripts/mini_checkpoint.py
+python tests/test_signal_parity.py
 ```
 
-**Expected output:**
-```
-==============================================================
-Mini-Checkpoint: Signal Parity Verification
-==============================================================
-
-Loaded fixture: 500 bars (AAPL 2022-2023)
-
-Testing ma_crossover... 47 signals, 0 mismatches
-Testing rsi_mean_reversion... 23 signals, 0 mismatches
-Testing momentum_breakout... 31 signals, 0 mismatches
-Testing bollinger_breakout... 19 signals, 0 mismatches
-Testing vwap_reversion... 28 signals, 0 mismatches
-
-==============================================================
-PASS: All strategies match. Proceed to B5.
-==============================================================
-```
+See AlphaLive's `CLAUDE.md` ("Supported Strategies" section) for current
+coverage and the multi-ticker equivalent (`pytest tests/test_multi_ticker_parity.py`).
 
 ## Troubleshooting
 
@@ -169,6 +156,5 @@ If you see "Expected signals not found":
 ## Notes
 
 - **Critical**: Signal parity ensures live trading results match backtest expectations
-- **Do not proceed to B5** until mini-checkpoint passes with 0 mismatches
 - If a strategy consistently fails parity, audit both codebases line-by-line
 - Consider generating fixtures for multiple tickers/timeframes for comprehensive testing
