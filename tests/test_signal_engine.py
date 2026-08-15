@@ -118,6 +118,198 @@ def test_ma_crossover_hold_when_no_cross(sample_strategy_dict):
     assert signal["signal"] == "HOLD"
 
 
+# ---------------------------------------------------------------------------
+# ma_crossover parameter parity regression tests (2026-08-15, Prompt 2.5
+# issue 1 / FINAL_ENGINEERING_AUDIT.md, END_TO_END_VALIDATION.md): before
+# this fix, signal_engine.py accepted volume_confirmation/min_separation_pct/
+# cooldown_days in its schema but never applied any of them - a real
+# parity gap AlphaLab's MovingAverageCrossover does not have. These tests
+# prove actual behavioral effect, not just schema acceptance: the SAME raw
+# crossover is shown to fire when a filter is disabled and to be suppressed
+# (returns HOLD, not the crossover's direction) when the filter is engaged.
+# ---------------------------------------------------------------------------
+
+
+def _bars_from_prices(prices, volumes=None, start="2024-01-01"):
+    if volumes is None:
+        volumes = [1_000_000] * len(prices)
+    data = [
+        {"open": p, "high": p + 0.5, "low": p - 0.5, "close": p, "volume": v}
+        for p, v in zip(prices, volumes)
+    ]
+    df = pd.DataFrame(data)
+    df.index = pd.date_range(
+        start=start, periods=len(prices), freq="D", tz="America/New_York"
+    )
+    return df
+
+
+def test_ma_crossover_volume_confirmation_actually_blocks_signal(sample_strategy_dict):
+    """volume_confirmation=True must block a real crossover when the cross
+    bar's volume does not exceed its rolling average - and the SAME
+    crossover must fire when volume_confirmation is off, proving the filter
+    has a real behavioral effect (not just accepted-and-ignored)."""
+    from alphalive.strategy_schema import StrategySchema
+
+    prices = [100.0 - i * 0.1 for i in range(30)] + [100.0 + i * 0.5 for i in range(20)]
+    # Golden cross fires at bar 32 (verified below). Suppress its own volume
+    # well below the 20-bar rolling average so vol_ok is False there.
+    volumes = [1_000_000] * len(prices)
+    volumes[32] = 100_000
+    df = _bars_from_prices(prices, volumes)
+
+    base_params = {
+        "fast_period": 10,
+        "slow_period": 20,
+        "volume_avg_period": 20,
+        "min_separation_pct": 0.0,
+        "cooldown_days": 0,
+    }
+
+    sample_strategy_dict["strategy"]["name"] = "ma_crossover"
+    sample_strategy_dict["strategy"]["parameters"] = {
+        **base_params,
+        "volume_confirmation": True,
+    }
+    blocked = SignalEngine(StrategySchema(**sample_strategy_dict)).generate_signal(
+        df.iloc[:33]
+    )
+    assert blocked["signal"] == "HOLD", (
+        "Low-volume crossover must be blocked when volume_confirmation=True, "
+        f"got {blocked}"
+    )
+
+    sample_strategy_dict["strategy"]["parameters"] = {
+        **base_params,
+        "volume_confirmation": False,
+    }
+    unblocked = SignalEngine(StrategySchema(**sample_strategy_dict)).generate_signal(
+        df.iloc[:33]
+    )
+    assert unblocked["signal"] == "BUY", (
+        "The identical crossover must fire once volume_confirmation is off "
+        f"(proves the low-volume case above was a real block, not a "
+        f"coincidental HOLD), got {unblocked}"
+    )
+
+
+def test_ma_crossover_min_separation_pct_actually_blocks_whipsaw(sample_strategy_dict):
+    """min_separation_pct must block a real crossover whose pre-cross MA
+    separation is below the threshold, and the same crossover must fire
+    once the threshold is lowered back to 0."""
+    from alphalive.strategy_schema import StrategySchema
+
+    prices = [100.0 - i * 0.1 for i in range(30)] + [100.0 + i * 0.5 for i in range(20)]
+    df = _bars_from_prices(prices)
+    # Pre-cross separation at bar 32 is ~0.17% (verified by direct
+    # computation during test authoring) - comfortably below 0.5%.
+
+    base_params = {
+        "fast_period": 10,
+        "slow_period": 20,
+        "volume_confirmation": False,
+        "cooldown_days": 0,
+    }
+
+    sample_strategy_dict["strategy"]["name"] = "ma_crossover"
+    sample_strategy_dict["strategy"]["parameters"] = {
+        **base_params,
+        "min_separation_pct": 0.5,
+    }
+    blocked = SignalEngine(StrategySchema(**sample_strategy_dict)).generate_signal(
+        df.iloc[:33]
+    )
+    assert blocked["signal"] == "HOLD", (
+        f"Crossover with <0.5% pre-cross separation must be blocked when "
+        f"min_separation_pct=0.5, got {blocked}"
+    )
+
+    sample_strategy_dict["strategy"]["parameters"] = {
+        **base_params,
+        "min_separation_pct": 0.0,
+    }
+    unblocked = SignalEngine(StrategySchema(**sample_strategy_dict)).generate_signal(
+        df.iloc[:33]
+    )
+    assert unblocked["signal"] == "BUY", (
+        f"The identical crossover must fire once min_separation_pct is back "
+        f"to 0.0, got {unblocked}"
+    )
+
+
+def test_ma_crossover_cooldown_actually_suppresses_a_real_signal(sample_strategy_dict):
+    """cooldown_days must suppress a genuine raw crossover that falls within
+    the cooldown window of a prior signal, and the same bar must produce a
+    real signal once cooldown is disabled - proving actual suppression, not
+    coincidental HOLD from indicator warmup or a missing crossover."""
+    from alphalive.strategy_schema import StrategySchema
+
+    # Bar 8: golden cross (BUY). Bar 11: death cross (SELL) - 3 bars later,
+    # inside a cooldown_days=3 window measured from bar 8. Bar 13: golden
+    # cross again, 5 bars after bar 8 - outside the window, so it must still
+    # fire regardless of cooldown (also verifies cooldown doesn't over-block).
+    prices = [
+        100,
+        99,
+        98,
+        97,
+        96,
+        95,
+        94,  # fast<<slow warm-up/decline
+        100,
+        101,
+        102,  # bar 7-9: sharp rise -> golden cross at bar 8
+        96,
+        97,  # bar 10-11: dip -> death cross at bar 11
+        105,
+        106,
+        107,  # bar 12-14: sharp rise -> golden cross at bar 13
+        108,
+        109,
+        110,
+        111,
+        112,
+    ]
+    df = _bars_from_prices(prices)
+
+    base_params = {
+        "fast_period": 3,
+        "slow_period": 5,
+        "volume_confirmation": False,
+        "min_separation_pct": 0.0,
+    }
+
+    # Through bar 11 (death cross bar): cooldown=3 must suppress it.
+    sample_strategy_dict["strategy"]["name"] = "ma_crossover"
+    sample_strategy_dict["strategy"]["parameters"] = {**base_params, "cooldown_days": 3}
+    engine_cooldown = SignalEngine(StrategySchema(**sample_strategy_dict))
+    # Confirm bar 8's golden cross fires (sanity check the fixture itself).
+    buy_at_8 = engine_cooldown.generate_signal(df.iloc[:9])
+    assert buy_at_8["signal"] == "BUY", f"Fixture sanity check failed: {buy_at_8}"
+
+    suppressed = engine_cooldown.generate_signal(df.iloc[:12])
+    assert suppressed["signal"] == "HOLD", (
+        f"Death cross 3 bars after the prior signal must be suppressed by "
+        f"cooldown_days=3, got {suppressed}"
+    )
+
+    # Bar 13's golden cross is 5 bars after bar 8's signal - outside the
+    # cooldown=3 window - must still fire (cooldown isn't over-blocking).
+    fires_again = engine_cooldown.generate_signal(df.iloc[:14])
+    assert fires_again["signal"] == "BUY", (
+        f"A crossover outside the cooldown window must still fire, "
+        f"got {fires_again}"
+    )
+
+    # Same data, cooldown disabled: bar 11's death cross must now fire.
+    sample_strategy_dict["strategy"]["parameters"] = {**base_params, "cooldown_days": 0}
+    engine_no_cooldown = SignalEngine(StrategySchema(**sample_strategy_dict))
+    unblocked = engine_no_cooldown.generate_signal(df.iloc[:12])
+    assert unblocked["signal"] == "SELL", (
+        f"The identical death cross must fire once cooldown_days=0, " f"got {unblocked}"
+    )
+
+
 def test_rsi_mean_reversion_buy_when_oversold(sample_strategy_dict, rsi_oversold_bars):
     """Test RSI mean reversion BUY when RSI < oversold."""
     sample_strategy_dict["strategy"]["name"] = "rsi_mean_reversion"

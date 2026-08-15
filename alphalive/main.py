@@ -561,10 +561,16 @@ def _check_signal_for_strategy(
                     )
                 )
 
+            _gate_status = _sentiment_pred.get("gate_status", "N/A")
+            logger.debug(
+                f"AlphaSignal gate status for {strat_cfg.ticker}: {_gate_status}"
+            )
+
             if not _sentiment_allowed:
                 logger.info(
                     "Execution blocked by sentiment filter - "
-                    f"sentiment_score={_sentiment_pred.get('sentiment_score', 'N/A')}"
+                    f"sentiment_score={_sentiment_pred.get('sentiment_score', 'N/A')} "
+                    f"gate_status={_gate_status}"
                 )
             else:
                 price = market_data.get_current_price(strat_cfg.ticker)

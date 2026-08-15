@@ -1,8 +1,37 @@
 # AlphaLive
 
-**24/7 live trading execution engine** for strategies exported from AlphaLab.
+**Execution/runtime engine**, designed to run continuously during market hours, for strategies
+exported from AlphaLab.
 
-Export a backtested strategy from AlphaLab → deploy to Railway → it trades automatically. Monitor via a real-time web dashboard with live P&L charts, position tracking, and a kill switch. Telegram alerts for every trade and daily summaries.
+Export a backtested strategy from AlphaLab → deploy to Railway → it generates signals, applies risk
+controls, and can place orders through Alpaca's paper/live-capable API. Monitor via a real-time web
+dashboard with live P&L charts, position tracking, and a kill switch. Telegram alerts for every
+trade and daily summaries.
+
+**Status: portfolio release / validated engineering prototype.** Config loading, schema validation,
+risk management, and the AlphaSignal sentiment gate are extensively tested (unit tests plus live
+runtime checks against a real running AlphaSignal service). **Actual Alpaca paper-account runtime
+integration has not yet been exercised** - no paper credentials were available during the completed
+validation pass, so authentication, order placement, and reconciliation against a real Alpaca
+account remain unverified in practice, even though the broker integration code and its tests exist.
+No real-money trading has ever been performed. See [Validation Status](#validation-status) below
+for the precise breakdown of what has and hasn't been runtime-tested.
+
+---
+
+## Validation Status
+
+| Capability | Status |
+|---|---|
+| Config loading / schema validation | Verified - real strategy JSON exports load correctly (including via a live `run.py --validate-only` run) |
+| Risk management (position sizing, stop-loss, circuit breakers, daily-loss limits) | Extensively unit-tested |
+| AlphaSignal sentiment gate | Verified live against a real running AlphaSignal service (all fail-open/blocked/no-data states observed with real HTTP calls) |
+| Paper-mode-safe default | Verified from code - `ALPACA_PAPER` defaults to `true` |
+| Cross-system signal parity vs AlphaLab | Verified on real multi-year historical data - see [Cross-System Parity](#cross-system-parity) |
+| Alpaca paper-account runtime integration (auth, order placement, reconciliation) | **Not yet exercised** - no paper credentials available during validation |
+| Dry-run / replay mode as a running process | **Not yet exercised end-to-end** - `run.py` authenticates to Alpaca at startup even in these modes (by design), so this was blocked by the same missing credentials; config loading up to that point was confirmed to work |
+| Live-money trading | Never performed |
+| Long-duration unattended runtime | Not demonstrated |
 
 ---
 
@@ -264,9 +293,9 @@ flowchart TD
 
 ### Key Components
 
-AlphaLive is a production-grade trading bot with:
+AlphaLive is an execution engine with:
 
-- **Signal Generation**: Replicates AlphaLab strategy logic exactly (8 strategies supported, including `greenblatt_weekly` on weekly bars)
+- **Signal Generation**: Independently re-implements AlphaLab's strategy logic (8 strategies supported, including `greenblatt_weekly` on weekly bars). Cross-system signal parity against AlphaLab was validated on multi-year historical data (see [Cross-System Parity](#cross-system-parity) below) - not exact/bit-for-bit in every case, with the remaining small numerical differences documented rather than hidden.
 - **Risk Management**: Stop loss, take profit, trailing stop, position sizing, daily limits
 - **Order Execution**: Alpaca Markets API with retry logic, slippage checks, partial fill handling
 - **Market Data**: Real-time bars from Alpaca with caching and staleness detection
@@ -355,11 +384,45 @@ AlphaLive is a production-grade trading bot with:
 
 ### Test Suite
 
-563 tests, 92% coverage.
+672 tests passing, 1 documented known limitation (`xfail`), 92% coverage (verified 2026-08-15).
+The one `xfail` is `test_multi_ticker_parity.py::test_signal_parity[rsi_mean_reversion-MSFT]` - a
+precisely-scoped, root-caused residual (2/500 bars where AlphaLab's and AlphaLive's independently-
+implemented ATR calculations disagree slightly, shifting a stop-loss exit by one bar). It is not an
+unresolved defect; see [Cross-System Parity](#cross-system-parity) below.
 
 ```bash
 pytest tests/ -v --cov=alphalive
 ```
+
+### Cross-System Parity
+
+AlphaLab (research) and AlphaLive (execution) each have their own, independently-written
+implementation of every strategy's signal logic - a deliberate design choice (see
+[AlphaLab vs AlphaLive](#alphalab-vs-alphalive-whats-the-difference)) rather than sharing one
+codebase, so that a real cross-repo parity test can catch drift between research and execution
+instead of trusting one implementation to be correct by construction.
+
+A dedicated validation pass compared AlphaLab's and AlphaLive's actual bar-by-bar decisions on
+multi-year real historical data (AAPL, 2020-2024, ~1,257 daily bars), not just the repos' own
+pytest fixtures:
+
+| Strategy | Parity |
+|---|---|
+| `ma_crossover` | 99.92% (1256/1257 bars) |
+| `rsi_mean_reversion`, default RSI period (14) | 99.76% (1254/1257 bars) |
+| `rsi_mean_reversion`, non-default RSI period (9) | 99.52% (1251/1257 bars) |
+
+This is not "exact parity" and the README does not claim AlphaLive replicates AlphaLab exactly.
+The validation process is itself the more interesting result: an earlier pass found `rsi_mean_reversion`
+parity at only **87.59%**, root-caused to two real defects - AlphaLab's `rsi_period` parameter was
+silently unused (always computed RSI(14) regardless of the requested period), and the two repos'
+RSI formulas disagreed numerically. A related `ma_crossover` gap was found where AlphaLive silently
+ignored `volume_confirmation`/`min_separation_pct`/`cooldown_days` despite accepting them. All of
+these were fixed and re-validated against fresh data (not just the existing test fixtures, which
+didn't happen to exercise the affected parameter combinations). The remaining ~0.2-0.5% gaps are
+root-caused to one further, out-of-scope difference: AlphaLab's and AlphaLive's independently-
+implemented ATR calculations disagree slightly, occasionally shifting an ATR-based stop-loss exit
+by one bar - documented, not hidden, and covered by the one `xfail` in the test suite above.
 
 ### CLI Options
 
@@ -379,7 +442,17 @@ Options:
 
 ## Replay Mode: Test Before You Trade (FREE)
 
-Before paying for Alpaca premium, test your strategy on **9+ years of historical data** for FREE:
+Before paying for Alpaca premium, test your strategy on **9+ years of historical data** for FREE.
+
+**Note on credentials:** replay mode still boots through `run.py`'s normal startup path, which
+authenticates to Alpaca (`broker.connect()`) before anything else runs - by design, even
+non-order-placing modes verify real account connectivity. A **free paper account** (see
+[Getting API Keys](#getting-api-keys)) is required even for `--replay-mode`/`--dry-run`; this is
+not a credential-free code path. This was confirmed directly during validation: a
+`--validate-only` run correctly loaded and validated a real strategy config, then correctly failed
+at the Alpaca authentication step without paper credentials present. If you want to test signal
+logic with zero account setup, see [Testing Strategies with Real Historical Data](#testing-strategies-with-real-historical-data-no-api-keys-needed)
+below instead, which calls `SignalEngine` directly and never touches the broker.
 
 ```bash
 # Test on 2015-2019 (pre-COVID normal markets)
@@ -760,19 +833,20 @@ AlphaLive supports 8 strategies exported from AlphaLab.
 
 ---
 
-## Production Configs
+## Example Configs
 
-AlphaLive includes **5 production-ready strategy configs** in `configs/production/`:
+`configs/production/` holds example strategy configurations (the directory name is historical -
+none of them are validated for production use; see the disclaimer below):
 
 | Config | Strategy | Ticker | Timeframe | Notes |
 |--------|----------|--------|-----------|-------|
-| `rsi_simple_SPY_15Min.json` | RSI Mean Reversion (relaxed 40/60 thresholds) | SPY | 15Min | Not walk-forward validated |
+| `rsi_simple_SPY_15Min.json` | RSI Mean Reversion (relaxed 40/60 thresholds) | SPY | 15Min | Not walk-forward validated. Filename note: despite the name, `strategy.name` inside this file is `rsi_mean_reversion` (relaxed thresholds) - it is unrelated to AlphaLab's separate, deliberately non-deployable `rsi_simple` strategy type, which AlphaLive does not support importing at all. |
 | `bollinger_rsi_SPY_15Min.json` | Bollinger RSI Combo | SPY | 15Min | Not walk-forward validated |
 | `trend_adaptive_SPY_1Hour.json` | Trend Adaptive RSI | SPY | 1Hour | Not walk-forward validated |
 | `rsi_mean_reversion_SPY_RELAXED.json` | RSI Mean Reversion | SPY | Daily | Not walk-forward validated |
 | `ma_crossover_AAPL_FAST.json` | MA Crossover | AAPL | Daily | Not walk-forward validated |
 
-> **None of these configs have passed walk-forward validation.** All daily/intraday strategies underperform buy-and-hold SPY in out-of-sample testing. Run `walk_forward_validation.py` in AlphaLab before deploying any config with real money.
+> **None of these configs have passed walk-forward validation.** All daily/intraday strategies underperform buy-and-hold SPY in out-of-sample testing (see AlphaLab's walk-forward results). Treat these as example/paper-testing configurations, not production-ready ones. Run `walk_forward_validation.py` in AlphaLab before deploying any config, and paper-trade before considering real money.
 
 ---
 
@@ -1020,6 +1094,14 @@ For questions, issues, or contributions, open an issue on GitHub.
 ---
 
 ## Known Limitations
+
+### Engineering / Validation
+
+See [Validation Status](#validation-status) at the top for the full breakdown. In short: no Alpaca
+paper-account runtime integration has been exercised yet (credentials unavailable during the
+completed validation pass), no long-duration unattended runtime has been demonstrated, and small
+(<1%) documented cross-system numerical differences remain vs AlphaLab on the tested strategies
+(see [Cross-System Parity](#cross-system-parity)).
 
 ### Pattern Day Trader (PDT) Rule
 

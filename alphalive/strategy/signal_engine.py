@@ -16,6 +16,7 @@ import os
 import time
 from typing import Callable, Dict, Any, Optional
 
+import numpy as np
 import pandas as pd
 
 from alphalive.strategy_schema import StrategySchema
@@ -245,6 +246,34 @@ class SignalEngine:
     # Strategy Implementations (must match AlphaLab exactly)
     # =========================================================================
 
+    @staticmethod
+    def _apply_cooldown_stateless(raw_signal: pd.Series, cooldown: int) -> pd.Series:
+        """Reconstruct AlphaLab's cooldown suppression deterministically from
+        the raw (unfiltered) signal series computed over the full window the
+        caller supplied - no persistent engine state required.
+
+        Ports AlphaLab's BaseStrategy._apply_cooldown() bar-for-bar (audit
+        remediation 2026-08-15, Prompt 2.5 issue 1): a signal at position i is
+        suppressed if it falls within `cooldown` bars of the previous
+        non-suppressed signal. Correctness depends on the caller supplying
+        enough leading history that no cooldown-relevant prior signal falls
+        outside the window - true for this parity harness (full history from
+        bar 0) and true in production (200-250 bar fetches vs. cooldown_days
+        typically 0-20), but not guaranteed for an arbitrarily short window.
+        """
+        if cooldown <= 0:
+            return raw_signal
+        values = raw_signal.to_numpy()
+        out = values.copy()
+        last_signal_idx = -cooldown - 1
+        for i in range(len(values)):
+            if values[i] != 0:
+                if i - last_signal_idx <= cooldown:
+                    out[i] = 0
+                else:
+                    last_signal_idx = i
+        return pd.Series(out, index=raw_signal.index)
+
     def _ma_crossover_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
         Moving Average Crossover Strategy.
@@ -253,10 +282,19 @@ class SignalEngine:
         SELL: Fast SMA crosses below Slow SMA
         Confidence: Based on distance between SMAs as % of price
 
-        AlphaLab Parity: Must detect crossover at exact same bar.
+        AlphaLab Parity: Must detect crossover at exact same bar, under the
+        same volume_confirmation / min_separation_pct / cooldown_days filters
+        AlphaLab's MovingAverageCrossover.generate_signals() applies (fixed
+        2026-08-15 - these were previously accepted by the schema but never
+        actually applied here, a real parity gap found by fresh runtime
+        validation, see FINAL_ENGINEERING_AUDIT.md / END_TO_END_VALIDATION.md).
         """
         fast_period = self.params.get("fast_period", 10)
         slow_period = self.params.get("slow_period", 20)
+        volume_confirmation = self.params.get("volume_confirmation", False)
+        volume_avg_period = self.params.get("volume_avg_period", 20)
+        min_separation_pct = self.params.get("min_separation_pct", 0.0)
+        cooldown_days = self.params.get("cooldown_days", 5)
 
         fast_col = f"sma_{fast_period}"
         slow_col = f"sma_{slow_period}"
@@ -269,20 +307,44 @@ class SignalEngine:
                 warmup_complete=False,
             )
 
-        # Current and previous values
-        fast_curr = df[fast_col].iloc[-1]
-        fast_prev = df[fast_col].iloc[-2]
-        slow_curr = df[slow_col].iloc[-1]
-        slow_prev = df[slow_col].iloc[-2]
-
+        fast = df[fast_col]
+        slow = df[slow_col]
         current_price = df["close"].iloc[-1]
 
-        # Extract indicator values
+        prev_fast = fast.shift(1)
+        prev_slow = slow.shift(1)
+
+        # Raw crossover detection over the FULL window - identical formula to
+        # AlphaLab's MovingAverageCrossover.generate_signals().
+        cross_up = (prev_fast <= prev_slow) & (fast > slow)
+        cross_down = (prev_fast >= prev_slow) & (fast < slow)
+
+        # Min separation filter: MAs must have been >= min_separation_pct
+        # apart *before* the cross (whipsaw guard).
+        prev_sep = ((prev_fast - prev_slow).abs() / prev_slow * 100).fillna(0)
+        sep_ok = prev_sep >= min_separation_pct
+
+        # Volume confirmation
+        vol_ok = pd.Series(True, index=df.index)
+        volume_ma_col = f"volume_ma_{volume_avg_period}"
+        if volume_confirmation and volume_ma_col in df.columns:
+            vol_ok = df["volume"] > df[volume_ma_col]
+
+        buy_mask = cross_up & sep_ok & vol_ok
+        sell_mask = cross_down & sep_ok & vol_ok
+
+        raw_signal = pd.Series(0, index=df.index)
+        raw_signal[buy_mask] = 1
+        raw_signal[sell_mask] = -1
+
+        final_signal = self._apply_cooldown_stateless(raw_signal, cooldown_days)
+        last_signal = final_signal.iloc[-1]
+
+        fast_curr = fast.iloc[-1]
+        slow_curr = slow.iloc[-1]
         indicators = {fast_col: fast_curr, slow_col: slow_curr, "price": current_price}
 
-        # Detect crossover
-        if fast_prev <= slow_prev and fast_curr > slow_curr:
-            # Bullish crossover
+        if last_signal == 1:
             spread_pct = ((fast_curr - slow_curr) / current_price) * 100
             confidence = min(1.0, spread_pct / 2.0)  # 2% spread = 100% confidence
 
@@ -297,8 +359,7 @@ class SignalEngine:
                 "warmup_complete": True,
             }
 
-        elif fast_prev >= slow_prev and fast_curr < slow_curr:
-            # Bearish crossover
+        elif last_signal == -1:
             spread_pct = ((slow_curr - fast_curr) / current_price) * 100
             confidence = min(1.0, spread_pct / 2.0)
 
@@ -314,7 +375,7 @@ class SignalEngine:
             }
 
         else:
-            # No crossover
+            # No crossover, or suppressed by min_separation_pct/volume/cooldown
             return {
                 "signal": "HOLD",
                 "confidence": 0.0,
@@ -325,17 +386,41 @@ class SignalEngine:
 
     def _rsi_mean_reversion_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
-        RSI Mean Reversion Strategy.
+        RSI Mean Reversion Strategy - full state machine, ported from
+        AlphaLab's RSIMeanReversion.generate_signals() (Prompt 2.5
+        remediation, 2026-08-15 - see FINAL_ENGINEERING_AUDIT.md /
+        END_TO_END_VALIDATION.md).
 
-        BUY: RSI < oversold threshold
-        SELL: RSI > overbought threshold
-        Confidence: How far RSI is from threshold
+        Previously this method was a stateless single-bar RSI threshold
+        check: it re-fired BUY every bar RSI stayed below oversold, with no
+        position tracking, cooldown, stop-loss, max-holding-period, or
+        BB/ADX confirmation at all - a real, previously-hidden parity gap
+        (masked by the RSI-value divergence fixed alongside this). AlphaLab
+        enters once, then only exits on RSI-overbought / stop-loss /
+        max-holding-period, ignoring further oversold dips while already in
+        a position.
 
-        AlphaLab Parity: RSI calculation and thresholds must match exactly.
+        Reconstructed DETERMINISTICALLY from the full bar history supplied
+        each call - no persistent engine state required (same pattern as
+        ma_crossover's cooldown fix): re-runs AlphaLab's exact loop over the
+        whole window and returns only the last bar's outcome. Correctness
+        depends on the caller supplying enough leading history to contain
+        the true entry point of any currently-open position - true for this
+        parity harness (full history from bar 0) and true in production
+        (200-250 bar fetches vs. max_holding_days typically well under 100).
+
+        AlphaLab Parity: RSI calculation, thresholds, and now entry/exit
+        state machine semantics must match exactly.
         """
         period = self.params.get("period", 14)
         oversold = self.params.get("oversold", 30)
         overbought = self.params.get("overbought", 70)
+        use_bb_confirmation = self.params.get("use_bb_confirmation", False)
+        use_adx_filter = self.params.get("use_adx_filter", False)
+        adx_threshold = self.params.get("adx_threshold", 25)
+        stop_loss_atr_mult = self.params.get("stop_loss_atr_mult", 2.0)
+        max_holding_days = self.params.get("max_holding_days", 40)
+        cooldown_days = self.params.get("cooldown_days", 3)
 
         rsi_col = f"rsi_{period}"
 
@@ -347,9 +432,94 @@ class SignalEngine:
                 warmup_complete=False,
             )
 
-        rsi_curr = df[rsi_col].iloc[-1]
-        current_price = df["close"].iloc[-1]
+        rsi = df[rsi_col]
+        close = df["close"]
+        atr = (
+            df["atr_14"]
+            if "atr_14" in df.columns
+            else pd.Series(np.nan, index=df.index)
+        )
 
+        in_position = False
+        entry_price = 0.0
+        entry_bar = 0
+        stop_loss = 0.0
+        last_signal_bar = -cooldown_days - 1
+        last_action = None  # (signal, reason, confidence) for the final bar only
+
+        for i in range(len(df)):
+            if pd.isna(rsi.iloc[i]):
+                continue
+
+            action = None
+
+            if in_position:
+                exit_reason = None
+                current_close = close.iloc[i]
+
+                overbought_now = rsi.iloc[i] > overbought
+                if overbought_now:
+                    bb_sell = True
+                    if use_bb_confirmation and "bb_upper" in df.columns:
+                        bb_sell = current_close >= df["bb_upper"].iloc[i]
+                    if bb_sell:
+                        exit_reason = "RSI overbought"
+                        if use_bb_confirmation:
+                            exit_reason += " + BB upper touch"
+
+                if exit_reason is None and current_close <= stop_loss:
+                    loss_pct = (current_close / entry_price - 1) * 100
+                    exit_reason = f"Stop-loss hit ({loss_pct:.1f}%)"
+
+                if exit_reason is None and (i - entry_bar) >= max_holding_days:
+                    pnl = (current_close / entry_price - 1) * 100
+                    exit_reason = f"Max hold {max_holding_days}d ({pnl:+.1f}%)"
+
+                if exit_reason is not None:
+                    conf = (rsi.iloc[i] - overbought) / (100 - overbought)
+                    action = ("SELL", exit_reason, max(0.3, min(1.0, conf)))
+                    in_position = False
+                    last_signal_bar = i
+
+            else:
+                if i - last_signal_bar <= cooldown_days:
+                    continue
+
+                oversold_now = rsi.iloc[i] < oversold
+                if not oversold_now:
+                    continue
+
+                if use_bb_confirmation and "bb_lower" in df.columns:
+                    if close.iloc[i] > df["bb_lower"].iloc[i]:
+                        continue
+
+                if use_adx_filter and "adx_14" in df.columns:
+                    adx_val = df["adx_14"].iloc[i]
+                    if pd.isna(adx_val):
+                        continue
+                    if adx_val > adx_threshold:
+                        continue
+
+                buy_conf = (oversold - rsi.iloc[i]) / oversold
+                reason = "RSI oversold"
+                if use_bb_confirmation:
+                    reason += " + BB lower touch"
+                action = ("BUY", reason, min(1.0, buy_conf))
+
+                in_position = True
+                entry_price = close.iloc[i]
+                entry_bar = i
+                atr_val = (
+                    atr.iloc[i] if not pd.isna(atr.iloc[i]) else entry_price * 0.02
+                )
+                stop_loss = entry_price - stop_loss_atr_mult * atr_val
+                last_signal_bar = i
+
+            if i == len(df) - 1:
+                last_action = action
+
+        rsi_curr = rsi.iloc[-1]
+        current_price = close.iloc[-1]
         indicators = {
             rsi_col: rsi_curr,
             "oversold": oversold,
@@ -357,43 +527,7 @@ class SignalEngine:
             "price": current_price,
         }
 
-        # Check thresholds
-        if rsi_curr < oversold:
-            # Oversold - BUY
-            distance = oversold - rsi_curr
-            confidence = min(
-                1.0, distance / oversold
-            )  # Further from threshold = higher confidence
-
-            return {
-                "signal": "BUY",
-                "confidence": confidence,
-                "reason": (
-                    f"RSI oversold: RSI({period})={rsi_curr:.2f} < {oversold} "
-                    f"(distance: {distance:.2f})"
-                ),
-                "indicators": indicators,
-                "warmup_complete": True,
-            }
-
-        elif rsi_curr > overbought:
-            # Overbought - SELL
-            distance = rsi_curr - overbought
-            confidence = min(1.0, distance / (100 - overbought))
-
-            return {
-                "signal": "SELL",
-                "confidence": confidence,
-                "reason": (
-                    f"RSI overbought: RSI({period})={rsi_curr:.2f} > {overbought} "
-                    f"(distance: {distance:.2f})"
-                ),
-                "indicators": indicators,
-                "warmup_complete": True,
-            }
-
-        else:
-            # Neutral zone
+        if last_action is None:
             return {
                 "signal": "HOLD",
                 "confidence": 0.0,
@@ -401,6 +535,15 @@ class SignalEngine:
                 "indicators": indicators,
                 "warmup_complete": True,
             }
+
+        signal, reason, confidence = last_action
+        return {
+            "signal": signal,
+            "confidence": confidence,
+            "reason": reason,
+            "indicators": indicators,
+            "warmup_complete": True,
+        }
 
     def _momentum_breakout_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
         """

@@ -20,6 +20,73 @@ from ta.volatility import BollingerBands, AverageTrueRange
 logger = logging.getLogger(__name__)
 
 
+def rsi_wilder(close: pd.Series, period: int) -> pd.Series:
+    """Canonical RSI (Wilder, 1978), the single agreed-upon definition for
+    deployable Alpha strategies (Prompt 2.5 remediation, 2026-08-15 - see
+    FINAL_ENGINEERING_AUDIT.md / END_TO_END_VALIDATION.md).
+
+    Used ONLY by rsi_mean_reversion (see _indicators_rsi_mean_reversion
+    below) - deliberately NOT a change to the shared add_rsi()/`ta` library
+    path the other five RSI-consuming strategies still use, to avoid
+    silently altering their behaviour (blast-radius discipline).
+
+    Independently re-implemented in AlphaLab's
+    alphalab/strategies/implementations/rsi_mean_reversion.py::rsi_wilder()
+    - identical formula, seeding, warm-up and NaN semantics, cross-checked
+    by shared golden-value tests in both repos rather than a shared
+    dependency, matching this project's deliberate "two independent
+    implementations + parity test" pattern used everywhere else (see e.g.
+    AlphaLive's portfolio/target_weights.py). Previously this strategy used
+    the `ta` library's RSIIndicator, which uses a different smoothing/
+    seeding convention than AlphaLab's old raw-EWM-no-warmup formula -
+    neither side was wrong in isolation, but they didn't agree, which is
+    the actual defect this function fixes.
+
+    Semantics:
+    - avg_gain/avg_loss seed at index `period` (0-indexed) as the simple
+      mean of the first `period` gains/losses.
+    - Every subsequent bar uses Wilder's recursive smoothing:
+      avg = (prev_avg * (period - 1) + current) / period.
+    - RSI = 100 - 100 / (1 + avg_gain / avg_loss).
+    - avg_loss == 0 and avg_gain > 0 -> RSI = 100.
+    - avg_gain == 0 and avg_loss == 0 -> RSI = 50.
+    - Rows before index `period` are NaN.
+    """
+    n = len(close)
+    if n <= period:
+        return pd.Series(np.nan, index=close.index, dtype=float)
+
+    delta = close.diff()
+    gain = delta.clip(lower=0.0)
+    loss = (-delta).clip(lower=0.0)
+
+    avg_gain = np.full(n, np.nan)
+    avg_loss = np.full(n, np.nan)
+
+    avg_gain[period] = gain.iloc[1 : period + 1].mean()
+    avg_loss[period] = loss.iloc[1 : period + 1].mean()
+
+    gain_vals = gain.to_numpy()
+    loss_vals = loss.to_numpy()
+    for i in range(period + 1, n):
+        avg_gain[i] = (avg_gain[i - 1] * (period - 1) + gain_vals[i]) / period
+        avg_loss[i] = (avg_loss[i - 1] * (period - 1) + loss_vals[i]) / period
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        rs = avg_gain / avg_loss
+        rsi_vals = 100.0 - (100.0 / (1.0 + rs))
+
+    flat = (avg_gain == 0) & (avg_loss == 0)
+    pure_uptrend = (avg_loss == 0) & (avg_gain > 0)
+    rsi_vals = np.where(flat, 50.0, rsi_vals)
+    rsi_vals = np.where(pure_uptrend, 100.0, rsi_vals)
+    rsi_vals[:period] = np.nan
+
+    rsi = pd.Series(rsi_vals, index=close.index, dtype=float).clip(0, 100)
+    rsi.iloc[:period] = np.nan
+    return rsi
+
+
 def add_sma(df: pd.DataFrame, period: int) -> pd.DataFrame:
     """Add sma_{period} column. Returns a copy; first (period-1) rows are NaN."""
     try:
@@ -216,8 +283,19 @@ def _indicators_ma_crossover(df: pd.DataFrame, params: Dict[str, Any]) -> pd.Dat
     slow_period = params.get("slow_period", 20)
     df = add_sma(df, fast_period)
     df = add_sma(df, slow_period)
+    # Added 2026-08-15 (parity remediation): volume_confirmation was accepted
+    # by the schema but signal_engine.py never computed the volume average it
+    # needs - the column simply didn't exist, so the filter silently couldn't
+    # be applied. Always compute it (cheap); the signal only reads it when
+    # volume_confirmation=True, matching AlphaLab's own params.get() pattern
+    # (momentum_breakout uses the identical volume_ma_{period} naming).
+    volume_avg_period = params.get("volume_avg_period", 20)
+    df[f"volume_ma_{volume_avg_period}"] = (
+        df["volume"].rolling(window=volume_avg_period).mean()
+    )
     logger.debug(
-        f"Added indicators for ma_crossover: SMA_{fast_period}, SMA_{slow_period}"
+        f"Added indicators for ma_crossover: SMA_{fast_period}, SMA_{slow_period}, "
+        f"volume_ma_{volume_avg_period}"
     )
     return df
 
@@ -226,9 +304,34 @@ def _indicators_ma_crossover(df: pd.DataFrame, params: Dict[str, Any]) -> pd.Dat
 def _indicators_rsi_mean_reversion(
     df: pd.DataFrame, params: Dict[str, Any]
 ) -> pd.DataFrame:
+    # Uses the canonical rsi_wilder() (Prompt 2.5 remediation, 2026-08-15),
+    # not the shared add_rsi()/`ta` library path the other five
+    # RSI-consuming strategies still use - see rsi_wilder()'s docstring for
+    # why. Column name (rsi_{period}) is unchanged, so signal_engine.py's
+    # existing lookup needs no change.
     period = params.get("period", 14)
-    df = add_rsi(df, period)
-    logger.debug(f"Added indicators for rsi_mean_reversion: RSI_{period}")
+    df = df.copy()
+    df[f"rsi_{period}"] = rsi_wilder(df["close"], period)
+
+    # ATR (for the ATR-based stop-loss), BB/ADX only when the matching
+    # confirmation flags are set - added 2026-08-15 alongside the
+    # signal_engine.py state-machine rewrite that now mirrors AlphaLab's
+    # RSIMeanReversion entry/exit/cooldown/stop-loss logic instead of a
+    # stateless single-bar threshold check (a real, previously-hidden
+    # parity gap: AlphaLive re-fired BUY every time RSI dipped below
+    # oversold with no position/cooldown/exit tracking at all - see
+    # FINAL_ENGINEERING_AUDIT.md / END_TO_END_VALIDATION.md).
+    df = add_atr(df, 14)
+    if params.get("use_bb_confirmation"):
+        bb_period = params.get("bb_period", 20)
+        bb_std = params.get("bb_std", 2.0)
+        df = add_bollinger(df, bb_period, bb_std)
+    if params.get("use_adx_filter"):
+        df = add_adx(df, 14)
+
+    logger.debug(
+        f"Added indicators for rsi_mean_reversion: RSI_{period} (Wilder), ATR_14"
+    )
     return df
 
 
