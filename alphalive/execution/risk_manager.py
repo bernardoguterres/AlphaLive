@@ -105,7 +105,17 @@ class RiskManager:
         - trading_paused_by_circuit_breaker to False
         - trades_today to 0
         """
-        today = datetime.now().date()
+        # US market hours are defined in ET, and main.py's day-boundary
+        # detection (`current_day = datetime.now(ET).strftime(...)`) is
+        # ET-based too. Using a naive datetime.now().date() here relies on
+        # the host's system timezone matching or leading ET (true on UTC
+        # containers like Railway, but false on any US timezone, which all
+        # lag ET) - on a lagging host, main.py calls reset_daily() right
+        # after ET midnight, but this naive check still reports "yesterday"
+        # for several more hours, so the reset is silently skipped and
+        # daily_pnl/trades_today/consecutive_losses carry over into the new
+        # trading day. Must use ET here to match main.py's own day boundary.
+        today = datetime.now(ET).date()
 
         # Only reset if it's actually a new day
         if self.last_reset_date is None or self.last_reset_date != today:
@@ -893,7 +903,7 @@ class GlobalRiskManager:
         """Initialize global risk manager."""
         # Global daily stats
         self.global_daily_stats = {
-            "date": date.today(),
+            "date": datetime.now(ET).date(),
             "total_trades": 0,
             "total_pnl": 0.0,
             "start_equity": None,
@@ -974,7 +984,9 @@ class GlobalRiskManager:
 
     def _check_daily_reset(self) -> None:
         """Reset global stats if new day."""
-        today = date.today()
+        # See reset_daily() above: must use ET, not naive local time, to
+        # match main.py's ET-based day-boundary detection.
+        today = datetime.now(ET).date()
 
         if self.global_daily_stats["date"] != today:
             logger.info(f"Resetting global daily stats for {today}")

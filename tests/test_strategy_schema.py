@@ -108,6 +108,65 @@ def test_greenblatt_trailing_stop_fraction_accepted_and_distinct_from_risk_pct(
     assert schema.risk.trailing_stop_pct == 3.0
 
 
+def test_rsi_mean_reversion_default_period(sample_strategy_dict):
+    """Neither period nor rsi_period supplied: unaffected by the 2026-08-15
+    alias-reconciliation fix, period keeps its default of 14."""
+    config = copy.deepcopy(sample_strategy_dict)
+    config["strategy"]["name"] = "rsi_mean_reversion"
+    config["strategy"]["parameters"] = {}
+
+    schema = StrategySchema(**config)
+    assert schema.strategy.parameters["period"] == 14
+
+
+def test_rsi_mean_reversion_rsi_period_alias_takes_effect(sample_strategy_dict):
+    """2026-08-15 bug fix: a real AlphaLab export only ever sets rsi_period
+    (never period). That non-default value must now actually reach
+    signal_engine.py instead of being silently discarded in favor of the
+    period field's own default of 14."""
+    config = copy.deepcopy(sample_strategy_dict)
+    config["strategy"]["name"] = "rsi_mean_reversion"
+    config["strategy"]["parameters"] = {"rsi_period": 9}
+
+    schema = StrategySchema(**config)
+    assert schema.strategy.parameters["period"] == 9
+
+
+def test_rsi_mean_reversion_legacy_period_only_config_unaffected(sample_strategy_dict):
+    """Backward compatibility: an old-style AlphaLive config that only ever
+    set period (predating rsi_period's existence in either schema) must
+    keep working exactly as before."""
+    config = copy.deepcopy(sample_strategy_dict)
+    config["strategy"]["name"] = "rsi_mean_reversion"
+    config["strategy"]["parameters"] = {"period": 21}
+
+    schema = StrategySchema(**config)
+    assert schema.strategy.parameters["period"] == 21
+
+
+def test_rsi_mean_reversion_matching_aliases_no_conflict(sample_strategy_dict):
+    """Both fields set but agreeing: not a conflict, and behaves the same
+    as either alone."""
+    config = copy.deepcopy(sample_strategy_dict)
+    config["strategy"]["name"] = "rsi_mean_reversion"
+    config["strategy"]["parameters"] = {"period": 21, "rsi_period": 21}
+
+    schema = StrategySchema(**config)
+    assert schema.strategy.parameters["period"] == 21
+
+
+def test_rsi_mean_reversion_conflicting_aliases_rejected(sample_strategy_dict):
+    """Both fields explicitly set to different values must fail loudly at
+    config-load time rather than silently picking one - an ambiguous
+    export/config should never produce an unpredictable live parameter."""
+    config = copy.deepcopy(sample_strategy_dict)
+    config["strategy"]["name"] = "rsi_mean_reversion"
+    config["strategy"]["parameters"] = {"period": 9, "rsi_period": 21}
+
+    with pytest.raises(ValidationError):
+        StrategySchema(**config)
+
+
 def test_unregistered_strategy_name_raises(sample_strategy_dict):
     """A strategy name with no registered parameter model must fail
     loudly at load time, not silently accept arbitrary parameters."""

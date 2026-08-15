@@ -65,13 +65,22 @@ class MACrossoverStrategyParams(BaseModel):
 
 class RSIMeanReversionStrategyParams(BaseModel):
     """period is what signal_engine.py's _rsi_mean_reversion_signal() and
-    indicators.py actually read; AlphaLab's export schema currently emits
-    rsi_period instead (a pre-existing name mismatch independent of this
-    session's Group 1 fixes - see audit Blocker #3, "rsi_mean_reversion
-    runs a fundamentally different strategy live than backtested", which
-    covers this strategy's parity gap and is scoped to a later session).
-    rsi_period is accepted here too so real AlphaLab exports don't hard-fail
-    on load, but it is NOT read by signal_engine.py today - only period is.
+    indicators.py actually read. AlphaLab's export schema emits rsi_period
+    instead (a pre-existing name mismatch, flagged by the 2026-08-15 final
+    engineering audit as a genuine cross-repo parity defect: a non-default
+    RSI period backtested in AlphaLab was silently discarded in AlphaLive,
+    which fell back to period's default of 14 regardless of what was
+    exported).
+
+    Fixed 2026-08-15 via reconcile_period_aliases(): if rsi_period is
+    explicitly supplied (the real AlphaLab export shape) and period is not,
+    rsi_period's value is adopted as the canonical period used by
+    signal_engine.py. Old AlphaLive configs that only ever set period
+    continue to work unchanged (backward compatible - most configs in
+    configs/production/ predate rsi_period's existence). If both fields are
+    explicitly set to different values, validation fails loudly rather than
+    silently picking one - an ambiguous config should be rejected, not
+    guessed at.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -88,6 +97,32 @@ class RSIMeanReversionStrategyParams(BaseModel):
     adx_threshold: int = Field(default=25, ge=10, le=50)
     stop_loss_atr_mult: float = Field(default=2.0, ge=0.5, le=10.0)
     max_holding_days: int = Field(default=40, ge=1, le=365)
+
+    @model_validator(mode="after")
+    def reconcile_period_aliases(self) -> "RSIMeanReversionStrategyParams":
+        """Make rsi_period (AlphaLab's export name) actually take effect.
+
+        - Neither set: period keeps its default (14). Unchanged behavior.
+        - Only period set (old-style AlphaLive configs): unchanged behavior.
+        - Only rsi_period set (real AlphaLab exports): its value becomes
+          the effective period - this is the bug fix.
+        - Both set to the same value: no-op, no conflict.
+        - Both set to different values: reject. A config that disagrees
+          with itself about the RSI period should fail loudly at load
+          time, not silently pick one value.
+        """
+        period_set = "period" in self.model_fields_set
+        rsi_period_set = "rsi_period" in self.model_fields_set
+        if rsi_period_set and self.rsi_period is not None:
+            if period_set and self.period != self.rsi_period:
+                raise ValueError(
+                    "rsi_mean_reversion: conflicting RSI period values - "
+                    f"period={self.period} vs rsi_period={self.rsi_period}. "
+                    "Set only one of these fields, or set both to the same "
+                    "value."
+                )
+            self.period = self.rsi_period
+        return self
 
 
 class MomentumBreakoutStrategyParams(BaseModel):

@@ -19,6 +19,7 @@ the expected relative path (e.g. an isolated single-repo checkout), the
 whole module is skipped rather than failed.
 """
 
+import copy
 import sys
 from pathlib import Path
 
@@ -140,18 +141,69 @@ def test_ma_crossover_param_field_parity():
 
 
 def test_rsi_mean_reversion_param_field_parity():
-    # Known, documented gap (AlphaLive's own docstring, "audit Blocker #3"):
-    # AlphaLive's signal_engine.py reads "period", not the "rsi_period" name
-    # AlphaLab currently exports. AlphaLive accepts rsi_period too (as an
-    # unused optional) so real exports don't hard-fail, and "period" has a
-    # usable default (14) so it isn't silently wrong - but it IS silently
-    # not using the backtested value. This is the parity gap's file:line
-    # record; the actual fix is a separate, later cross-repo session.
+    # AlphaLab exports rsi_period; AlphaLive's signal_engine.py reads
+    # "period". Fixed 2026-08-15: RSIMeanReversionStrategyParams.
+    # reconcile_period_aliases() now adopts rsi_period's value as the
+    # effective period when rsi_period is supplied and period is not (see
+    # test_rsi_mean_reversion_alphalab_export_value_reaches_signal_param
+    # below for the actual export-to-signal-value proof). "period" remains
+    # a live-only field for field-set-parity purposes - it's still the name
+    # signal_engine.py reads internally and old AlphaLive-only configs still
+    # set it directly - but it is no longer a dropped-value gap.
     _assert_field_parity(
         RSIMeanReversionParams,
         RSIMeanReversionStrategyParams,
         live_only={"period"},
     )
+
+
+def test_rsi_mean_reversion_alphalab_export_value_reaches_signal_param(
+    sample_strategy_dict,
+):
+    """True cross-repo regression test for the RSI period parity bug fixed
+    2026-08-15 (FINAL_ENGINEERING_AUDIT.md item 1).
+
+    Proves the full chain, not just field-name equality:
+    AlphaLab's real RSIMeanReversionParams model
+      -> .model_dump() (what /api/strategies/export actually produces)
+      -> AlphaLive's real StrategySchema/RSIMeanReversionStrategyParams
+      -> the normalized parameters dict signal_engine.py's
+         _rsi_mean_reversion_signal() reads via self.params.get("period", 14)
+
+    for both a default and a non-default RSI period.
+    """
+    from alphalive.strategy_schema import StrategySchema
+
+    def _export_and_reimport(rsi_period: int) -> int:
+        lab_params = RSIMeanReversionParams(
+            rsi_period=rsi_period,
+            oversold=30,
+            overbought=70,
+            use_bb_confirmation=False,
+            stop_loss_atr_mult=2.0,
+            max_holding_days=40,
+        )
+        exported = lab_params.model_dump()
+        assert "period" not in exported, (
+            "AlphaLab's export no longer matches the documented shape this "
+            "test proves against - it now exports 'period' directly, so "
+            "this test (and the reconcile_period_aliases() fix it's "
+            "regressing) may need updating."
+        )
+
+        config = copy.deepcopy(sample_strategy_dict)
+        config["strategy"]["name"] = "rsi_mean_reversion"
+        config["strategy"]["parameters"] = exported
+
+        live_schema = StrategySchema(**config)
+        return live_schema.strategy.parameters["period"]
+
+    # Non-default: AlphaLab backtested rsi_period=9; AlphaLive must actually
+    # use 9, not silently fall back to its own default of 14 (the bug).
+    assert _export_and_reimport(9) == 9
+
+    # Default: unaffected by the fix, still 14.
+    assert _export_and_reimport(14) == 14
 
 
 def test_momentum_breakout_param_field_parity():

@@ -7,9 +7,13 @@ Tests for the RiskManager and GlobalRiskManager classes.
 import os
 import pytest
 from datetime import datetime, date
+from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from alphalive.execution.risk_manager import RiskManager, GlobalRiskManager
 from alphalive.strategy_schema import Risk, Execution
+
+ET = ZoneInfo("America/New_York")
 
 
 @pytest.fixture
@@ -482,6 +486,46 @@ def test_reset_daily(risk_manager):
     assert risk_manager.consecutive_losses == 0
     assert risk_manager.trading_paused_by_circuit_breaker is False
     assert risk_manager.last_reset_date == date.today()
+
+
+def test_reset_daily_uses_et_day_not_host_local_day(risk_manager):
+    """Regression test: reset_daily() must key off the US/Eastern trading
+    day, not the host machine's local timezone.
+
+    main.py detects a new trading day using `datetime.now(ET)` and calls
+    reset_daily() right after ET midnight. If reset_daily() itself checked
+    a naive `datetime.now().date()`, a host running in a timezone that lags
+    ET (every US timezone - Pacific, Mountain, Central all lag ET; only a
+    UTC host happens to lead it) would still see "yesterday" at that moment
+    and silently skip the reset, carrying daily_pnl/consecutive_losses/
+    trading_paused_by_circuit_breaker over into the new trading day.
+
+    Simulate a Pacific-time host: at 2026-08-16 00:05 ET (a new ET day),
+    the naive local clock on a PT host reads 2026-08-15 21:05 (still the
+    previous day).
+    """
+    risk_manager.daily_pnl = -500.0
+    risk_manager.consecutive_losses = 2
+    risk_manager.trading_paused_by_circuit_breaker = True
+    risk_manager.last_reset_date = date(2026, 8, 15)  # set during "yesterday" (ET)
+
+    et_now = datetime(2026, 8, 16, 0, 5, tzinfo=ET)
+    naive_local_now = datetime(2026, 8, 15, 21, 5)  # what a PT host's clock reads
+
+    real_datetime = datetime
+
+    class _FakeDateTime(real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return et_now if tz is not None else naive_local_now
+
+    with patch("alphalive.execution.risk_manager.datetime", _FakeDateTime):
+        risk_manager.reset_daily()
+
+    assert risk_manager.daily_pnl == 0.0
+    assert risk_manager.consecutive_losses == 0
+    assert risk_manager.trading_paused_by_circuit_breaker is False
+    assert risk_manager.last_reset_date == date(2026, 8, 16)
 
 
 def test_global_risk_manager_initialization():
