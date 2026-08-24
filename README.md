@@ -716,7 +716,9 @@ WARNING
 
 ## Strategies Supported
 
-AlphaLive supports 8 strategies exported from AlphaLab.
+AlphaLive supports 8 strategy types. 7 of these are currently directly exportable from AlphaLab
+(`rsi_simple` is research-only and `vwap_reversion` is not currently exportable - see AlphaLab's
+README for why).
 
 > **Performance reality check:** Walk-forward testing shows all 7 validated daily/intraday strategies underperform buy-and-hold SPY (~0.5% vs 13.7% CAGR). Do not go live with daily strategies until walk-forward Sharpe > 0.8 and CAGR > 13%. The `greenblatt_weekly` strategy is the current development focus.
 

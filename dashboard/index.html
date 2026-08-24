@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AlphaLive Dashboard</title>
+  <title>AlphaLive Execution Monitor</title>
   <link rel="icon" type="image/png" href="/logo.png" />
 
   <!-- Apply saved theme before any rendering to prevent flash -->
@@ -36,7 +36,7 @@
       --scrollbar-bg: #070b16;
       --scrollbar-th: #334155;
       --bar-track:    #1e293b;
-      /* AlphaLive accent: green/teal (live execution) */
+      /* AlphaLive accent: emerald (execution/runtime, distinct from AlphaLab's blue) */
       --live-primary:   #10b981;
       --live-secondary: #14f195;
       --live-cyan:      #22d3ee;
@@ -68,26 +68,18 @@
     .label-caps-dim { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); }
     .section-label { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; color: var(--text-base); }
     .section-caption { font-size: 11.5px; color: var(--text-muted); }
-    .gradient-text {
-      background: linear-gradient(135deg, var(--text-strong), var(--live-primary) 120%, var(--live-cyan) 190%);
-      -webkit-background-clip: text; background-clip: text; color: transparent;
-    }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 
     /* Cards: override Tailwind's bg-[#161b2d] via !important so CSS vars win */
     .card {
       background-color: var(--bg-card) !important;
-      background-image: linear-gradient(160deg, rgba(248,250,252,0.03), transparent 40%);
-      transition: box-shadow 0.2s ease, background-color 0.2s, transform 0.2s ease;
-      box-shadow: 0 1px 0 rgba(248,250,252,0.04) inset, 0 1px 2px rgba(0,0,0,0.35), 0 14px 36px -16px rgba(0,0,0,0.65);
+      transition: box-shadow 0.2s ease, background-color 0.2s;
+      box-shadow: 0 1px 0 rgba(248,250,252,0.03) inset, 0 1px 2px rgba(0,0,0,0.35);
     }
-    .card:hover { box-shadow: 0 0 0 1px rgba(16,185,129,0.18), 0 4px 24px rgba(0,0,0,0.4); }
-    html.light .card:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.1); }
-
     /* Secondary tier: operational/status cards - flatter, quieter, recede behind primary panels */
     .card-soft {
       background-color: var(--bg-card-soft) !important;
       border: 1px solid var(--bdr-row);
-      box-shadow: 0 1px 2px rgba(0,0,0,0.2), 0 8px 20px -12px rgba(0,0,0,0.45);
     }
     /* Tertiary tier: lower-priority insights modules (screener) - muted, minimal depth */
     .card-muted {
@@ -96,73 +88,42 @@
     }
     html.light .card-muted { background-color: rgba(248,250,252,0.6) !important; }
 
-    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--bdr-card); flex-wrap: wrap; }
-    .icon-chip { display: flex; align-items: center; justify-content: center; border-radius: 10px; color: #04140e; box-shadow: 0 4px 14px -4px rgba(0,0,0,0.5); flex-shrink: 0; }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--bdr-card); flex-wrap: wrap; }
+    .icon-chip { display: flex; align-items: center; justify-content: center; border-radius: 8px; color: #04140e; flex-shrink: 0; }
 
-    /* Stat cards: subtle top accent + lift on hover */
+    /* Stat cells: thin top accent, no lift/glow theatrics */
     .stat-card { position: relative; overflow: hidden; }
     .stat-card::before {
-      content: ''; position: absolute; inset: 0 0 auto 0; height: 3px;
-      background: linear-gradient(90deg, transparent, var(--accent, var(--live-primary)) 20%, var(--accent, var(--live-primary)) 80%, transparent);
-      opacity: 0.85;
+      content: ''; position: absolute; inset: 0 0 auto 0; height: 2px;
+      background: var(--accent, var(--live-primary)); opacity: 0.7;
     }
-    .stat-card:hover { transform: translateY(-1px); }
 
-    .hero-panel {
-      position: relative; overflow: hidden; border-radius: 22px;
-      border: 1px solid var(--bdr-card);
-      background:
-        radial-gradient(ellipse 720px 360px at -4% -10%, rgba(16,185,129,0.16), transparent 60%),
-        radial-gradient(ellipse 560px 320px at 104% 108%, rgba(34,211,238,0.1), transparent 55%),
-        var(--bg-card);
-      box-shadow: 0 1px 0 rgba(248,250,252,0.05) inset, 0 30px 70px -26px rgba(0,0,0,0.85);
-    }
-    html.light .hero-panel { background: linear-gradient(160deg, #ffffff, #f8fafc); }
-    .glow-blob { position: absolute; border-radius: 9999px; filter: blur(90px); pointer-events: none; }
     .chart-grid-bg {
       background-image:
-        linear-gradient(rgba(248,250,252,0.06) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(248,250,252,0.04) 1px, transparent 1px);
+        linear-gradient(rgba(248,250,252,0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(248,250,252,0.035) 1px, transparent 1px);
       background-size: 100% 20%, 10% 100%;
     }
     html.light .chart-grid-bg { background-image: none; }
 
-    /* Body background: subtle radial glow for depth */
-    body {
-      background-image:
-        radial-gradient(ellipse 1300px 650px at 8% -12%, rgba(16,185,129,0.09), transparent 60%),
-        radial-gradient(ellipse 1000px 550px at 100% -4%, rgba(34,211,238,0.06), transparent 55%);
-      background-attachment: fixed;
-    }
-    html.light body { background-image: none; }
-
     .divider-fade { height: 1px; background: linear-gradient(90deg, transparent, var(--bdr-card), transparent); }
 
     /* ── Light-mode targeted overrides ────────────────────────────── */
-    /* Card borders */
     html.light .border-white\/\[0\.06\] { border-color: var(--bdr-card) !important; }
-    /* Table row dividers */
     html.light .border-white\/\[0\.04\] { border-color: var(--bdr-row) !important; }
-    /* Table row hover */
     html.light .hover\:bg-white\/\[0\.025\]:hover,
     html.light .hover\:bg-white\/\[0\.03\]:hover { background-color: var(--hover-row) !important; }
-    /* Progress bar track */
     html.light .bg-slate-800 { background-color: var(--bar-track) !important; }
-    /* Inner dividers on cards */
-    html.light .border-white\/\[0\.06\] { border-color: var(--bdr-card) !important; }
-
-    /* Text: white / slate-200 / slate-300 need to flip in light mode */
     html.light .text-white   { color: var(--text-strong) !important; }
     html.light .text-slate-200 { color: #1e293b !important; }
     html.light .text-slate-300 { color: #334155 !important; }
-    /* slate-400 and below stay as-is - they read fine on both backgrounds */
 
     /* ── Scrollbar ─────────────────────────────────────────────────── */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: var(--scrollbar-bg); }
     ::-webkit-scrollbar-thumb { background: var(--scrollbar-th); border-radius: 3px; }
 
-    /* ── Animations ────────────────────────────────────────────────── */
+    /* ── Animations (disabled under prefers-reduced-motion) ──────────── */
     @keyframes pulse-green { 0%, 100% { opacity: 1; } 50% { opacity: 0.65; } }
     .badge-live { animation: pulse-green 2s ease-in-out infinite; }
 
@@ -175,18 +136,33 @@
     .loss-bar-warn   { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
     .loss-bar-danger { background: linear-gradient(90deg, #ef4444, #f87171); }
 
-    @keyframes pnl-changed { 0% { transform: scale(1.06); opacity: 0.7; } 100% { transform: scale(1); opacity: 1; } }
-    .pnl-flash { animation: pnl-changed 0.35s ease-out; }
+    @keyframes pnl-changed { 0% { transform: scale(1.04); opacity: 0.75; } 100% { transform: scale(1); opacity: 1; } }
+    .pnl-flash { animation: pnl-changed 0.3s ease-out; }
 
-    @keyframes row-flash-green { 0% { background-color: rgba(16,185,129,0.22); } 100% { background-color: transparent; } }
-    @keyframes row-flash-red   { 0% { background-color: rgba(239,68,68,0.22);  } 100% { background-color: transparent; } }
+    @keyframes row-flash-green { 0% { background-color: rgba(16,185,129,0.20); } 100% { background-color: transparent; } }
+    @keyframes row-flash-red   { 0% { background-color: rgba(239,68,68,0.20);  } 100% { background-color: transparent; } }
     .row-flash-green { animation: row-flash-green 0.7s ease-out; }
     .row-flash-red   { animation: row-flash-red   0.7s ease-out; }
 
     @keyframes toast-in { 0% { opacity: 0; transform: translateX(2rem); } 100% { opacity: 1; transform: translateX(0); } }
     .toast-enter { animation: toast-in 0.25s ease-out; }
 
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
     [x-cloak] { display: none !important; }
+
+    /* Keyboard focus - visible on every actionable control */
+    button:focus-visible, a:focus-visible {
+      outline: 2px solid var(--live-primary);
+      outline-offset: 2px;
+      border-radius: 6px;
+    }
   </style>
 </head>
 
@@ -206,87 +182,99 @@
 <div
   x-data="dashboard"
   x-cloak
-  class="max-w-[1600px] mx-auto px-3 sm:px-5 py-4 pb-8 space-y-4"
+  class="max-w-[1680px] mx-auto px-3 sm:px-5 py-3 pb-8 space-y-3"
 >
 
   <!-- ==================================================================
-       TOP BAR
+       TOP COMMAND BAR - the single source of truth for mode / trading /
+       market / broker / WS state. Nothing below repeats these badges.
        ================================================================== -->
-  <!--
-    Mobile layout  (< sm):  Row 1 = [Brand ··· Controls]   Row 2 = [Status badges, full-width]
-    Desktop layout (sm+):   Single row = [Brand] [Badges] [Controls]
-  -->
-  <header class="sticky top-2 z-30 card rounded-2xl border border-white/[0.07] px-4 sm:px-5 py-3
+  <header class="sticky top-2 z-30 card rounded-xl border border-white/[0.07] px-3 sm:px-4 py-2.5
                  flex flex-wrap items-center gap-x-3 gap-y-2 backdrop-blur-xl">
 
-    <!-- [1] Brand - always row 1, left -->
-    <div class="flex items-center gap-2.5 shrink-0">
-      <div class="relative shrink-0">
-        <img src="/logo.png" alt="AlphaLive" class="h-9 w-9 rounded-xl object-cover relative z-10 ring-1 ring-white/[0.12]" />
-        <div class="absolute inset-0 blur-lg rounded-xl" style="background: var(--glow);"></div>
-      </div>
+    <!-- Brand -->
+    <div class="flex items-center gap-2 shrink-0">
+      <img src="/logo.png" alt="AlphaLive" class="h-8 w-8 rounded-lg object-cover ring-1 ring-white/[0.12]" />
       <div class="flex flex-col leading-none">
-        <span class="font-bold text-[16px] tracking-tight gradient-text">AlphaLive</span>
-        <span class="hidden sm:block text-[9.5px] font-semibold uppercase tracking-widest mt-1" style="color: var(--text-muted);">Execution Engine</span>
+        <span class="font-bold text-[15px] tracking-tight" style="color: var(--text-strong);">AlphaLive</span>
+        <span class="hidden sm:block text-[9px] font-semibold uppercase tracking-widest mt-0.5" style="color: var(--live-primary);">Execution Monitor</span>
       </div>
     </div>
 
-    <!-- [3] Status badges - row 2 on mobile (full width), inline on sm+ -->
-    <div class="flex items-center gap-2 flex-wrap justify-center
-                order-3 sm:order-2 w-full sm:w-auto sm:flex-1">
+    <!-- Status pills: mode / trading / market / broker / WS - real fields only -->
+    <div class="flex items-center gap-1.5 flex-wrap order-3 sm:order-2 w-full sm:w-auto sm:flex-1 sm:justify-center">
+      <!-- Mode: paper / live / dry-run. Live-money mode gets an unmistakable red treatment. -->
       <span
-        :class="[statusClass(), botStatus() === 'LIVE' ? 'badge-live' : '']"
-        class="px-3 py-1 rounded-full text-xs font-bold tracking-wide uppercase shadow-sm"
-        x-text="botStatus()"
+        class="px-2.5 py-1 rounded-md text-[10.5px] font-bold tracking-wide uppercase border"
+        :class="risk?.dry_run
+          ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
+          : (account?.paper ?? true)
+            ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+            : 'bg-red-600/20 text-red-300 border-red-500/50'"
+        x-text="modeLabel()"
+        role="status"
       >CONNECTING</span>
+
+      <!-- Trading active / paused -->
       <span
+        class="px-2.5 py-1 rounded-md text-[10.5px] font-bold tracking-wide uppercase border"
+        :class="risk?.trading_paused
+          ? 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30'
+          : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'"
+        x-text="risk ? (risk.trading_paused ? 'Trading Paused' : 'Trading Enabled') : 'Trading -'"
+        role="status"
+      ></span>
+
+      <!-- Market open / closed -->
+      <span
+        class="px-2.5 py-1 rounded-md text-[10.5px] font-medium border"
         :class="health?.market?.is_open
-          ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-          : 'bg-slate-700/40 text-slate-400 border border-slate-600/30'"
-        class="px-3 py-1 rounded-full text-xs font-medium"
-        x-text="health?.market?.is_open ? '▶ MARKET OPEN' : '◼ MARKET CLOSED'"
-      >◼ MARKET CLOSED</span>
+          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+          : 'bg-slate-700/30 text-slate-400 border-slate-600/25'"
+        x-text="health ? (health.market?.is_open ? 'Market Open' : 'Market Closed') : 'Market -'"
+        role="status"
+      ></span>
+
+      <!-- Broker connected -->
+      <span
+        class="px-2.5 py-1 rounded-md text-[10.5px] font-medium border"
+        :class="!health
+          ? 'bg-slate-700/30 text-slate-400 border-slate-600/25'
+          : health.broker_connected
+            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+            : 'bg-red-500/15 text-red-400 border-red-500/30'"
+        x-text="!health ? 'Broker -' : (health.broker_connected ? 'Broker Connected' : 'Broker Disconnected')"
+        role="status"
+      ></span>
+
+      <!-- WS / dashboard connection -->
+      <span
+        class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10.5px] font-medium border"
+        :class="{
+          'bg-emerald-500/10 text-emerald-400 border-emerald-500/20': wsStatus === 'connected',
+          'bg-slate-700/30 text-slate-400 border-slate-600/25':       wsStatus === 'connecting',
+          'bg-red-500/15 text-red-400 border-red-500/30':             wsStatus === 'disconnected',
+        }"
+        role="status"
+      >
+        <span class="inline-block w-1.5 h-1.5 rounded-full shrink-0"
+              :class="{ 'ws-dot-connected': wsStatus === 'connected', 'ws-dot-connecting': wsStatus === 'connecting', 'ws-dot-disconnected': wsStatus === 'disconnected' }"></span>
+        <span x-text="wsStatus === 'connected' ? 'Feed Live' : wsStatus === 'connecting' ? 'Reconnecting' : 'Disconnected'"></span>
+      </span>
     </div>
 
-    <!-- [2] Controls group - row 1, pushed to right via ml-auto; order-3 on sm+ -->
+    <!-- Controls: data age, theme, redeploy, pause/resume -->
     <div class="flex items-center gap-2 ml-auto order-2 sm:order-3 shrink-0">
 
-      <!-- Railway deploy button -->
-      <button
-        @click="triggerDeploy()"
-        :disabled="deployPending || !health?.railway_configured"
-        :title="health?.railway_configured
-          ? 'Trigger a Railway redeploy'
-          : 'Set RAILWAY_API_TOKEN, RAILWAY_SERVICE_ID, RAILWAY_ENVIRONMENT_ID to enable'"
-        class="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold
-               border transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
-        :class="health?.railway_configured
-          ? 'bg-indigo-900/40 text-indigo-300 border-indigo-700/40 hover:bg-indigo-800/50'
-          : 'bg-slate-800/40 text-slate-600 border-slate-700/30'"
-      >
-        <svg class="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-          <path stroke-linecap="round" stroke-linejoin="round"
-                d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.63 2v5.52m5.96 6.85H3.42a14.98 14.98 0 0012.13 6.38"/>
-        </svg>
-        <span x-text="deployPending ? 'Deploying…' : 'Redeploy'"></span>
-      </button>
-      <!-- Mobile: icon-only redeploy -->
-      <button
-        @click="triggerDeploy()"
-        :disabled="deployPending || !health?.railway_configured"
-        :title="health?.railway_configured ? 'Redeploy on Railway' : 'Railway not configured'"
-        class="sm:hidden p-1.5 rounded-lg border transition-colors disabled:opacity-40"
-        :class="health?.railway_configured
-          ? 'bg-indigo-900/40 text-indigo-300 border-indigo-700/40'
-          : 'bg-slate-800/40 text-slate-600 border-slate-700/30'"
-      >
-        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-          <path stroke-linecap="round" stroke-linejoin="round"
-                d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.63 2v5.52m5.96 6.85H3.42a14.98 14.98 0 0012.13 6.38"/>
-        </svg>
-      </button>
+      <!-- Last update / data age -->
+      <span class="hidden md:inline-flex items-center text-xs font-mono-nums pr-1"
+            :class="dataAgeStale(nowTick) ? 'text-amber-400' : ''"
+            :style="!dataAgeStale(nowTick) ? 'color: var(--text-muted)' : ''"
+            x-text="lastUpdated ? dataAgeLabel(nowTick) : 'Connecting…'"
+            title="Time since the last successful WebSocket update"
+      ></span>
 
-      <!-- Dark / light mode toggle -->
+      <!-- Theme toggle -->
       <button
         @click="toggleTheme()"
         class="p-1.5 rounded-lg border transition-colors"
@@ -294,6 +282,7 @@
           ? 'border-slate-700/60 text-slate-400 hover:text-slate-200 hover:border-slate-500'
           : 'border-slate-300 text-slate-500 hover:text-slate-800 hover:border-slate-400'"
         :title="darkMode ? 'Switch to light mode' : 'Switch to dark mode'"
+        :aria-label="darkMode ? 'Switch to light mode' : 'Switch to dark mode'"
       >
         <template x-if="darkMode">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -309,562 +298,277 @@
         </template>
       </button>
 
-      <!-- WS dot + last updated -->
-      <div class="flex items-center gap-1.5 pl-2 sm:border-l" style="border-color: var(--bdr-card);">
-        <span
-          class="inline-block w-2 h-2 rounded-full shrink-0"
-          :class="{
-            'ws-dot-connected':    wsStatus === 'connected',
-            'ws-dot-connecting':   wsStatus === 'connecting',
-            'ws-dot-disconnected': wsStatus === 'disconnected',
-          }"
-          :title="wsStatus === 'connected' ? 'Live' : wsStatus === 'connecting' ? 'Reconnecting…' : 'Disconnected'"
-        ></span>
-        <span class="hidden sm:inline" x-show="lastUpdated">
-          <span class="text-slate-300 text-xs font-mono-nums" x-text="lastUpdated"></span>
-        </span>
-        <span class="hidden sm:inline text-xs animate-pulse" x-show="!lastUpdated">Connecting…</span>
-      </div>
+      <!-- Redeploy (desktop) -->
+      <button
+        @click="triggerDeploy()"
+        :disabled="deployPending || !health?.railway_configured"
+        :title="health?.railway_configured ? 'Trigger a Railway redeploy' : 'Set RAILWAY_API_TOKEN, RAILWAY_SERVICE_ID, RAILWAY_ENVIRONMENT_ID to enable'"
+        :aria-label="deployPending ? 'Redeploy in progress' : 'Trigger Railway redeploy'"
+        class="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold
+               border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        :class="health?.railway_configured
+          ? 'bg-indigo-900/40 text-indigo-300 border-indigo-700/40 hover:bg-indigo-800/50'
+          : 'bg-slate-800/40 text-slate-600 border-slate-700/30'"
+      >
+        <svg class="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+          <path stroke-linecap="round" stroke-linejoin="round"
+                d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.63 2v5.52m5.96 6.85H3.42a14.98 14.98 0 0012.13 6.38"/>
+        </svg>
+        <span x-text="deployPending ? 'Deploying…' : 'Redeploy'"></span>
+      </button>
+      <!-- Redeploy (mobile, icon-only) -->
+      <button
+        @click="triggerDeploy()"
+        :disabled="deployPending || !health?.railway_configured"
+        :title="health?.railway_configured ? 'Redeploy on Railway' : 'Railway not configured'"
+        :aria-label="health?.railway_configured ? 'Redeploy on Railway' : 'Railway not configured'"
+        class="sm:hidden p-1.5 rounded-lg border transition-colors disabled:opacity-40"
+        :class="health?.railway_configured
+          ? 'bg-indigo-900/40 text-indigo-300 border-indigo-700/40'
+          : 'bg-slate-800/40 text-slate-600 border-slate-700/30'"
+      >
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+          <path stroke-linecap="round" stroke-linejoin="round"
+                d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.63 2v5.52m5.96 6.85H3.42a14.98 14.98 0 0012.13 6.38"/>
+        </svg>
+      </button>
 
-    </div><!-- /controls group -->
+      <!-- Pause / Resume - the single, prominent instance. Same endpoint,
+           confirm dialog, and disabled-state semantics as before. -->
+      <button
+        @click="togglePause()"
+        :disabled="killSwitchPending"
+        :aria-label="killSwitchPending ? 'Pause request in progress' : (risk?.trading_paused_dashboard ? 'Resume trading' : 'Pause trading')"
+        class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12.5px] font-bold transition-colors disabled:opacity-50"
+        :class="risk?.trading_paused_dashboard
+          ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+          : 'bg-red-600 hover:bg-red-500 text-white'"
+        x-text="killSwitchPending ? 'Working…' : (risk?.trading_paused_dashboard ? '▶ Resume Trading' : '⏸ Pause Trading')"
+      ></button>
+    </div>
   </header>
 
 
   <!-- ==================================================================
-       HERO / COMMAND CENTER - real data only; honest empty state when
-       account/risk haven't arrived from the WebSocket yet
+       PRIMARY METRIC STRIP - 6 compact cells, no repeated values
        ================================================================== -->
-  <div class="hero-panel px-5 py-6 sm:px-8 sm:py-8">
-    <div class="glow-blob h-64 w-64 -bottom-28 left-1/4 opacity-20" style="background: var(--live-primary);"></div>
-    <div class="glow-blob h-44 w-44 -top-20 right-16 opacity-15" style="background: var(--live-cyan);"></div>
+  <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2.5">
 
-    <div class="relative grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-8">
-      <!-- left: identity + real status + real controls -->
-      <div class="flex flex-col justify-between">
-        <div>
-          <div class="inline-flex items-center gap-2 mb-4 rounded-full pl-2 pr-3.5 py-1"
-               style="background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.22);">
-            <span class="relative flex h-2 w-2">
-              <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60" style="background: var(--live-primary);"></span>
-              <span class="relative inline-flex rounded-full h-2 w-2" style="background: var(--live-primary);"></span>
-            </span>
-            <span class="text-[11px] font-bold uppercase tracking-widest" style="color: #5eead4;"
-                  x-text="(account?.paper ?? true) ? 'Live Execution · Alpaca Paper' : 'Live Execution · Alpaca Live'"></span>
-          </div>
-          <h1 class="text-3xl sm:text-[2.5rem] font-extrabold tracking-tight leading-[1.05]" style="color: var(--text-strong);">
-            Live Trading<br /> <span class="gradient-text">Command Center</span>
-          </h1>
-          <p class="text-[15px] mt-3.5 leading-relaxed max-w-lg" style="color: var(--text-base);">
-            Monitor positions, execution, risk, and alerts for this strategy deployment - one operational surface, updated every 5 seconds.
-          </p>
-          <div class="flex items-center gap-2 mt-5 flex-wrap">
-            <span :class="[statusClass(), botStatus() === 'LIVE' ? 'badge-live' : '']"
-                  class="px-3 py-1 rounded-full text-xs font-bold tracking-wide uppercase shadow-sm"
-                  x-text="botStatus()"></span>
-            <span :class="health?.broker_connected
-                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                    : 'bg-red-500/15 text-red-400 border border-red-500/30'"
-                  class="px-3 py-1 rounded-full text-xs font-medium"
-                  x-text="health?.broker_connected ? 'Broker Connected' : 'Broker Offline'"></span>
-            <span :class="health?.market?.is_open
-                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                    : 'bg-slate-700/40 text-slate-400 border border-slate-600/30'"
-                  class="px-3 py-1 rounded-full text-xs font-medium"
-                  x-text="health?.market?.is_open ? 'Market Open' : 'Market Closed'"></span>
-          </div>
-        </div>
-        <div class="flex items-center gap-2.5 flex-wrap w-full sm:w-auto mt-7">
-          <button
-            @click="triggerDeploy()"
-            :disabled="deployPending || !health?.railway_configured"
-            :title="health?.railway_configured ? 'Trigger a Railway redeploy' : 'Railway not configured'"
-            class="hidden sm:flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold border transition-all disabled:opacity-40"
-            :class="health?.railway_configured
-              ? 'bg-indigo-900/40 text-indigo-300 border-indigo-700/40 hover:bg-indigo-800/50'
-              : 'bg-slate-800/40 text-slate-600 border-slate-700/30'"
-          >
-            <svg class="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.63 2v5.52m5.96 6.85H3.42a14.98 14.98 0 0012.13 6.38"/>
-            </svg>
-            <span x-text="deployPending ? 'Deploying…' : 'Redeploy'"></span>
-          </button>
-          <button
-            @click="togglePause()"
-            :disabled="killSwitchPending"
-            class="flex items-center gap-2 px-5 py-2.5 rounded-lg text-[13.5px] font-bold transition-all disabled:opacity-50 shadow-lg"
-            :class="risk?.trading_paused_dashboard
-              ? 'text-black'
-              : 'text-white'"
-            :style="risk?.trading_paused_dashboard
-              ? 'background: linear-gradient(135deg, var(--live-primary), var(--live-secondary)); box-shadow: 0 10px 28px -10px rgba(16,185,129,0.55);'
-              : 'background: linear-gradient(135deg, #ef4444, #f87171); box-shadow: 0 10px 28px -10px rgba(239,68,68,0.5);'"
-            x-text="killSwitchPending ? 'Working…' : (risk?.trading_paused_dashboard ? '▶ Resume Trading' : '⏸ Pause Trading')"
-          ></button>
-        </div>
-      </div>
-
-      <!-- right: real equity/P&L snapshot - honest placeholder until account/risk arrive -->
-      <div class="rounded-[20px] p-[1px] relative" style="background: linear-gradient(160deg, rgba(16,185,129,0.4), rgba(34,211,238,0.1) 45%, rgba(120,145,180,0.15) 100%); box-shadow: 0 26px 60px -22px rgba(0,0,0,0.9);">
-        <div class="rounded-[19px] h-full relative overflow-hidden" style="background: linear-gradient(175deg, var(--bg-card-soft), var(--bg-card));">
-          <div class="glow-blob h-40 w-40 -top-16 -right-10 opacity-20" style="background: var(--live-secondary); filter: blur(60px);"></div>
-
-          <template x-if="account && risk">
-            <div>
-              <div class="flex items-start justify-between p-5 pb-0 relative">
-                <div class="min-w-0">
-                  <p class="label-caps-dim truncate" x-text="(account?.paper ?? true) ? \"Today's Equity · Paper Account\" : \"Today's Equity · Live Account\""></p>
-                  <p class="text-[30px] leading-tight font-extrabold font-mono-nums mt-2"
-                     :class="[pnlClass(risk.daily_pnl), pnlFlashing ? 'pnl-flash' : '']"
-                     x-text="fmtDollar(risk.daily_pnl)"></p>
-                </div>
-                <div class="flex items-center gap-1 text-xs font-bold rounded-full px-2.5 py-1.5 shrink-0"
-                     :class="pnlClass(risk.daily_pnl)"
-                     style="background: rgba(148,163,184,0.1); border: 1px solid var(--bdr-row);"
-                     x-text="(risk.equity && risk.daily_pnl != null) ? fmtPct(risk.daily_pnl / risk.equity * 100) : ''"></div>
-              </div>
-              <div class="chart-grid-bg mt-4 mx-2 rounded-lg relative">
-                <div class="relative h-24">
-                  <svg viewBox="0 0 100 32" preserveAspectRatio="none" class="w-full h-full">
-                    <polyline fill="none" :stroke="pnlSeries.data.length >= 2 && risk.daily_pnl >= 0 ? '#14f195' : '#f87171'"
-                              stroke-width="1.6" vector-effect="non-scaling-stroke"
-                              :points="sparklinePoints()"></polyline>
-                  </svg>
-                  <p class="absolute inset-0 flex items-center justify-center text-[11px]" style="color: var(--text-dim);" x-show="pnlSeries.data.length < 2">Collecting today's P&amp;L…</p>
-                </div>
-              </div>
-              <div class="grid grid-cols-3 gap-2 px-5 py-4 border-t relative" style="border-color: var(--bdr-row); background: rgba(0,0,0,0.1);">
-                <div>
-                  <p class="label-caps-dim">Equity</p>
-                  <p class="text-sm font-mono-nums font-bold mt-1" style="color: var(--text-strong);" x-text="'$' + fmt2(account.portfolio_value)"></p>
-                </div>
-                <div class="border-x px-2" style="border-color: var(--bdr-row);">
-                  <p class="label-caps-dim">Open P&amp;L</p>
-                  <p class="text-sm font-mono-nums font-bold mt-1" :class="pnlClass(openPnl())" x-text="fmtDollar(openPnl())"></p>
-                </div>
-                <div>
-                  <p class="label-caps-dim">Positions</p>
-                  <p class="text-sm font-mono-nums font-bold mt-1" style="color: var(--text-strong);" x-text="positions.length"></p>
-                </div>
-              </div>
-            </div>
-          </template>
-
-          <!-- Honest empty state: no fake numbers while waiting on the broker -->
-          <template x-if="!account || !risk">
-            <div class="flex flex-col items-center justify-center text-center py-10 px-5 relative">
-              <div class="rounded-xl p-3 mb-3 ring-1" style="background: rgba(16,185,129,0.08); ring-color: rgba(16,185,129,0.2);">
-                <svg class="w-5 h-5 animate-pulse" style="color: var(--live-primary);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-                </svg>
-              </div>
-              <p class="text-sm font-semibold" style="color: var(--text-strong);">Waiting for broker data</p>
-              <p class="text-xs mt-1.5 max-w-[220px]" style="color: var(--text-muted);" x-text="wsStatus === 'connected' ? 'Connected - equity will appear on the next push.' : 'Reconnecting to the dashboard server…'"></p>
-            </div>
-          </template>
-        </div>
-      </div>
-    </div>
-  </div>
-
-
-  <!-- ==================================================================
-       STAT CARDS - 2 cols on mobile, 4 on md+
-       ================================================================== -->
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-
-    <!-- Portfolio Value -->
-    <div class="card stat-card rounded-xl border border-white/[0.06] px-4 sm:px-5 py-4" style="--accent: var(--live-primary);">
-      <div class="flex items-center justify-between mb-2">
-        <p class="label-caps">Portfolio Value</p>
-        <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--live-primary), var(--live-secondary));">
-          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3 3v18h18M18.7 8l-5.1 5.1-4-4L3 15.3"/>
-          </svg>
-        </span>
-      </div>
-      <p class="text-xl sm:text-2xl font-bold font-mono-nums" style="color: var(--text-strong);"
+    <div class="card stat-card rounded-lg border border-white/[0.06] px-3.5 py-3" style="--accent: var(--live-primary);">
+      <p class="label-caps">Portfolio Value</p>
+      <p class="text-lg font-bold font-mono-nums mt-1" style="color: var(--text-strong);"
          x-text="account ? '$' + fmt2(account.portfolio_value) : '-'">-</p>
-      <p class="text-[11px] mt-1.5" style="color: var(--text-muted);"
-         x-text="account ? 'Equity ' + fmtDollar(account.equity) : 'Waiting for broker…'"></p>
+      <p class="text-[10.5px] mt-1" style="color: var(--text-muted);">Equity</p>
     </div>
 
-    <!-- Daily P&L (flashes on change) -->
-    <div class="card stat-card rounded-xl border border-white/[0.06] px-4 sm:px-5 py-4" style="--accent: var(--live-secondary);">
-      <div class="flex items-center justify-between mb-2">
-        <p class="label-caps">Daily P&amp;L</p>
-        <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--live-secondary), var(--live-cyan));">
-          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
-          </svg>
-        </span>
-      </div>
-      <p class="text-xl sm:text-2xl font-bold font-mono-nums"
+    <div class="card stat-card rounded-lg border border-white/[0.06] px-3.5 py-3" style="--accent: var(--live-secondary);">
+      <p class="label-caps">Daily P&amp;L</p>
+      <p class="text-lg font-bold font-mono-nums mt-1"
          :class="[pnlClass(risk?.daily_pnl), pnlFlashing ? 'pnl-flash' : '']"
          x-text="risk != null ? fmtDollar(risk.daily_pnl) : '-'">-</p>
-      <p class="text-[11px] mt-1.5"
-         :class="risk != null ? pnlClass(risk?.daily_pnl) : ''" :style="risk == null ? 'color: var(--text-muted)' : ''"
-         x-text="(risk?.equity && risk.daily_pnl != null)
-           ? fmtPct(risk.daily_pnl / risk.equity * 100) + ' of equity' : (risk != null ? '' : 'Waiting for broker…')"></p>
+      <p class="text-[10.5px] mt-1 font-mono-nums" :class="risk != null ? pnlClass(risk?.daily_pnl) : ''" :style="risk == null ? 'color: var(--text-muted)' : ''"
+         x-text="(risk?.equity && risk.daily_pnl != null) ? fmtPct(risk.daily_pnl / risk.equity * 100) : (risk != null ? '0.00%' : '-')"></p>
     </div>
 
-    <!-- Cash Available -->
-    <div class="card stat-card rounded-xl border border-white/[0.06] px-4 sm:px-5 py-4" style="--accent: var(--live-cyan);">
-      <div class="flex items-center justify-between mb-2">
-        <p class="label-caps">Cash Available</p>
-        <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--live-cyan), #38bdf8);">
-          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V6m0 10v2m9-8a9 9 0 11-18 0 9 9 0 0118 0z"/>
-          </svg>
-        </span>
-      </div>
-      <p class="text-xl sm:text-2xl font-bold font-mono-nums" style="color: var(--text-strong);"
+    <div class="card stat-card rounded-lg border border-white/[0.06] px-3.5 py-3" style="--accent: var(--live-cyan);">
+      <p class="label-caps">Cash Available</p>
+      <p class="text-lg font-bold font-mono-nums mt-1" style="color: var(--text-strong);"
          x-text="account ? '$' + fmt2(account.cash) : '-'">-</p>
-      <p class="text-[11px] mt-1.5" style="color: var(--text-muted);"
-         x-text="account ? 'Buying power ' + fmtDollar(account.buying_power) : 'Waiting for broker…'"></p>
+      <p class="text-[10.5px] mt-1" style="color: var(--text-muted);">Available to trade</p>
     </div>
 
-    <!-- Open Positions -->
-    <div class="card stat-card rounded-xl border border-white/[0.06] px-4 sm:px-5 py-4" style="--accent: var(--violet);">
-      <div class="flex items-center justify-between mb-2">
-        <p class="label-caps">Open Positions</p>
-        <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--violet), #818cf8);">
-          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/>
-          </svg>
-        </span>
-      </div>
-      <p class="text-xl sm:text-2xl font-bold font-mono-nums" style="color: var(--text-strong);" x-text="positions.length">-</p>
-      <p class="text-[11px] mt-1.5" style="color: var(--text-muted);"
-         x-text="orders.length + ' order' + (orders.length === 1 ? '' : 's') + ' today'"></p>
+    <div class="card stat-card rounded-lg border border-white/[0.06] px-3.5 py-3" style="--accent: #38bdf8;">
+      <p class="label-caps">Buying Power</p>
+      <p class="text-lg font-bold font-mono-nums mt-1" style="color: var(--text-strong);"
+         x-text="account ? '$' + fmt2(account.buying_power) : '-'">-</p>
+      <p class="text-[10.5px] mt-1" style="color: var(--text-muted);">From broker</p>
+    </div>
+
+    <div class="card stat-card rounded-lg border border-white/[0.06] px-3.5 py-3" style="--accent: var(--violet);">
+      <p class="label-caps">Open Positions</p>
+      <p class="text-lg font-bold font-mono-nums mt-1" style="color: var(--text-strong);" x-text="positions.length">-</p>
+      <p class="text-[10.5px] mt-1" style="color: var(--text-muted);"
+         x-text="positions.length ? fmtDollar(positions.reduce((s,p) => s + Math.abs(p.market_value), 0)) + ' exposure' : 'No exposure'"></p>
+    </div>
+
+    <div class="card stat-card rounded-lg border border-white/[0.06] px-3.5 py-3" style="--accent: #f59e0b;">
+      <p class="label-caps">Orders Today</p>
+      <p class="text-lg font-bold font-mono-nums mt-1" style="color: var(--text-strong);" x-text="orders.length">-</p>
+      <p class="text-[10.5px] mt-1" style="color: var(--text-muted);"
+         x-text="orders.length ? (ordersSummary().filled + ' filled · ' + ordersSummary().pending + ' pending · ' + ordersSummary().rejected + ' rejected') : 'None yet'"></p>
     </div>
   </div>
 
 
   <!-- ==================================================================
-       MAIN ROW - positions table (left) + charts (right)
-       Stacks on tablet, side-by-side on xl
+       MAIN MONITORING AREA - session performance (left) + runtime & risk (right)
        ================================================================== -->
-  <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+  <div class="grid grid-cols-1 xl:grid-cols-3 gap-3">
 
-    <!-- Positions table (xl: 2/3) -->
+    <!-- LEFT: Session performance -->
     <div class="card xl:col-span-2 rounded-xl border border-white/[0.06] overflow-hidden">
       <div class="panel-head">
-        <div class="flex items-center gap-2.5">
-          <span class="icon-chip h-8 w-8" style="background: linear-gradient(135deg, var(--live-primary), var(--live-cyan));">
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/>
-            </svg>
-          </span>
-          <h2 class="section-label">Open Positions</h2>
+        <div>
+          <h2 class="section-label">Session Performance</h2>
+          <p class="section-caption">Today's P&amp;L only - resets each session, not historical</p>
         </div>
-        <span class="text-xs font-mono-nums" style="color: var(--text-muted);" x-text="positions.length + ' active'"></span>
+        <span class="text-xs font-mono-nums" style="color: var(--text-muted);"
+              x-text="lastUpdated ? 'Last update ' + lastUpdated : ''"></span>
       </div>
 
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm" style="min-width: 640px;">
-          <thead>
-            <tr style="border-bottom: 1px solid var(--bdr-card); background: rgba(248,250,252,0.02);">
-              <th class="px-4 py-2.5 text-left label-caps">Ticker</th>
-              <th class="px-3 py-2.5 text-right label-caps">Shares</th>
-              <th class="px-3 py-2.5 text-right label-caps">Entry</th>
-              <th class="px-3 py-2.5 text-right label-caps">Price</th>
-              <th class="px-3 py-2.5 text-right label-caps">P&amp;L $</th>
-              <th class="px-3 py-2.5 text-right label-caps">P&amp;L %</th>
-              <th class="px-3 py-2.5 text-right label-caps">Trail Stop</th>
-              <th class="px-3 py-2.5 text-right label-caps">Held</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template x-if="positions.length === 0">
-              <tr>
-                <td colspan="8" class="px-5 py-16 text-center">
-                  <div class="flex flex-col items-center gap-2.5">
-                    <div class="rounded-xl p-3 ring-1" style="background: rgba(16,185,129,0.08); ring-color: rgba(16,185,129,0.2);">
-                      <svg class="w-5 h-5" style="color: var(--live-primary);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/>
-                      </svg>
-                    </div>
-                    <p class="text-sm font-semibold" style="color: var(--text-strong);">No open positions</p>
-                    <p class="text-xs" style="color: var(--text-dim);">New positions from the strategy engine will appear here</p>
-                  </div>
-                </td>
-              </tr>
-            </template>
-
-            <template x-for="p in positions" :key="p.symbol">
-              <tr
-                class="transition-colors"
-                style="border-top: 1px solid var(--bdr-row);"
-                :class="{
-                  'row-flash-green':   positionFlash[p.symbol] === 'green',
-                  'row-flash-red':     positionFlash[p.symbol] === 'red',
-                  'hover:bg-white/[0.025]': !positionFlash[p.symbol],
-                }"
-              >
-                <!-- Ticker chip + sparkline -->
-                <td class="px-4 py-2.5">
-                  <div class="flex items-center gap-2.5">
-                    <span class="icon-chip h-7 w-7 text-[10px] font-bold shrink-0"
-                          style="background: linear-gradient(135deg, var(--live-primary), var(--live-cyan));"
-                          x-text="p.symbol.slice(0, 2)"></span>
-                    <div class="shrink-0">
-                      <div class="font-semibold text-sm" style="color: var(--text-strong);" x-text="p.symbol"></div>
-                      <div class="text-[9px] font-medium mt-0.5"
-                           :class="p.side === 'long' ? 'text-emerald-500' : 'text-red-400'"
-                           x-text="p.side.toUpperCase()"></div>
-                    </div>
-                    <!-- Mini sparkline (20 daily bars, initialized once per symbol) -->
-                    <div class="w-16 h-7 shrink-0">
-                      <canvas
-                        :id="'spark-' + p.symbol"
-                        x-init="$nextTick(() => initSparkline(p.symbol))"
-                      ></canvas>
-                    </div>
-                  </div>
-                </td>
-
-                <td class="px-3 py-2.5 text-right font-mono-nums" style="color: var(--text-base);"
-                    x-text="p.qty"></td>
-                <td class="px-3 py-2.5 text-right font-mono-nums" style="color: var(--text-muted);"
-                    x-text="'$' + p.avg_entry_price.toFixed(2)"></td>
-                <td class="px-3 py-2.5 text-right font-mono-nums font-medium" style="color: var(--text-base);"
-                    x-text="'$' + p.current_price.toFixed(2)"></td>
-                <td class="px-3 py-2.5 text-right font-mono-nums font-semibold"
-                    :class="pnlClass(p.unrealized_pl)"
-                    x-text="fmtDollar(p.unrealized_pl)"></td>
-                <td class="px-3 py-2.5 text-right font-mono-nums font-semibold"
-                    :class="pnlClass(p.unrealized_plpc)"
-                    x-text="fmtPct(p.unrealized_plpc)"></td>
-                <td class="px-3 py-2.5 text-right font-mono-nums text-xs" style="color: var(--text-dim);"
-                    x-text="p.trailing_stop_level
-                      ? '$' + p.trailing_stop_level.toFixed(2) + (p.trailing_stop_pct ? ' (' + p.trailing_stop_pct + '%)' : '')
-                      : '-'"></td>
-                <td class="px-3 py-2.5 text-right font-mono-nums text-xs"
-                    :class="heldClass(p.entry_timestamp)"
-                    :title="p.entry_timestamp ? 'Since ' + fmtDate(p.entry_timestamp) : ''"
-                    x-text="fmtHeld(p.entry_timestamp)"></td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Charts column (xl: 1/3) - Portfolio Risk & Exposure, real gross exposure computed from live position data -->
-    <div class="flex flex-col gap-4">
-
-      <div class="card-soft rounded-xl p-4 sm:p-5">
-        <div class="flex items-center gap-2.5 mb-3">
-          <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--live-primary), var(--live-cyan));">
-            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/>
-              <path stroke-linecap="round" stroke-linejoin="round" d="M20.488 9H15V3.512A9.024 9.024 0 0120.488 9z"/>
-            </svg>
-          </span>
-          <div>
-            <h2 class="section-label">Portfolio Allocation</h2>
-            <p class="section-caption" x-text="positions.length ? ('Gross $' + fmt2(positions.reduce((s,p) => s + Math.abs(p.market_value), 0)) + ' · ' + positions.length + ' position' + (positions.length === 1 ? '' : 's')) : 'No open exposure'"></p>
+      <div class="p-4 sm:p-5">
+        <!-- Populated chart - kept permanently mounted (x-show, never x-if/template) so
+             #pnlChart always exists for initCharts() to find on the FIRST WS push, even
+             if the session starts at fewer than 2 flat-zero points. initCharts() only
+             ever runs once; if the canvas were removed from the DOM at that moment (a
+             fresh session), updateCharts()'s `if (_charts.pnl)` guard would silently
+             skip it forever once real activity later appeared - the chart would never
+             draw itself. Only visibility toggles, never DOM presence. -->
+        <div x-show="sessionHasActivity()">
+          <div class="flex items-center gap-5 flex-wrap mb-3">
+            <div>
+              <p class="label-caps-dim">Current</p>
+              <p class="text-xl font-bold font-mono-nums mt-0.5" :class="[pnlClass(risk?.daily_pnl), pnlFlashing ? 'pnl-flash' : '']" x-text="fmtDollar(risk?.daily_pnl)"></p>
+            </div>
+            <div class="border-l pl-5" style="border-color: var(--bdr-row);">
+              <p class="label-caps-dim">Session High</p>
+              <p class="text-sm font-mono-nums mt-0.5 text-emerald-400" x-text="fmtDollar(sessionHighLow().high)"></p>
+            </div>
+            <div>
+              <p class="label-caps-dim">Session Low</p>
+              <p class="text-sm font-mono-nums mt-0.5 text-red-400" x-text="fmtDollar(sessionHighLow().low)"></p>
+            </div>
           </div>
+          <div class="chart-grid-bg rounded-lg">
+            <div class="relative h-[220px]">
+              <canvas id="pnlChart" role="img" aria-describedby="pnl-chart-summary"></canvas>
+            </div>
+          </div>
+          <p id="pnl-chart-summary" class="sr-only" x-text="'Line chart of today\'s profit and loss over time. Current value ' + fmtDollar(risk?.daily_pnl) + '.'"></p>
         </div>
-        <div class="relative h-[130px]">
-          <canvas id="allocChart"></canvas>
-        </div>
-      </div>
 
-      <!-- Daily P&L sparkline -->
-      <div class="card-soft rounded-xl p-4 sm:p-5 flex-1 min-h-[160px]">
-        <div class="flex items-center gap-2.5 mb-3">
-          <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--live-secondary), var(--live-cyan));">
-            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <!-- Still collecting: fewer than 2 points yet, nothing meaningful to plot yet -->
+        <template x-if="!sessionHasActivity() && pnlSeries.data.length < 2">
+          <div class="flex flex-col items-center justify-center text-center py-8">
+            <svg class="w-5 h-5 mb-2" style="color: var(--live-primary);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
             </svg>
-          </span>
-          <h2 class="section-label">Daily P&amp;L Trend</h2>
-        </div>
-        <div class="chart-grid-bg rounded-lg">
-          <div class="relative h-[110px]">
-            <canvas id="pnlChart"></canvas>
+            <p class="text-sm font-medium" style="color: var(--text-base);">Collecting today's P&amp;L</p>
+            <p class="text-xs mt-1" style="color: var(--text-dim);"
+               x-text="health?.market?.is_open ? 'Chart will populate as updates arrive.' : 'Market is closed - chart will populate once trading resumes.'"></p>
           </div>
-        </div>
-        <p class="text-center text-[10px] mt-2" style="color: var(--text-dim);">Persisted today · 5s resolution</p>
-      </div>
-    </div>
-  </div>
+        </template>
 
-
-  <!-- ==================================================================
-       RISK ROW - 3 columns on md+
-       ================================================================== -->
-  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-
-    <!-- Daily Loss Gauge -->
-    <div class="card rounded-xl p-4 sm:p-5" style="--accent: var(--warning, #f59e0b);">
-      <div class="flex items-center gap-2.5 mb-4">
-        <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--live-primary), var(--live-secondary));">
-          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-          </svg>
-        </span>
-        <h2 class="section-label">Daily Loss Limit</h2>
-      </div>
-
-      <div class="flex justify-between text-[11px] mb-2">
-        <span style="color: var(--text-muted);">
-          Loss:
-          <span class="font-mono-nums" :class="pnlClass(risk?.daily_pnl)"
-                x-text="risk != null ? fmtDollar(risk.daily_pnl) : '-'"></span>
-        </span>
-        <span style="color: var(--text-muted);"
-              x-text="risk?.daily_loss_limit_dollars
-                ? 'Limit: $' + fmt0(risk.daily_loss_limit_dollars)
-                : 'Limit: N/A'"></span>
-      </div>
-
-      <div class="w-full rounded-full h-2.5 overflow-hidden" style="background: rgba(148,163,184,0.15);">
-        <div
-          class="h-full rounded-full transition-all duration-700"
-          :class="{
-            'loss-bar-danger': (risk?.daily_loss_used_pct ?? 0) >= 80,
-            'loss-bar-warn':   (risk?.daily_loss_used_pct ?? 0) >= 50 && (risk?.daily_loss_used_pct ?? 0) < 80,
-            'loss-bar-safe':   (risk?.daily_loss_used_pct ?? 0) < 50,
-          }"
-          :style="'width: ' + (risk?.daily_loss_used_pct ?? 0) + '%'"
-        ></div>
-      </div>
-
-      <div class="flex justify-between mt-2.5 text-[11px]">
-        <span class="font-semibold" :class="{
-            'text-red-400':     (risk?.daily_loss_used_pct ?? 0) >= 80,
-            'text-yellow-400':  (risk?.daily_loss_used_pct ?? 0) >= 50 && (risk?.daily_loss_used_pct ?? 0) < 80,
-            'text-emerald-500': (risk?.daily_loss_used_pct ?? 0) < 50,
-          }"
-          x-text="(risk?.daily_loss_used_pct ?? 0).toFixed(1) + '% used'"></span>
-        <span style="color: var(--text-dim);"
-              x-text="risk?.daily_loss_limit_pct ? risk.daily_loss_limit_pct + '% limit' : ''"></span>
+        <!-- 2+ points but every one is flat $0 (typical while market is closed) - a real
+             empty state, not a giant flat-line chart with nothing to show. -->
+        <template x-if="!sessionHasActivity() && pnlSeries.data.length >= 2">
+          <div class="flex flex-col items-center justify-center text-center py-8">
+            <svg class="w-5 h-5 mb-2" style="color: var(--text-dim);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+            <p class="text-sm font-medium" style="color: var(--text-base);">No P&amp;L activity recorded this dashboard session.</p>
+            <p class="text-xs mt-1" style="color: var(--text-dim);"
+               x-text="health?.market?.is_open ? 'Chart will populate once P&L moves away from zero.' : 'Market is closed - chart will populate once trading resumes.'"></p>
+          </div>
+        </template>
       </div>
     </div>
 
-    <!-- System Status -->
-    <div class="card-soft rounded-xl p-4 sm:p-5">
-      <div class="flex items-center gap-2.5 mb-4">
-        <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--live-primary), var(--live-cyan));">
-          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <rect x="2" y="3" width="20" height="7" rx="1.5"/><rect x="2" y="14" width="20" height="7" rx="1.5"/>
-          </svg>
-        </span>
-        <h2 class="section-label">System Status</h2>
-      </div>
-      <div class="space-y-2.5">
-
-        <!-- Trading status + kill switch button -->
-        <div class="flex items-center justify-between">
-          <span class="text-xs" style="color: var(--text-muted);">Trading</span>
-          <div class="flex items-center gap-2">
-            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase"
-                  :class="risk?.trading_paused
-                    ? 'bg-red-900/50 text-red-400 border border-red-700/30'
-                    : 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/20'"
-                  x-text="risk?.trading_paused ? '⏸ PAUSED' : '▶ ACTIVE'">-</span>
-            <!-- Kill switch button -->
-            <button
-              @click="togglePause()"
-              :disabled="killSwitchPending"
-              class="px-2 py-1 rounded-lg text-[10px] font-semibold border transition-all duration-150 disabled:opacity-40"
-              :class="risk?.trading_paused_dashboard
-                ? 'bg-emerald-900/50 text-emerald-400 border-emerald-700/40 hover:bg-emerald-800/60'
-                : 'bg-red-900/40 text-red-400 border-red-700/30 hover:bg-red-800/50'"
-              :title="risk?.trading_paused_dashboard ? 'Resume trading' : 'Pause trading via dashboard'"
-              x-text="killSwitchPending ? '…' : risk?.trading_paused_dashboard ? '▶ Resume' : '⏸ Pause'"
-            ></button>
+    <!-- RIGHT: Runtime & Risk - real fields only, no invented rows -->
+    <div class="flex flex-col gap-3">
+      <div class="card-soft rounded-xl p-4 sm:p-5">
+        <h2 class="section-label mb-3">Runtime &amp; Risk</h2>
+        <div class="space-y-2.5 text-xs">
+          <div class="flex items-center justify-between">
+            <span style="color: var(--text-muted);">Trading</span>
+            <span class="font-semibold" :class="risk?.trading_paused ? 'text-yellow-400' : 'text-emerald-400'"
+                  x-text="risk ? (risk.trading_paused ? 'Paused' : 'Enabled') : '-'"></span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span style="color: var(--text-muted);">Mode</span>
+            <span class="font-semibold" :class="risk?.dry_run ? 'text-purple-300' : (account?.paper ?? true) ? 'text-blue-300' : 'text-red-300'"
+                  x-text="modeLabel()"></span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span style="color: var(--text-muted);">Market</span>
+            <span class="font-semibold" :class="health?.market?.is_open ? 'text-emerald-400' : ''" :style="!health?.market?.is_open ? 'color: var(--text-base)' : ''"
+                  x-text="health ? (health.market?.is_open ? 'Open' : 'Closed') : '-'"></span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span style="color: var(--text-muted);">Broker</span>
+            <span class="font-semibold" :class="health?.broker_connected ? 'text-emerald-400' : 'text-red-400'"
+                  x-text="!health ? '-' : (health.broker_connected ? 'Connected' : 'Disconnected')"></span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span style="color: var(--text-muted);">Dashboard Feed</span>
+            <span class="font-semibold" :class="wsStatus === 'connected' ? (dataAgeStale(nowTick) ? 'text-amber-400' : 'text-emerald-400') : 'text-red-400'"
+                  x-text="wsStatus === 'connected' ? (dataAgeStale(nowTick) ? 'Stale' : 'Connected') : (wsStatus === 'connecting' ? 'Reconnecting' : 'Disconnected')"></span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span style="color: var(--text-muted);" title="When the bot last wrote its state file - separate from the WebSocket feed timestamp above">State File Update</span>
+            <span class="font-mono-nums" style="color: var(--text-base);" x-text="health?.last_saved ? fmtTime(health.last_saved) : '-'"></span>
           </div>
         </div>
 
-        <div class="flex items-center justify-between">
-          <span class="text-xs" style="color: var(--text-muted);">Mode</span>
-          <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase"
-                :class="{
-                  'bg-purple-900/50 text-purple-300 border border-purple-700/30': risk?.dry_run,
-                  'bg-blue-900/40 text-blue-400 border border-blue-700/20': !risk?.dry_run && account?.paper,
-                  'bg-emerald-900/40 text-emerald-400 border border-emerald-700/20': !risk?.dry_run && !account?.paper,
+        <div class="divider-fade my-3.5"></div>
+
+        <!-- Daily loss limit - never shows a reassuring bar without a real configured limit -->
+        <h3 class="label-caps mb-2">Daily Loss Limit</h3>
+        <template x-if="risk?.daily_loss_limit_dollars != null">
+          <div>
+            <div class="flex justify-between text-[11px] mb-1.5">
+              <span style="color: var(--text-muted);">Used
+                <span class="font-mono-nums" :class="pnlClass(risk?.daily_pnl)" x-text="risk != null ? fmtDollar(risk.daily_pnl) : '-'"></span>
+              </span>
+              <span style="color: var(--text-muted);" x-text="'Limit $' + fmt0(risk.daily_loss_limit_dollars)"></span>
+            </div>
+            <div class="w-full rounded-full h-2 overflow-hidden" style="background: rgba(148,163,184,0.15);">
+              <div class="h-full rounded-full transition-all duration-700"
+                   :class="{
+                     'loss-bar-danger': (risk?.daily_loss_used_pct ?? 0) >= 80,
+                     'loss-bar-warn':   (risk?.daily_loss_used_pct ?? 0) >= 50 && (risk?.daily_loss_used_pct ?? 0) < 80,
+                     'loss-bar-safe':   (risk?.daily_loss_used_pct ?? 0) < 50,
+                   }"
+                   :style="'width: ' + Math.min(risk?.daily_loss_used_pct ?? 0, 100) + '%'"
+                   role="progressbar" :aria-valuenow="risk?.daily_loss_used_pct ?? 0" aria-valuemin="0" aria-valuemax="100"
+              ></div>
+            </div>
+            <div class="flex justify-between mt-1.5 text-[11px]">
+              <span class="font-semibold" :class="{
+                  'text-red-400':     (risk?.daily_loss_used_pct ?? 0) >= 80,
+                  'text-yellow-400':  (risk?.daily_loss_used_pct ?? 0) >= 50 && (risk?.daily_loss_used_pct ?? 0) < 80,
+                  'text-emerald-500': (risk?.daily_loss_used_pct ?? 0) < 50,
                 }"
-                x-text="risk?.dry_run ? 'DRY RUN' : account?.paper ? 'PAPER' : 'LIVE'">-</span>
-        </div>
-
-        <div class="flex items-center justify-between">
-          <span class="text-xs" style="color: var(--text-muted);">Broker</span>
-          <span class="px-2 py-0.5 rounded-full text-[10px] font-bold"
-                :class="health?.broker_connected
-                  ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/20'
-                  : 'bg-red-900/50 text-red-400 border border-red-700/30'"
-                x-text="health?.broker_connected ? 'CONNECTED' : 'OFFLINE'">-</span>
-        </div>
-
-        <div class="flex items-center justify-between">
-          <span class="text-xs" style="color: var(--text-muted);">Market</span>
-          <span class="px-2 py-0.5 rounded-full text-[10px] font-medium"
-                :class="health?.market?.is_open
-                  ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/20'
-                  : 'bg-slate-700/40 text-slate-400 border border-slate-600/20'"
-                x-text="health?.market?.is_open ? 'OPEN' : 'CLOSED'">-</span>
-        </div>
-
-        <div class="flex items-center justify-between pt-0.5">
-          <span class="text-xs" style="color: var(--text-muted);"
-                x-text="health?.market?.is_open ? 'Closes at' : 'Opens at'"></span>
-          <span class="text-xs font-mono-nums" style="color: var(--text-base);"
-                x-text="health?.market?.is_open
-                  ? fmtTime(health?.market?.next_close)
-                  : fmtTime(health?.market?.next_open)">-</span>
-        </div>
+                x-text="(risk?.daily_loss_used_pct ?? 0).toFixed(1) + '% used'"></span>
+              <span style="color: var(--text-dim);" x-text="risk?.daily_loss_limit_pct ? risk.daily_loss_limit_pct + '% configured limit' : ''"></span>
+            </div>
+          </div>
+        </template>
+        <template x-if="risk && risk.daily_loss_limit_dollars == null">
+          <p class="text-[11px]" style="color: var(--text-dim);">Not configured - set <code>STRATEGY_CONFIG</code> to enable this gauge.</p>
+        </template>
+        <template x-if="!risk">
+          <p class="text-[11px] animate-pulse" style="color: var(--text-dim);">Waiting for broker data…</p>
+        </template>
       </div>
-    </div>
 
-    <!-- Today's Activity -->
-    <div class="card-soft rounded-xl p-4 sm:p-5">
-      <div class="flex items-center gap-2.5 mb-4">
-        <span class="icon-chip h-7 w-7" style="background: linear-gradient(135deg, var(--violet), #818cf8);">
-          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
-          </svg>
-        </span>
-        <h2 class="section-label">Today's Activity</h2>
-      </div>
-      <div class="space-y-2.5">
-
-        <div class="flex items-center justify-between">
-          <span class="text-xs" style="color: var(--text-muted);">Orders Today</span>
-          <span class="font-semibold font-mono-nums" style="color: var(--text-strong);" x-text="orders.length">-</span>
-        </div>
-
-        <div class="flex items-center justify-between">
-          <span class="text-xs" style="color: var(--text-muted);">Filled</span>
-          <span class="font-mono-nums" style="color: var(--text-base);" x-text="orders.filter(o => o.status === 'filled').length">-</span>
-        </div>
-
-        <div class="flex items-center justify-between">
-          <span class="text-xs" style="color: var(--text-muted);">PDT Count</span>
-          <span class="font-mono-nums" style="color: var(--text-base);" x-text="account?.daytrade_count ?? '-'">-</span>
-        </div>
-
-        <div class="flex items-center justify-between">
-          <span class="text-xs" style="color: var(--text-muted);">Morning Check</span>
-          <span class="px-2 py-0.5 rounded-full text-[10px] font-medium"
-                :class="health?.last_morning_check_date
-                  ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/20'
-                  : 'bg-slate-700/40 text-slate-500 border border-slate-600/20'"
-                x-text="health?.last_morning_check_date ? ' ' + health.last_morning_check_date : 'PENDING'">-</span>
-        </div>
-
-        <div class="flex items-center justify-between">
-          <span class="text-xs" style="color: var(--text-muted);">Bot Since</span>
-          <span class="text-xs font-mono-nums" style="color: var(--text-dim);"
-                x-text="health?.last_startup ? fmtDate(health.last_startup) : '-'">-</span>
-        </div>
-
-        <div class="flex items-center justify-between">
-          <span class="text-xs" style="color: var(--text-muted);">State Saved</span>
-          <span class="text-xs font-mono-nums" style="color: var(--text-dim);"
-                x-text="health?.last_saved ? fmtTime(health.last_saved) : '-'">-</span>
+      <!-- Session detail - preserved from the previous "Today's Activity" panel -->
+      <div class="card-soft rounded-xl p-4 sm:p-5">
+        <h2 class="section-label mb-3">Session Detail</h2>
+        <div class="space-y-2.5 text-xs">
+          <div class="flex items-center justify-between">
+            <span style="color: var(--text-muted);">PDT Count</span>
+            <span class="font-mono-nums" style="color: var(--text-base);" x-text="account?.daytrade_count ?? '-'"></span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span style="color: var(--text-muted);">Morning Check</span>
+            <span class="font-medium" :class="health?.last_morning_check_date ? 'text-emerald-400' : ''" :style="!health?.last_morning_check_date ? 'color: var(--text-dim)' : ''"
+                  x-text="health?.last_morning_check_date ? health.last_morning_check_date : 'Pending'"></span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span style="color: var(--text-muted);">Bot Since</span>
+            <span class="font-mono-nums" style="color: var(--text-dim);" x-text="health?.last_startup ? fmtDate(health.last_startup) : '-'"></span>
+          </div>
         </div>
       </div>
     </div>
@@ -872,233 +576,90 @@
 
 
   <!-- ==================================================================
-       SCREENER PANEL - Magic Formula candidates (monthly, fetch-on-load)
+       OPEN POSITIONS - primary operational table, read-only
        ================================================================== -->
-  <div class="card-muted rounded-xl overflow-hidden">
-    <div class="px-5 py-3.5 flex items-center justify-between flex-wrap gap-2" style="border-bottom: 1px dashed var(--bdr-row);">
-      <div class="flex items-center gap-2.5">
-        <span class="icon-chip h-6 w-6" style="background: linear-gradient(135deg, var(--violet), #818cf8); opacity: 0.9;">
-          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>
-          </svg>
-        </span>
-        <div>
-          <h2 class="text-[13px] font-bold" style="color: var(--text-base);">Magic Formula Screener</h2>
-          <template x-if="screener">
-            <p class="section-caption hidden sm:block truncate"
-                  x-text="'Insights only · last run ' + fmtDate(screener.screened_at) + ' · ' + screener.universe_size + ' tickers screened'">
-            </p>
-          </template>
-        </div>
-      </div>
-      <button
-        @click="fetchScreener()"
-        :disabled="screenerLoading"
-        class="px-2.5 py-1.5 rounded-lg text-[10px] font-medium border transition-colors disabled:opacity-40"
-        style="border-color: var(--bdr-row); color: var(--text-muted);"
-        x-text="screenerLoading ? 'Loading…' : '↻ Refresh'"
-      ></button>
-    </div>
-
-    <!-- Not yet generated -->
-    <template x-if="screener === false">
-      <div class="px-5 py-10 text-center flex flex-col items-center gap-2">
-        <div class="rounded-xl p-3 ring-1" style="background: rgba(167,139,250,0.08); ring-color: rgba(167,139,250,0.2);">
-          <svg class="w-5 h-5" style="color: var(--violet);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-          </svg>
-        </div>
-        <p class="text-sm font-medium" style="color: var(--text-base);">No screener data yet</p>
-        <p class="text-xs max-w-sm" style="color: var(--text-dim);">Runs automatically on the 1st of each month. Set <code style="color: var(--text-muted);">SCREENER_OUTPUT_PATH</code> if the file is not in the project root.</p>
-      </div>
-    </template>
-
-    <!-- Loading -->
-    <template x-if="screener === null">
-      <div class="px-5 py-8 text-center text-sm animate-pulse" style="color: var(--text-dim);">Loading screener data…</div>
-    </template>
-
-    <!-- Data table -->
-    <template x-if="screener && screener.candidates">
-      <div class="overflow-x-auto opacity-95">
-        <table class="w-full text-sm" style="min-width: 680px;">
-          <thead>
-            <tr>
-              <th class="px-5 py-2.5 text-left label-caps-dim">#</th>
-              <th class="px-4 py-2.5 text-left label-caps-dim">Ticker</th>
-              <th class="px-4 py-2.5 text-left label-caps-dim">Company</th>
-              <th class="px-4 py-2.5 text-left label-caps-dim">Sector</th>
-              <th class="px-4 py-2.5 text-right label-caps-dim">Earn. Yield</th>
-              <th class="px-4 py-2.5 text-right label-caps-dim">ROE</th>
-              <th class="px-4 py-2.5 text-right label-caps-dim">P/E</th>
-              <th class="px-4 py-2.5 text-right label-caps-dim">Mkt Cap</th>
-              <th class="px-4 py-2.5 text-right label-caps-dim">D/E</th>
-              <th class="px-4 py-2.5 text-left label-caps-dim">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template x-for="(c, i) in screener.candidates" :key="c.ticker">
-              <tr class="hover:bg-white/[0.025] transition-colors"
-                  style="border-top: 1px solid var(--bdr-row);"
-                  :class="isHeld(c.ticker) ? 'bg-emerald-950/30' : ''">
-                <!-- Rank -->
-                <td class="px-5 py-2.5 font-mono-nums text-xs" style="color: var(--text-dim);" x-text="i + 1"></td>
-                <!-- Ticker -->
-                <td class="px-4 py-2.5 font-bold"
-                    :class="isHeld(c.ticker) ? 'text-emerald-400' : ''"
-                    :style="isHeld(c.ticker) ? '' : 'color: var(--text-strong)'"
-                    x-text="c.ticker"></td>
-                <!-- Company -->
-                <td class="px-4 py-2.5 text-xs max-w-[180px] truncate" style="color: var(--text-base);"
-                    :title="c.company_name"
-                    x-text="c.company_name"></td>
-                <!-- Sector -->
-                <td class="px-4 py-2.5 text-xs" style="color: var(--text-muted);" x-text="c.sector"></td>
-                <!-- Earnings yield -->
-                <td class="px-4 py-2.5 text-right font-mono-nums text-emerald-400 font-medium"
-                    x-text="fmtPct1(c.earnings_yield)"></td>
-                <!-- ROE -->
-                <td class="px-4 py-2.5 text-right font-mono-nums text-cyan-400"
-                    x-text="fmtPct1(c.return_on_equity)"></td>
-                <!-- P/E -->
-                <td class="px-4 py-2.5 text-right font-mono-nums" style="color: var(--text-base);"
-                    x-text="c.pe_ratio ? c.pe_ratio.toFixed(1) : '-'"></td>
-                <!-- Market cap -->
-                <td class="px-4 py-2.5 text-right font-mono-nums text-xs" style="color: var(--text-muted);"
-                    x-text="fmtB(c.market_cap_b)"></td>
-                <!-- D/E -->
-                <td class="px-4 py-2.5 text-right font-mono-nums text-xs" style="color: var(--text-dim);"
-                    x-text="c.debt_to_equity ? c.debt_to_equity.toFixed(2) + 'x' : '-'"></td>
-                <!-- Status -->
-                <td class="px-4 py-2.5">
-                  <template x-if="isHeld(c.ticker)">
-                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold
-                                 bg-emerald-900/60 text-emerald-400 border border-emerald-700/30">
-                      HELD
-                    </span>
-                  </template>
-                  <template x-if="!isHeld(c.ticker)">
-                    <span class="px-2 py-0.5 rounded-full text-[10px] font-medium"
-                                 style="background: rgba(167,139,250,0.1); color: #c4b5fd; border: 1px solid rgba(167,139,250,0.25);">
-                      WATCHING
-                    </span>
-                  </template>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-      </div>
-    </template>
-  </div>
-
-
-  <!-- ==================================================================
-       ORDERS LOG - full width
-       ================================================================== -->
-  <div class="card rounded-xl overflow-hidden">
+  <div class="card rounded-xl border border-white/[0.06] overflow-hidden">
     <div class="panel-head">
-      <div class="flex items-center gap-2.5">
-        <span class="icon-chip h-8 w-8" style="background: linear-gradient(135deg, var(--live-cyan), #0ea5e9);">
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
-          </svg>
-        </span>
-        <div>
-          <h2 class="section-label">Recent Orders</h2>
-          <p class="section-caption">Today's execution log</p>
-        </div>
-      </div>
-      <div class="flex items-center gap-2.5">
-        <span class="text-xs font-mono-nums" style="color: var(--text-muted);" x-text="orders.length + ' today'"></span>
-        <button
-          @click="exportCsv()"
-          :disabled="!orders.length"
-          title="Download today's orders as CSV"
-          class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-medium border
-                 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-          style="border-color: var(--bdr-row); color: var(--text-muted);"
-        >
-          <svg class="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round"
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-          </svg>
-          <span class="hidden sm:inline">Export CSV</span>
-        </button>
-      </div>
+      <h2 class="section-label">Open Positions</h2>
+      <span class="text-xs font-mono-nums" style="color: var(--text-muted);" x-text="positions.length + ' active'"></span>
     </div>
 
     <div class="overflow-x-auto">
-      <table class="w-full text-sm" style="min-width: 720px;">
+      <table class="w-full text-sm" style="min-width: 700px;">
+        <caption class="sr-only">Currently open broker positions with live unrealized profit and loss. Read-only - no order controls.</caption>
         <thead>
           <tr style="border-bottom: 1px solid var(--bdr-card); background: rgba(248,250,252,0.02);">
-            <th class="px-5 py-2.5 text-left label-caps">Symbol</th>
-            <th class="px-4 py-2.5 text-left label-caps">Side</th>
-            <th class="px-4 py-2.5 text-left label-caps">Type</th>
-            <th class="px-4 py-2.5 text-right label-caps">Qty</th>
-            <th class="px-4 py-2.5 text-right label-caps">Filled</th>
-            <th class="px-4 py-2.5 text-right label-caps">Avg Price</th>
-            <th class="px-4 py-2.5 text-right label-caps">Value</th>
-            <th class="px-4 py-2.5 text-right label-caps">Realized P&amp;L</th>
-            <th class="px-4 py-2.5 text-left label-caps">Status</th>
-            <th class="px-4 py-2.5 text-right label-caps">Time</th>
+            <th scope="col" class="px-4 py-2 text-left label-caps">Ticker</th>
+            <th scope="col" class="px-3 py-2 text-right label-caps">Shares</th>
+            <th scope="col" class="px-3 py-2 text-right label-caps">Entry</th>
+            <th scope="col" class="px-3 py-2 text-right label-caps">Price</th>
+            <th scope="col" class="px-3 py-2 text-right label-caps">Mkt Value</th>
+            <th scope="col" class="px-3 py-2 text-right label-caps">P&amp;L $</th>
+            <th scope="col" class="px-3 py-2 text-right label-caps">P&amp;L %</th>
+            <th scope="col" class="px-3 py-2 text-right label-caps">Trail Stop</th>
+            <th scope="col" class="px-3 py-2 text-right label-caps">Held</th>
           </tr>
         </thead>
         <tbody>
-          <template x-if="orders.length === 0">
+          <template x-if="positions.length === 0">
             <tr>
-              <td colspan="10" class="px-5 py-16 text-center">
-                <div class="flex flex-col items-center gap-2.5">
-                  <div class="rounded-xl p-3 ring-1" style="background: rgba(34,211,238,0.08); ring-color: rgba(34,211,238,0.2);">
-                    <svg class="w-5 h-5" style="color: var(--live-cyan);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
-                    </svg>
-                  </div>
-                  <p class="text-sm font-semibold" style="color: var(--text-strong);">No orders today</p>
-                  <p class="text-xs" style="color: var(--text-dim);">Executed trades will appear here in real time</p>
-                </div>
+              <td colspan="9" class="px-5 py-8 text-center">
+                <p class="text-sm font-semibold" style="color: var(--text-strong);">No open positions</p>
+                <p class="text-xs mt-1" style="color: var(--text-dim);">New positions from the strategy engine will appear here</p>
               </td>
             </tr>
           </template>
-          <template x-for="o in orders" :key="o.id">
-            <tr class="hover:bg-white/[0.025] transition-colors" style="border-top: 1px solid var(--bdr-row);">
-              <td class="px-5 py-2.5 font-semibold" style="color: var(--text-strong);" x-text="o.symbol"></td>
-              <td class="px-4 py-2.5">
-                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase"
-                      :class="o.side === 'buy'
-                        ? 'bg-emerald-900/60 text-emerald-400 border border-emerald-700/30'
-                        : 'bg-red-900/60 text-red-400 border border-red-700/30'"
-                      x-text="o.side"></span>
+
+          <template x-for="p in positions" :key="p.symbol">
+            <tr
+              class="transition-colors"
+              style="border-top: 1px solid var(--bdr-row);"
+              :class="{
+                'row-flash-green':   positionFlash[p.symbol] === 'green',
+                'row-flash-red':     positionFlash[p.symbol] === 'red',
+                'hover:bg-white/[0.025]': !positionFlash[p.symbol],
+              }"
+            >
+              <td class="px-4 py-2">
+                <div class="flex items-center gap-2">
+                  <div class="shrink-0">
+                    <div class="font-semibold text-sm" style="color: var(--text-strong);" x-text="p.symbol"></div>
+                    <div class="text-[9px] font-medium mt-0.5" :class="p.side === 'long' ? 'text-emerald-500' : 'text-red-400'" x-text="p.side.toUpperCase()"></div>
+                  </div>
+                  <div class="w-14 h-6 shrink-0">
+                    <canvas
+                      :id="'spark-' + p.symbol"
+                      x-init="$nextTick(() => initSparkline(p.symbol))"
+                      role="img" :aria-label="p.symbol + ' 20-day price trend'"
+                    ></canvas>
+                  </div>
+                </div>
               </td>
-              <td class="px-4 py-2.5 text-xs uppercase" style="color: var(--text-muted);" x-text="o.order_type"></td>
-              <td class="px-4 py-2.5 text-right font-mono-nums" style="color: var(--text-muted);" x-text="o.qty"></td>
-              <td class="px-4 py-2.5 text-right font-mono-nums" style="color: var(--text-base);" x-text="o.filled_qty"></td>
-              <td class="px-4 py-2.5 text-right font-mono-nums" style="color: var(--text-base);"
-                  x-text="o.filled_avg_price ? '$' + o.filled_avg_price.toFixed(2) : '-'"></td>
-              <td class="px-4 py-2.5 text-right font-mono-nums" style="color: var(--text-base);"
-                  x-text="o.filled_avg_price && o.filled_qty
-                    ? '$' + (o.filled_qty * o.filled_avg_price).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})
-                    : '-'"></td>
-              <!-- Realized P&L: only shown on filled SELL orders where today's BUY is known -->
-              <td class="px-4 py-2.5 text-right font-mono-nums font-semibold"
-                  :class="orderPnlMap[o.id] != null ? pnlClass(orderPnlMap[o.id]) : ''"
-                  :style="orderPnlMap[o.id] != null ? '' : 'color: var(--text-dim)'"
-                  :title="orderPnlMap[o.id] == null && o.side === 'sell' ? 'Position opened before today - buy price unavailable' : ''"
-                  x-text="orderPnlMap[o.id] != null ? fmtDollar(orderPnlMap[o.id]) : '-'"></td>
-              <td class="px-4 py-2.5">
-                <span class="px-2 py-0.5 rounded-full text-[10px] uppercase font-medium"
-                      :class="{
-                        'bg-emerald-900/50 text-emerald-400 border border-emerald-700/20': o.status === 'filled',
-                        'bg-yellow-900/50 text-yellow-400 border border-yellow-700/20':
-                          o.status === 'partially_filled' || o.status === 'new' || o.status === 'accepted',
-                        'bg-slate-700/40 text-slate-400 border border-slate-600/20':
-                          o.status === 'canceled' || o.status === 'expired',
-                        'bg-red-900/50 text-red-400 border border-red-700/20': o.status === 'rejected',
-                      }"
-                      x-text="o.status"></span>
-              </td>
-              <td class="px-4 py-2.5 text-right text-xs font-mono-nums" style="color: var(--text-dim);"
-                  x-text="fmtTime(o.submitted_at)"></td>
+              <td class="px-3 py-2 text-right font-mono-nums" style="color: var(--text-base);" x-text="p.qty"></td>
+              <td class="px-3 py-2 text-right font-mono-nums" style="color: var(--text-muted);" x-text="'$' + p.avg_entry_price.toFixed(2)"></td>
+              <td class="px-3 py-2 text-right font-mono-nums font-medium" style="color: var(--text-base);" x-text="'$' + p.current_price.toFixed(2)"></td>
+              <td class="px-3 py-2 text-right font-mono-nums" style="color: var(--text-base);" x-text="fmtDollar(p.market_value)"></td>
+              <td class="px-3 py-2 text-right font-mono-nums font-semibold" :class="pnlClass(p.unrealized_pl)" x-text="fmtDollar(p.unrealized_pl)"></td>
+              <td class="px-3 py-2 text-right font-mono-nums font-semibold" :class="pnlClass(p.unrealized_plpc)" x-text="fmtPct(p.unrealized_plpc)"></td>
+              <td class="px-3 py-2 text-right font-mono-nums text-xs" style="color: var(--text-dim);"
+                  x-text="p.trailing_stop_level ? '$' + p.trailing_stop_level.toFixed(2) + (p.trailing_stop_pct ? ' (' + p.trailing_stop_pct + '%)' : '') : '-'"></td>
+              <td class="px-3 py-2 text-right font-mono-nums text-xs" :class="heldClass(p.entry_timestamp)"
+                  :title="p.entry_timestamp ? 'Since ' + fmtDate(p.entry_timestamp) : ''" x-text="fmtHeld(p.entry_timestamp)"></td>
+            </tr>
+          </template>
+
+          <!-- Totals footer - only meaningful with real positions -->
+          <template x-if="positions.length > 0">
+            <tr style="border-top: 1px solid var(--bdr-card); background: rgba(248,250,252,0.02);">
+              <td class="px-4 py-2 text-xs font-semibold" style="color: var(--text-muted);">Total</td>
+              <td></td><td></td>
+              <td class="px-3 py-2 text-right text-xs" style="color: var(--text-dim);">Mkt Value</td>
+              <td class="px-3 py-2 text-right font-mono-nums font-semibold" style="color: var(--text-base);"
+                  x-text="fmtDollar(positions.reduce((s,p) => s + Math.abs(p.market_value), 0))"></td>
+              <td class="px-3 py-2 text-right font-mono-nums font-semibold" :class="pnlClass(openPnl())" x-text="fmtDollar(openPnl())"></td>
+              <td class="px-3 py-2 text-right font-mono-nums font-semibold" :class="pnlClass(openPnl())"
+                  x-text="account?.portfolio_value ? fmtPct(openPnl() / account.portfolio_value * 100) : ''"></td>
+              <td></td><td></td>
             </tr>
           </template>
         </tbody>
@@ -1108,17 +669,205 @@
 
 
   <!-- ==================================================================
+       PORTFOLIO ALLOCATION (compact) + RECENT ORDERS
+       ================================================================== -->
+  <div class="grid grid-cols-1 xl:grid-cols-3 gap-3">
+
+    <!-- Allocation - compact supporting panel, not a large primary visual -->
+    <div class="card-soft rounded-xl p-4">
+      <h2 class="section-label mb-1">Portfolio Allocation</h2>
+      <p class="section-caption mb-3" x-text="positions.length ? (positions.length + ' position' + (positions.length === 1 ? '' : 's') + ' · ' + fmtDollar(positions.reduce((s,p) => s + Math.abs(p.market_value), 0)) + ' gross') : 'No open exposure'"></p>
+
+      <!-- Chart stays mounted at all times (initCharts/updateCharts target it unconditionally); visually
+           swapped for a compact "100% cash" state when there are no positions. -->
+      <div class="relative h-[120px]" :class="positions.length === 0 ? 'opacity-0 h-0 overflow-hidden' : ''">
+        <canvas id="allocChart" role="img" aria-describedby="alloc-chart-summary"></canvas>
+      </div>
+      <p id="alloc-chart-summary" class="sr-only"
+         x-text="positions.length ? ('Donut chart of allocation across ' + positions.length + ' positions by market value.') : 'Portfolio is fully allocated to cash.'"></p>
+
+      <template x-if="positions.length === 0">
+        <div class="flex items-center gap-3 py-2">
+          <div class="h-10 w-10 rounded-full shrink-0" style="background: conic-gradient(var(--live-primary) 0deg 360deg);"></div>
+          <div>
+            <p class="text-sm font-bold" style="color: var(--text-strong);">100% Cash</p>
+            <p class="text-xs" style="color: var(--text-muted);" x-text="account ? fmtDollar(account.cash) + ' available' : 'Waiting for broker…'"></p>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- Recent Orders -->
+    <div class="card xl:col-span-2 rounded-xl border border-white/[0.06] overflow-hidden">
+      <div class="panel-head">
+        <h2 class="section-label">Recent Orders</h2>
+        <div class="flex items-center gap-2.5">
+          <span class="text-xs font-mono-nums" style="color: var(--text-muted);" x-text="orders.length + ' today'"></span>
+          <button
+            @click="exportCsv()"
+            :disabled="!orders.length"
+            title="Download today's orders as CSV"
+            aria-label="Export today's orders as CSV"
+            class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-medium border
+                   transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            style="border-color: var(--bdr-row); color: var(--text-muted);"
+          >
+            <svg class="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+            </svg>
+            <span class="hidden sm:inline">Export CSV</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm" style="min-width: 640px;">
+          <caption class="sr-only">Today's submitted orders with fill status. Read-only - no cancel or modify controls.</caption>
+          <thead>
+            <tr style="border-bottom: 1px solid var(--bdr-card); background: rgba(248,250,252,0.02);">
+              <th scope="col" class="px-4 py-2 text-left label-caps">Time</th>
+              <th scope="col" class="px-3 py-2 text-left label-caps">Ticker</th>
+              <th scope="col" class="px-3 py-2 text-left label-caps">Side</th>
+              <th scope="col" class="px-3 py-2 text-right label-caps">Qty</th>
+              <th scope="col" class="px-3 py-2 text-right label-caps">Fill Price</th>
+              <th scope="col" class="px-3 py-2 text-right label-caps">Value</th>
+              <th scope="col" class="px-3 py-2 text-left label-caps">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-if="orders.length === 0">
+              <tr>
+                <td colspan="7" class="px-5 py-8 text-center">
+                  <p class="text-sm font-semibold" style="color: var(--text-strong);">No orders today</p>
+                  <p class="text-xs mt-1" style="color: var(--text-dim);">Executed trades will appear here in real time</p>
+                </td>
+              </tr>
+            </template>
+            <template x-for="o in orders" :key="o.id">
+              <tr class="hover:bg-white/[0.025] transition-colors" style="border-top: 1px solid var(--bdr-row);">
+                <td class="px-4 py-2 text-xs font-mono-nums" style="color: var(--text-dim);" x-text="fmtTime(o.submitted_at)"></td>
+                <td class="px-3 py-2 font-semibold" style="color: var(--text-strong);" x-text="o.symbol"></td>
+                <td class="px-3 py-2">
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase"
+                        :class="o.side === 'buy' ? 'bg-emerald-900/60 text-emerald-400 border border-emerald-700/30' : 'bg-red-900/60 text-red-400 border border-red-700/30'"
+                        x-text="o.side"></span>
+                </td>
+                <td class="px-3 py-2 text-right font-mono-nums" style="color: var(--text-base);" x-text="o.filled_qty + ' / ' + o.qty"></td>
+                <td class="px-3 py-2 text-right font-mono-nums" style="color: var(--text-base);" x-text="o.filled_avg_price ? '$' + o.filled_avg_price.toFixed(2) : '-'"></td>
+                <td class="px-3 py-2 text-right font-mono-nums" style="color: var(--text-base);"
+                    x-text="o.filled_avg_price && o.filled_qty ? '$' + (o.filled_qty * o.filled_avg_price).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-'"></td>
+                <td class="px-3 py-2">
+                  <span class="px-2 py-0.5 rounded-full text-[10px] uppercase font-medium"
+                        :class="{
+                          'bg-emerald-900/50 text-emerald-400 border border-emerald-700/20': o.status === 'filled',
+                          'bg-yellow-900/50 text-yellow-400 border border-yellow-700/20': o.status === 'partially_filled' || o.status === 'new' || o.status === 'accepted',
+                          'bg-slate-700/40 text-slate-400 border border-slate-600/20': o.status === 'canceled' || o.status === 'expired',
+                          'bg-red-900/50 text-red-400 border border-red-700/20': o.status === 'rejected',
+                        }"
+                        x-text="o.status === 'partially_filled' ? 'partial fill' : o.status"></span>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ==================================================================
+       SYSTEM ACTIVITY - Magic Formula screener (preserved, not in the
+       reference screenshot, still real functionality)
+       ================================================================== -->
+  <div class="card-muted rounded-xl overflow-hidden">
+    <div class="px-4 py-3 flex items-center justify-between flex-wrap gap-2" style="border-bottom: 1px dashed var(--bdr-row);">
+      <div>
+        <h2 class="text-[13px] font-bold" style="color: var(--text-base);">Magic Formula Screener</h2>
+        <template x-if="screener">
+          <p class="section-caption hidden sm:block truncate"
+                x-text="'Insights only · last run ' + fmtDate(screener.screened_at) + ' · ' + screener.universe_size + ' tickers screened'">
+          </p>
+        </template>
+      </div>
+      <button
+        @click="fetchScreener()"
+        :disabled="screenerLoading"
+        aria-label="Refresh screener data"
+        class="px-2.5 py-1.5 rounded-lg text-[10px] font-medium border transition-colors disabled:opacity-40"
+        style="border-color: var(--bdr-row); color: var(--text-muted);"
+        x-text="screenerLoading ? 'Loading…' : '↻ Refresh'"
+      ></button>
+    </div>
+
+    <template x-if="screener === false">
+      <div class="px-5 py-8 text-center">
+        <p class="text-sm font-medium" style="color: var(--text-base);">No screener data yet</p>
+        <p class="text-xs mt-1 max-w-sm mx-auto" style="color: var(--text-dim);">Runs automatically on the 1st of each month. Set <code style="color: var(--text-muted);">SCREENER_OUTPUT_PATH</code> if the file is not in the project root.</p>
+      </div>
+    </template>
+
+    <template x-if="screener === null">
+      <div class="px-5 py-6 text-center text-sm animate-pulse" style="color: var(--text-dim);">Loading screener data…</div>
+    </template>
+
+    <template x-if="screener && screener.candidates">
+      <div class="overflow-x-auto opacity-95">
+        <table class="w-full text-sm" style="min-width: 680px;">
+          <caption class="sr-only">Greenblatt Magic Formula screener candidates, ranked by combined value/quality score.</caption>
+          <thead>
+            <tr>
+              <th scope="col" class="px-5 py-2 text-left label-caps-dim">#</th>
+              <th scope="col" class="px-4 py-2 text-left label-caps-dim">Ticker</th>
+              <th scope="col" class="px-4 py-2 text-left label-caps-dim">Company</th>
+              <th scope="col" class="px-4 py-2 text-left label-caps-dim">Sector</th>
+              <th scope="col" class="px-4 py-2 text-right label-caps-dim">Earn. Yield</th>
+              <th scope="col" class="px-4 py-2 text-right label-caps-dim">ROE</th>
+              <th scope="col" class="px-4 py-2 text-right label-caps-dim">P/E</th>
+              <th scope="col" class="px-4 py-2 text-right label-caps-dim">Mkt Cap</th>
+              <th scope="col" class="px-4 py-2 text-right label-caps-dim">D/E</th>
+              <th scope="col" class="px-4 py-2 text-left label-caps-dim">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="(c, i) in screener.candidates" :key="c.ticker">
+              <tr class="hover:bg-white/[0.025] transition-colors" style="border-top: 1px solid var(--bdr-row);" :class="isHeld(c.ticker) ? 'bg-emerald-950/30' : ''">
+                <td class="px-5 py-2 font-mono-nums text-xs" style="color: var(--text-dim);" x-text="i + 1"></td>
+                <td class="px-4 py-2 font-bold" :class="isHeld(c.ticker) ? 'text-emerald-400' : ''" :style="isHeld(c.ticker) ? '' : 'color: var(--text-strong)'" x-text="c.ticker"></td>
+                <td class="px-4 py-2 text-xs max-w-[180px] truncate" style="color: var(--text-base);" :title="c.company_name" x-text="c.company_name"></td>
+                <td class="px-4 py-2 text-xs" style="color: var(--text-muted);" x-text="c.sector"></td>
+                <td class="px-4 py-2 text-right font-mono-nums text-emerald-400 font-medium" x-text="fmtPct1(c.earnings_yield)"></td>
+                <td class="px-4 py-2 text-right font-mono-nums text-cyan-400" x-text="fmtPct1(c.return_on_equity)"></td>
+                <td class="px-4 py-2 text-right font-mono-nums" style="color: var(--text-base);" x-text="c.pe_ratio ? c.pe_ratio.toFixed(1) : '-'"></td>
+                <td class="px-4 py-2 text-right font-mono-nums text-xs" style="color: var(--text-muted);" x-text="fmtB(c.market_cap_b)"></td>
+                <td class="px-4 py-2 text-right font-mono-nums text-xs" style="color: var(--text-dim);" x-text="c.debt_to_equity ? c.debt_to_equity.toFixed(2) + 'x' : '-'"></td>
+                <td class="px-4 py-2">
+                  <template x-if="isHeld(c.ticker)">
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-900/60 text-emerald-400 border border-emerald-700/30">HELD</span>
+                  </template>
+                  <template x-if="!isHeld(c.ticker)">
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-medium" style="background: rgba(167,139,250,0.1); color: #c4b5fd; border: 1px solid rgba(167,139,250,0.25);">WATCHING</span>
+                  </template>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </template>
+  </div>
+
+
+  <!-- ==================================================================
        FOOTER
        ================================================================== -->
-  <footer class="flex flex-wrap justify-center gap-x-2 gap-y-0.5 text-[11px] pb-4" style="color: var(--text-dim);">
-    <span>AlphaLive Dashboard</span>
+  <footer class="flex flex-wrap justify-center gap-x-2 gap-y-0.5 text-[11px] pb-4 pt-1" style="color: var(--text-dim);">
+    <span>Read-only monitoring</span>
     <span>·</span>
-    <span>WebSocket · 5s push</span>
+    <span>Updates every 5 seconds</span>
     <span x-show="health?.server_time">·
       <span x-text="health?.server_time ? 'Server ' + new Date(health.server_time).toLocaleTimeString() : ''"></span>
     </span>
-    <span class="hidden sm:inline" x-show="health?.state_file"
-          x-text="'· ' + (health?.state_file ?? '')"></span>
+    <span class="hidden sm:inline" x-show="health?.state_file" x-text="'· ' + (health?.state_file ?? '')"></span>
   </footer>
 
 </div><!-- /x-data -->
@@ -1144,6 +893,8 @@ document.addEventListener('alpine:init', () => {
     risk:        null,
     health:      null,
     lastUpdated: null,
+    lastUpdatedAt: null,   // epoch ms - real timestamp backing dataAgeLabel()/dataAgeStale()
+    nowTick:     0,        // incremented every second so age-based x-text expressions re-evaluate
     chartsReady: false,
 
     // ── Theme ─────────────────────────────────────────────────────────
@@ -1222,6 +973,7 @@ document.addEventListener('alpine:init', () => {
       this.loadPnlFromStorage();
       this.connectWS();
       this.fetchScreener();
+      setInterval(() => { this.nowTick++; }, 1000);
     },
 
     // ── WebSocket ─────────────────────────────────────────────────────
@@ -1339,6 +1091,7 @@ document.addEventListener('alpine:init', () => {
         this.savePnlToStorage();
       }
 
+      this.lastUpdatedAt = Date.now();
       this.lastUpdated = new Date().toLocaleTimeString('en-US',
         { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
@@ -1660,6 +1413,63 @@ document.addEventListener('alpine:init', () => {
         'OFFLINE':    'bg-red-600 text-white',
         'CONNECTING': 'bg-slate-600 text-white',
       })[this.botStatus()] ?? 'bg-slate-600 text-white';
+    },
+
+    // Mode only (paper/live/dry-run) - independent of pause state, so it
+    // never disagrees with the "Trading Enabled/Paused" pill next to it.
+    modeLabel() {
+      if (!this.health) return 'Connecting…';
+      if (this.risk?.dry_run) return 'Dry Run';
+      return (this.account?.paper ?? true) ? 'Paper' : 'Live · Real Money';
+    },
+
+    // Real elapsed time since the last successful WS push - not a fabricated
+    // "avg delay" metric, just Date.now() minus a real timestamp we recorded.
+    // `tick` is unused but referenced by callers so Alpine tracks nowTick as
+    // a reactive dependency and re-evaluates this every second.
+    dataAgeSeconds(tick) {
+      if (!this.lastUpdatedAt) return null;
+      return Math.max(0, Math.round((Date.now() - this.lastUpdatedAt) / 1000));
+    },
+    dataAgeLabel(tick) {
+      const s = this.dataAgeSeconds(tick);
+      if (s == null) return '-';
+      return s < 60 ? `Feed updated ${s}s ago` : `Feed updated ${Math.round(s / 60)}m ago`;
+    },
+    // WS pushes every 5s - 3 missed pushes (15s) is a reasonable, stated
+    // threshold for flagging the feed as stale rather than silently stale.
+    dataAgeStale(tick) {
+      const s = this.dataAgeSeconds(tick);
+      return s != null && s > 15;
+    },
+
+    // Real per-status counts derived from the same orders[] array already
+    // rendered in the Recent Orders table - no server-side computation exists.
+    ordersSummary() {
+      const filled = this.orders.filter(o => o.status === 'filled').length;
+      const rejected = this.orders.filter(o => o.status === 'rejected').length;
+      const pending = this.orders.length - filled - rejected
+        - this.orders.filter(o => o.status === 'canceled' || o.status === 'expired').length;
+      return { filled, pending: Math.max(0, pending), rejected };
+    },
+
+    // Session high/low of the real, already-collected pnlSeries - never
+    // earlier-than-today history, since pnlSeries itself resets daily.
+    sessionHighLow() {
+      const data = this.pnlSeries.data;
+      if (!data || data.length < 2) return { high: null, low: null };
+      return { high: Math.max(...data), low: Math.min(...data) };
+    },
+
+    // True once the session series has at least 2 points AND at least one
+    // is meaningfully non-zero - distinguishes "still collecting" and "flat
+    // $0 all session" (typical while the market is closed) from a genuine
+    // populated chart, so we never render a large flat-line chart for
+    // nothing.
+    sessionHasActivity() {
+      const data = this.pnlSeries.data;
+      if (!data || data.length < 2) return false;
+      return data.some(v => Math.abs(v) > 0.005);
     },
 
     pnlClass(v) {
