@@ -1,1132 +1,286 @@
 # AlphaLive
 
-**Execution/runtime engine**, designed to run continuously during market hours, for strategies
-exported from AlphaLab.
+An execution and risk engine that consumes strategy exports from [AlphaLab](https://github.com/bernardoguterres/AlphaLab) and can submit orders through Alpaca Markets, built around independently implemented signal logic, layered risk checks, same-process idempotent order retries, persisted strategy state, and broker-position reconciliation.
 
-Export a backtested strategy from AlphaLab → deploy to Railway → it generates signals, applies risk
-controls, and can place orders through Alpaca's paper/live-capable API. Monitor via a real-time web
-dashboard with live P&L charts, position tracking, and a kill switch. Telegram alerts for every
-trade and daily summaries.
-
-**Status: portfolio release / validated engineering prototype.** Config loading, schema validation,
-risk management, and the AlphaSignal sentiment gate are extensively tested (unit tests plus live
-runtime checks against a real running AlphaSignal service). **Actual Alpaca paper-account runtime
-integration has not yet been exercised** - no paper credentials were available during the completed
-validation pass, so authentication, order placement, and reconciliation against a real Alpaca
-account remain unverified in practice, even though the broker integration code and its tests exist.
-No real-money trading has ever been performed. See [Validation Status](#validation-status) below
-for the precise breakdown of what has and hasn't been runtime-tested.
+AlphaLab builds and backtests a strategy and exports a JSON config. AlphaLive loads it, independently regenerates signals from live market data, and runs them through a risk-gate stack before submitting an approved order to Alpaca with a deterministic `client_order_id`. Within one placement attempt, a retry after an ambiguous failure reuses that same ID so Alpaca can reject a genuine duplicate. Strategy state - open positions, engine internals, entry timestamps - is persisted as signal checks and state-changing events complete, and is restored/reconciled against the broker's actual positions on every restart.
 
 ---
 
-## Validation Status
+## Status and Validation Boundary
 
-| Capability | Status |
-|---|---|
-| Config loading / schema validation | Verified - real strategy JSON exports load correctly (including via a live `run.py --validate-only` run) |
-| Risk management (position sizing, stop-loss, circuit breakers, daily-loss limits) | Extensively unit-tested |
-| AlphaSignal sentiment gate | Verified live against a real running AlphaSignal service (all fail-open/blocked/no-data states observed with real HTTP calls) |
-| Paper-mode-safe default | Verified from code - `ALPACA_PAPER` defaults to `true` |
-| Cross-system signal parity vs AlphaLab | Verified on real multi-year historical data - see [Cross-System Parity](#cross-system-parity) |
-| Alpaca paper-account runtime integration (auth, order placement, reconciliation) | **Not yet exercised** - no paper credentials available during validation |
-| Dry-run / replay mode as a running process | **Not yet exercised end-to-end** - `run.py` authenticates to Alpaca at startup even in these modes (by design), so this was blocked by the same missing credentials; config loading up to that point was confirmed to work |
-| Live-money trading | Never performed |
-| Long-duration unattended runtime | Not demonstrated |
+This is a working prototype with an extensive automated test suite, not a system that has traded real money or run unattended for an extended period.
 
----
+**What has been exercised:**
+- Config loading and schema validation against real AlphaLab strategy JSON exports, including via `run.py --validate-only`.
+- Signal generation logic, independently unit-tested and cross-checked against AlphaLab on historical fixtures (see [AlphaLab Compatibility](#alphalab-compatibility-and-measured-parity)).
+- Risk management, state persistence, reconciliation, and same-process idempotent retry logic, all covered by unit and integration tests that mock the broker and Telegram.
+- The AlphaSignal sentiment gate, tested against a running AlphaSignal instance over real HTTP calls: fail-open behaviour was confirmed for timeout and no-data responses, while blocking was confirmed for explicit threshold-breaching sentiment.
 
-## AlphaLab vs AlphaLive: What's the Difference?
+**What has not been exercised:**
+- Real Alpaca paper-account runtime: authentication, live order submission, fills, and broker-side reconciliation, end-to-end against a funded account.
+- Long-duration unattended runtime - the mechanisms below are implemented and unit-tested, not observed running continuously across days or weeks.
+- Any Railway deployment. `railway.toml` and the Dockerfiles describe an intended shape; no Railway environment has been stood up.
+- Real-money trading of any kind. Never performed.
 
-**AlphaLab** and **AlphaLive** are two separate platforms that work together, with **AlphaSignal** as an optional sentiment enrichment layer:
-
-| Repo | Purpose | When to Run | Where to Run |
-|------|---------|-------------|--------------|
-| **[AlphaLab](https://github.com/bernardoguterres/AlphaLab)** | Strategy development & backtesting | As needed (not 24/7) | Locally on your computer |
-| **[AlphaLive](https://github.com/bernardoguterres/AlphaLive)** (this repo) | Live trading execution | 24/7 during trading hours | Railway (recommended) or locally |
-| **[AlphaSignal](https://github.com/bernardoguterres/AlphaSignal)** | Financial RAG - sentiment signals from SEC filings | Optional enrichment layer | Locally or any cloud host |
-
-### AlphaLab (Development Platform)
-
-**What it does**:
-- Develop trading strategies (code signal logic)
-- Backtest on 5 years of historical data
-- Optimize parameters (walk-forward validation, grid search)
-- Export strategies as JSON for AlphaLive
-
-**When you use it**:
-- Creating new strategies
-- Testing strategy ideas
-- Monthly re-backtesting on new data
-- Analyzing why live performance differs from backtest
-
-**Run it**: Only when developing/testing strategies (NOT 24/7)
-
-### AlphaLive (Execution Platform)
-
-**What it does**:
-- Load strategy JSON from AlphaLab
-- Connect to Alpaca broker (paper or live account)
-- Generate buy/sell signals in real-time
-- Execute trades automatically
-- Monitor positions for stop loss / take profit
-- Send Telegram alerts
-- Real-time web dashboard - live P&L charts, position table, kill switch, CSV export
-
-**When you use it**:
-- 24/7 during trading hours (9:30 AM - 4:00 PM ET, Mon-Fri)
-- Runs continuously even when you're asleep/away
-
-**Run it**: 24/7 on Railway (recommended) or locally
-
-### Complete Workflow
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                   AlphaLab (Local, As Needed)                   │
-└─────────────────────────────────────────────────────────────────┘
-         │
-         │ 1. Develop strategy
-         │ 2. Backtest on historical data
-         │ 3. Optimize parameters
-         │ 4. Export as JSON
-         ↓
-┌─────────────────────────────────────────────────────────────────┐
-│              AlphaLive (Railway or Local, 24/7)                 │
-└─────────────────────────────────────────────────────────────────┘
-         │
-         │ 5. Load strategy JSON
-         │ 6. Run dry run (1 week)
-         │ 7. Run paper trading (2-4 weeks)
-         │ 8. Run live trading (gradual scale up)
-         ↓
-┌─────────────────────────────────────────────────────────────────┐
-│                  Monitor & Analyze Results                      │
-└─────────────────────────────────────────────────────────────────┘
-         │
-         │ 9. Compare live vs backtest performance
-         │ 10. If performance degrades: back to AlphaLab
-         │ 11. Re-optimize and re-export
-         └──────────────┐
-                        │ (loop back to step 1)
-```
-
-**You need BOTH platforms** - AlphaLab develops strategies, AlphaLive executes them.
+Treat everything below as "implemented and tested in isolation," not "proven in production."
 
 ---
 
-## Deployment Options: Local vs Railway
+## Engineering Highlights
 
-AlphaLive can run **locally on your computer** (FREE) or **on Railway** (~$5-20/month).
-
-### Running Locally
-
-**Best for**:
-- Testing (dry run, paper trading)
-- Saving money (~$5-20/month)
-- Full control over environment
-
-**Requirements**:
-- Your computer must be **ON 24/7** during trading hours (9:30 AM - 4:00 PM ET)
-- Stable internet connection
-- No sleep/hibernate during trading hours
-
-**Risks**:
-- Power outage = missed trades
-- Computer restart = bot stops until you manually restart it
-- Internet outage = no trading
-- You must be available to restart bot if it crashes
-
-**How to run locally**:
-```bash
-# Foreground (blocks terminal, Ctrl+C to stop)
-python run.py --config configs/your_strategy.json
-
-# Background (keeps running after closing terminal)
-nohup python run.py --config configs/your_strategy.json > alphalive.log 2>&1 &
-
-# Check if running
-ps aux | grep "run.py"
-
-# Stop background process
-pkill -f "run.py"
-```
-
-### Running on Railway (Recommended for Live Trading)
-
-**Best for**:
-- Live trading with real money
-- 24/7 reliability (professional infrastructure)
-- Auto-restart on crashes
-- Deploy updates from anywhere (git push)
-
-**Benefits**:
-- Bot runs even when your computer is off
-- Auto-restart if process crashes
-- View logs from anywhere (phone, laptop)
-- No need to manage servers
-
-**Cost**: ~$5-20/month (Hobby plan or pay-as-you-go)
-
-**How to deploy**: See the [Deploy to Railway](#deploy-to-railway) section below
-
-### Comparison Table
-
-| Feature | Local | Railway |
-|---------|-------|---------|
-| **Cost** | FREE | ~$5-20/month |
-| **Uptime** | Only when your computer is on | 24/7 professional infrastructure |
-| **Auto-restart on crash** | No (manual) | Yes (automatic) |
-| **Deploy updates** | Local only | From anywhere (git push) |
-| **View logs** | Local terminal only | From anywhere (dashboard) |
-| **Power outage protection** | No | Yes |
-| **Best for** | Testing, development | Live trading |
-
-### Our Recommendation
-
-| Phase | Recommended Deployment |
-|-------|------------------------|
-| **Phase 1: Dry Run** (1 week) | Local (free) |
-| **Phase 2: Paper Trading** (2-4 weeks) | Local or Railway (your choice) |
-| **Phase 3-4: Live Trading** | Railway (reliability is worth $5-20/month) |
-
-**Bottom line**: Test locally for free, deploy to Railway when going live.
+- **Independent signal re-implementation.** AlphaLive does not import AlphaLab's strategy code - it re-implements each strategy's logic from scratch against the same JSON schema, so a cross-repo parity test can catch drift instead of trusting one implementation by construction.
+- **Layered risk gating.** Every signal passes an ordered sequence of checks - kill switches, trade-frequency/API-budget limits, degraded-mode detection, daily-loss/consecutive-loss breakers, position caps, cooldowns - before an order is considered.
+- **Idempotent submission retries within one placement attempt.** Each `execute_signal` call generates a `client_order_id` from ticker, side, and timestamp, reusing it for every retry in that call's backoff loop; a 409 is recovered via `get_order_by_client_id()` rather than assumed. The ID is not persisted or reconstructed across a restart - see [restart reconciliation](#idempotent-submission-retries-and-restart-reconciliation) for what does and doesn't survive one.
+- **Persisted, reconciled state.** Signal-engine internals, open positions, and entry timestamps are persisted after completed signal checks and relevant position-state updates, restored at boot, then reconciled against Alpaca's actual positions - the broker's ledger wins.
+- **Drift detection, not silent trust.** If live broker positions and the internal ledger disagree mid-session, trading halts rather than continuing on stale assumptions.
+- **Configuration-dependent durability.** State persistence only survives a restart if `STATE_FILE` points at a durable path (below).
 
 ---
 
-## What You Need to Run
-
-### For Development & Backtesting
-
-**Platform**: AlphaLab (separate repository)
-
-**Run it**:
-- Locally on your computer
-- As needed (not 24/7)
-- When developing new strategies or re-backtesting
-
-**Cost**: FREE
-
-### For Testing (Dry Run & Paper Trading)
-
-**Platform**: AlphaLive (this repository)
-
-**Run it**:
-- Locally: `python run.py --dry-run` (dry run mode)
-- Locally: `python run.py` (paper trading mode)
-- Railway: Deploy with `DRY_RUN=true` or `ALPACA_PAPER=true`
-
-**Cost**: FREE (local) or ~$5-20/month (Railway)
-
-### For Live Trading
-
-**Platform**: AlphaLive (this repository)
-
-**Run it**:
-- Railway (recommended): See the [Deploy to Railway](#deploy-to-railway) section below
-- Or locally: `python run.py` with `ALPACA_PAPER=false`
-
-**Requirements**:
-- Alpaca live account (FREE, but real money at risk)
-- Optional: Market data subscription (~$15-30/month for real-time SIP data)
-- Railway subscription (~$5-20/month) if using Railway
-
-**Total cost for live trading**:
-- Minimum: $0/month (local + free Alpaca + IEX data)
-- Recommended: $5-50/month (Railway $5-20 + optional SIP data $15-30)
-
----
-
-## How It Works
-
-1. **Backtest strategies in AlphaLab** until you find ones you like
-2. **Click "Export to AlphaLive"** → saves a JSON config with your strategy parameters
-3. **Commit the JSON** to `configs/` in this repo
-4. **Deploy to Railway** (or run locally for testing)
-5. **AlphaLive runs 24/7**: sleeps when market is closed, trades when open
-6. **Get Telegram alerts** for every trade, exit, and daily summary
-
----
-
-## Architecture
+## System Architecture
 
 ```mermaid
-flowchart TD
-    A[Strategy JSON<br/>from AlphaLab] --> B[AlphaLive Boot<br/>Railway Deployment]
-    B --> C[Load Config<br/>Validate Schema]
-    C --> D{Market Open?}
-    D -->|Closed| E[Sleep 30s<br/>Check Again]
-    E --> D
-    D -->|Open| F[Market Data Fetcher<br/>Alpaca API]
-    F --> G[Signal Engine<br/>Generate Buy/Sell]
-    G --> H[Risk Manager<br/>10 Safety Checks]
-    H --> I{Trade Allowed?}
-    I -->|Blocked| J[Log Reason<br/>Continue Monitoring]
-    I -->|Approved| AS[AlphaSignal<br/>Sentiment Filter]
-    AS -->|Pass / Unavailable| K[Order Manager<br/>Calculate Position Size]
-    AS -->|Blocked - negative sentiment| J
-    K --> L[Alpaca Broker<br/>Execute Order]
-    L --> M[Position Tracker<br/>Monitor Exits]
-    M --> N[Stop Loss/Take Profit<br/>Check Every 5 Min]
-    N --> O{Exit Trigger?}
-    O -->|Yes| P[Close Position<br/>Update P&L]
-    O -->|No| N
-    P --> Q[Telegram Notification<br/>Trade Alert]
-    L --> Q
-    Q --> R[Daily Summary<br/>3:55 PM ET]
-    R --> D
-    J --> D
+flowchart TB
+    subgraph INPUT["Strategy definition"]
+        JSON[AlphaLab strategy JSON]
+    end
 
-    L -->|positions + orders| S[(Alpaca Account<br/>State)]
-    B -->|writes| T[(State File<br/>daily_pnl · highs)]
-    P --> T
-    S --> U[Dashboard Server<br/>FastAPI · port 8888]
-    T --> U
-    U -->|WebSocket 5s push| V[Browser Dashboard<br/>localhost:8888]
+    subgraph BOOT["Config and validation"]
+        CFG[Config loader<br/>schema migration + Pydantic validation]
+    end
 
-    style H fill:#ef4444
-    style AS fill:#ec4899
-    style L fill:#4ade80
-    style Q fill:#3b82f6
-    style U fill:#6366f1
-    style V fill:#6366f1
+    subgraph LOOP["Main trading loop"]
+        MAIN[Main loop<br/>polls ~every 30s, coordinates checks]
+        MD[Market data<br/>Alpaca bars, staleness check]
+        SIG[Signal engine<br/>independent strategy logic]
+        RISK[Risk manager<br/>per-strategy + global circuit breakers]
+        GATE{AlphaSignal gate<br/>pass, disabled, or unavailable}
+        OM[Order manager<br/>sizing, retries, idempotency key]
+        BROKER[Alpaca broker adapter]
+    end
+
+    subgraph PERSIST["Persistence and recovery"]
+        STATE[(State file<br/>engine state, ledger, entry timestamps)]
+    end
+
+    subgraph OPS["Operational interfaces"]
+        DASH[Dashboard<br/>read-only + pause/resume]
+        PAUSEFILE[(Pause-file sidecar)]
+        TG[Telegram<br/>alerts + commands]
+    end
+
+    JSON --> CFG --> MAIN
+    MAIN --> MD --> SIG --> RISK
+    RISK -->|approved BUY/SELL| GATE
+    GATE -->|blocked: sentiment| MAIN
+    GATE --> OM
+    OM --> BROKER
+    OM -->|execution warnings/errors| TG
+    MAIN -->|fills, exits, reconciliation alerts, summaries| TG
+    MAIN -->|reads pause file each iteration| PAUSEFILE
+    DASH -->|writes| PAUSEFILE
+    MAIN -->|reads/writes| STATE
+    MAIN -->|startup + every 30 min:<br/>fetch positions, reconcile ledger| BROKER
+    STATE --> DASH
+    BROKER --> DASH
 ```
 
-### Key Components
-
-AlphaLive is an execution engine with:
-
-- **Signal Generation**: Independently re-implements AlphaLab's strategy logic (8 strategies supported, including `greenblatt_weekly` on weekly bars). Cross-system signal parity against AlphaLab was validated on multi-year historical data (see [Cross-System Parity](#cross-system-parity) below) - not exact/bit-for-bit in every case, with the remaining small numerical differences documented rather than hidden.
-- **Risk Management**: Stop loss, take profit, trailing stop, position sizing, daily limits
-- **Order Execution**: Alpaca Markets API with retry logic, slippage checks, partial fill handling
-- **Market Data**: Real-time bars from Alpaca with caching and staleness detection
-- **Pre-Execution Gate**: AlphaSignal (sentiment) is checked before each order via an async gate (`run_pre_execution_checks`). Fails open on timeout or unavailability. The gate is structured so additional filters can be added as further concurrent arms.
-- **Notifications**: Telegram alerts for trades, exits, errors, daily summaries
-- **Resilience**: Auto-restart on Railway, position reconciliation, corporate action detection
-- **Web Dashboard**: Real-time monitoring UI (FastAPI + WebSocket) - live P&L charts, open positions, trailing stop levels, kill switch, CSV export, one-click Railway redeploy
-
-**Market Closed Behavior**:
-- Checks if market is open every 30 seconds
-- Sleeps efficiently when closed (no wasted API calls)
-- Wakes up at 9:30 AM ET and starts trading
-
-**Signal Timing**:
-- **1Week strategies**: Check once per week, Monday morning at 9:35 AM ET
-- **1Day strategies**: Check once per day at 9:35 AM ET
-- **1Hour strategies**: Check every hour at :00 minutes
-- **15Min strategies**: Check every 15 minutes (:00, :15, :30, :45)
-
-> **Note on 1Week:** Alpaca does not serve weekly bars natively. AlphaLive fetches daily bars and resamples them to weekly internally (`W-FRI` aggregation). No extra configuration needed.
-
-**Exit Monitoring**:
-- Checks stop loss / take profit every 5 minutes during market hours
-- Corporate action detection (skips trading on 20% overnight moves)
-- End-of-day summary sent at 3:55 PM ET
+AlphaLive is a continuously running process: the main loop polls roughly every 30 seconds during market hours, and strategy signal checks and exit checks use their own separate timing guards described below. This describes process structure, not validated 24/7 availability - see [Status and Validation Boundary](#status-and-validation-boundary). Railway is one possible place to run this process; it is not part of the architecture itself, and the diagram deliberately omits it.
 
 ---
 
-## Local Development
+## Execution Lifecycle and Reliability
 
-### Prerequisites
+On each loop iteration (~30s during market hours), AlphaLive checks whether the market is open, checks the dashboard's pause file, and runs whichever strategy checks are due. **As implemented**, `1Day` and `1Week` share the same code path: both evaluate once per trading day, after ~09:35 ET, gated by a per-ticker "checked today" flag rather than day-of-week. `1Hour` checks hourly and `15Min` every 15 minutes via bar-boundary guards. Exit checks (stop loss, take profit, trailing stop) run separately every 5 minutes. The main loop never exits on an unhandled error - a catch-all sleeps 60 seconds and continues.
 
-- Python 3.11+
-- Alpaca Markets account (free paper trading account)
-- Telegram bot (optional, for notifications)
+**Risk checks run in a fixed order:** kill switch (`TRADING_PAUSED` / Telegram `/pause`), trade-frequency limit, API budget, degraded-mode status, daily loss limit, consecutive-loss breaker, position caps, cooldown. SELLs skip the position-cap/cooldown checks but still respect the rest, size only from the currently held broker quantity, and are blocked with no open position - AlphaLive never opens a short.
 
-### Setup
+**The AlphaSignal sentiment gate is optional, fails open, and applies to both directions:** a BUY can be blocked by sufficiently negative sentiment, a SELL by sufficiently positive sentiment (same threshold, opposite sign). Timeout, no data, or a disabled client bypass it. It gates strategy-generated BUY/SELL signals only - stop-loss, take-profit, and trailing-stop exits use a separate path and are never subject to it.
 
-1. **Clone the repo**:
-   ```bash
-   git clone https://github.com/bernardoguterres/AlphaLive.git
-   cd AlphaLive
-   ```
+**Position reconciliation** compares live Alpaca positions against the persisted ledger, not order history: once at startup (adopting/removing drift with a Telegram notice, not a halt) and again every 30 minutes (where disagreement halts trading).
 
-2. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+**Corporate action detection** skips a check and alerts via Telegram on a >20% overnight move, rather than trading a split-distorted bar.
 
-3. **Configure environment**:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your API keys
-   ```
+---
 
-4. **Create a strategy config** or use the example:
-   ```bash
-   # configs/example_strategy.json already exists
-   # Or export from AlphaLab to configs/
-   ```
+## Idempotent Submission Retries and Restart Reconciliation
 
-5. **Validate configuration** (recommended first step):
-   ```bash
-   python run.py --validate-only
-   ```
+Deterministic client order IDs make retries within one placement attempt idempotent; restart recovery separately restores persisted strategy state and reconciles the ledger against the broker. The two are independent: the ID is generated fresh from ticker, side, and timestamp inside a single `execute_signal` call, not persisted before submission and not reconstructed later - so it does not by itself survive a restart.
 
-   This tests:
-- Strategy JSON is valid
-- Alpaca connection works
-- Market data fetch works
-- Signal generation works
+```mermaid
+sequenceDiagram
+    participant Main as Main loop / reconciler
+    participant OM as Order manager
+    participant Alpaca as Alpaca broker
+    participant State as State file / ledger
 
-6. **Run in dry-run mode** (recommended for testing):
-   ```bash
-   python run.py --dry-run
-   ```
+    rect rgba(120,120,120,0.08)
+    Note over Main,Alpaca: Mechanism A - retry within one placement attempt
+    Main->>OM: execute approved signal
+    OM->>OM: generate client_order_id (ticker+side+now)
+    OM->>Alpaca: submit order (client_order_id)
+    Alpaca--xOM: timeout / ambiguous failure
+    OM->>Alpaca: retry with same client_order_id
+    Alpaca-->>OM: 409 duplicate client_order_id
+    OM->>Alpaca: get_order_by_client_id(client_order_id)
+    Alpaca-->>OM: recovered order status
+    OM-->>Main: order result
+    Main->>State: record position and engine state
+    end
 
-   This logs trades without executing them. Perfect for testing signal logic.
+    rect rgba(120,120,120,0.08)
+    Note over Main,State: Mechanism B - later process restart
+    Main->>State: load persisted engine state + ledger
+    Main->>Alpaca: fetch current live positions
+    Alpaca-->>Main: actual positions
+    Main->>State: reconcile ledger (broker positions are ground truth)
+    end
+```
 
-7. **Run with paper trading**:
-   ```bash
-   python run.py
-   ```
+**Mechanism A**, a single placement attempt: on an ambiguous failure the retry loop reuses the same `client_order_id`; Alpaca rejects the resulting duplicate with a 409, and the order manager recovers the real order via `get_order_by_client_id()` rather than assuming success or failure, then returns the result to the main loop for recording - the order manager itself never writes the state file.
 
-   Default is paper trading (`ALPACA_PAPER=true`). Safe for testing with fake money.
+**Mechanism B**, a later process restart: on boot, the main process restores signal-engine state, fetches Alpaca's live positions, and reconciles the local ledger against those - broker positions win. This restores state and detects drift; it does not resubmit or recover an in-flight order using the pre-restart ID.
 
-### Test Suite
+**Remaining timing window:** the key is generated fresh per call, so a restart inside the same narrow window as a scheduled signal check can produce a fresh key for what is effectively a repeat - a real, unclosed window, not a guarantee restarts cannot duplicate a trade. `max_open_positions` may act as a broker-position-based backstop after restart, but it does not close this window. The separate 60-second duplicate-order index only suppresses repeated ticker/side submissions within the same running process and is itself lost on restart.
 
-672 tests passing, 1 documented known limitation (`xfail`), 92% coverage (verified 2026-08-15).
-The one `xfail` is `test_multi_ticker_parity.py::test_signal_parity[rsi_mean_reversion-MSFT]` - a
-precisely-scoped, root-caused residual (2/500 bars where AlphaLab's and AlphaLive's independently-
-implemented ATR calculations disagree slightly, shifting a stop-loss exit by one bar). It is not an
-unresolved defect; see [Cross-System Parity](#cross-system-parity) below.
+---
+
+## AlphaLab Compatibility and Measured Parity
+
+AlphaLab and AlphaLive each independently implement every strategy's signal logic - a deliberate choice, since importing AlphaLab's code would make a parity test meaningless.
+
+Two distinct, non-comparable sources of parity evidence exist here; they should not be combined into one headline figure:
+
+| Evidence | What it is | Result |
+|---|---|---|
+| [`tests/test_signal_parity.py`](tests/test_signal_parity.py) | Reproducible standalone diagnostic on the AAPL 2022-2023 500-bar fixture; writes dated local reports to the gitignored `tests/reports/` directory and is not run in CI | Most recent local audit run: 496/500 (`ma_crossover`), 498/500 (`vwap_reversion`), 500/500 for the other five; `overall_pass: false` |
+| [`tests/test_multi_ticker_parity.py`](tests/test_multi_ticker_parity.py) | Pytest-collected, CI-enforced (`assert result["mismatches"] == 0`), all 7 strategies on real SPY/MSFT data, 500 bars each | 100% except one narrowly scoped, `strict=True` `xfail` |
+
+The `xfail` is `rsi_mean_reversion` on MSFT: 2 of 500 bars mismatch, root-caused to AlphaLab's and AlphaLive's ATR calculations disagreeing slightly, occasionally shifting an ATR-based stop-loss exit by a bar. `strict=True` means the test fails outright if that gap moves for an unverified reason.
+
+The local audit run is a point-in-time snapshot from a script outside the enforced suite, shown for transparency rather than as current proof; its dated output lives only in the gitignored `tests/reports/` directory, not the public repo. The pytest file's docstring distinguishes fixtures regenerated directly from AlphaLab (`ma_crossover`, `rsi_mean_reversion`, `vwap_reversion`) from historical AlphaLive-output snapshots for the rest - the latter guard against regression, not AlphaLab drift, and aren't cross-repo parity evidence. This is not a claim of broad or exact cross-repository parity.
+
+---
+
+## Dashboard and Operational Interfaces
+
+A separate FastAPI dashboard process reads the bot's state file and Alpaca account directly. It is **read-only with respect to trading** - it cannot place or cancel orders. Its two operational controls:
+
+- **Pause / resume**, via a dedicated pause-file sidecar next to the main state file, read fresh every loop iteration (~30s), independent of Telegram `/pause` and `TRADING_PAUSED`.
+- **A Railway redeploy endpoint**, calling Railway's GraphQL API if the three required env vars are set. Exists in code; not exercised against a real Railway deployment.
+
+It pushes account, position, order, and risk data over a WebSocket every 5 seconds, and only reflects reality when it shares the bot's `STATE_FILE` path.
+
+Telegram, where configured, supports `/status`, `/pause`, `/resume`, `/close_all` (requires `/confirm_close`), `/config`, `/performance`, and `/help`, and sends successful-trade, position-exit, execution-warning, reconciliation and daily-summary notifications. Failures are non-fatal - trading continues.
+
+---
+
+## Supported Strategies
+
+| Strategy | Timeframe | Entry | Exit |
+|---|---|---|---|
+| `ma_crossover` | Daily/intraday | Fast SMA crosses above slow SMA | Opposite cross |
+| `rsi_mean_reversion` | Daily/intraday | RSI below oversold threshold | RSI returns to 50 |
+| `momentum_breakout` | Daily/intraday | N-day high breakout + volume surge | Trailing stop / N-day low breakdown |
+| `bollinger_breakout` | Daily/intraday | Close above BB upper band for N bars + volume | Close below BB middle |
+| `vwap_reversion` | Daily/intraday | Price deviates from VWAP beyond N standard deviations + RSI | Price returns to VWAP |
+| `bollinger_rsi_combo` | Daily/intraday | Price at/below BB lower band AND RSI oversold | Price at/above BB middle OR RSI overbought |
+| `trend_adaptive_rsi` | Daily/intraday | RSI below regime-adjusted buy threshold | RSI above regime-adjusted sell threshold |
+| `greenblatt_weekly` | 1Week | Weekly RSI oversold OR 10w/50w golden cross | 20% trailing stop from peak (always active); RSI/SMA exits optional, off by default. Minimum hold: 52 weeks |
+
+Walk-forward backtests in AlphaLab showed the seven daily/intraday strategies underperforming buy-and-hold SPY historically; `greenblatt_weekly` is the current area of active development. This is backtest evidence from AlphaLab, not a claim about AlphaLive's live performance, which is unmeasured. `vwap_reversion` is implemented and parity-tested but not currently exported from AlphaLab as a deployable config.
+
+---
+
+## Quick Start
+
+**Prerequisites:** Python 3.11+, an Alpaca paper trading account (free), optionally a Telegram bot.
 
 ```bash
-pytest tests/ -v --cov=alphalive
+git clone https://github.com/bernardoguterres/AlphaLive.git
+cd AlphaLive
+pip install -r requirements.txt
+cp .env.example .env   # add ALPACA_API_KEY / ALPACA_SECRET_KEY
 ```
 
-### Cross-System Parity
-
-AlphaLab (research) and AlphaLive (execution) each have their own, independently-written
-implementation of every strategy's signal logic - a deliberate design choice (see
-[AlphaLab vs AlphaLive](#alphalab-vs-alphalive-whats-the-difference)) rather than sharing one
-codebase, so that a real cross-repo parity test can catch drift between research and execution
-instead of trusting one implementation to be correct by construction.
-
-A dedicated validation pass compared AlphaLab's and AlphaLive's actual bar-by-bar decisions on
-multi-year real historical data (AAPL, 2020-2024, ~1,257 daily bars), not just the repos' own
-pytest fixtures:
-
-| Strategy | Parity |
-|---|---|
-| `ma_crossover` | 99.92% (1256/1257 bars) |
-| `rsi_mean_reversion`, default RSI period (14) | 99.76% (1254/1257 bars) |
-| `rsi_mean_reversion`, non-default RSI period (9) | 99.52% (1251/1257 bars) |
-
-This is not "exact parity" and the README does not claim AlphaLive replicates AlphaLab exactly.
-The validation process is itself the more interesting result: an earlier pass found `rsi_mean_reversion`
-parity at only **87.59%**, root-caused to two real defects - AlphaLab's `rsi_period` parameter was
-silently unused (always computed RSI(14) regardless of the requested period), and the two repos'
-RSI formulas disagreed numerically. A related `ma_crossover` gap was found where AlphaLive silently
-ignored `volume_confirmation`/`min_separation_pct`/`cooldown_days` despite accepting them. All of
-these were fixed and re-validated against fresh data (not just the existing test fixtures, which
-didn't happen to exercise the affected parameter combinations). The remaining ~0.2-0.5% gaps are
-root-caused to one further, out-of-scope difference: AlphaLab's and AlphaLive's independently-
-implemented ATR calculations disagree slightly, occasionally shifting an ATR-based stop-loss exit
-by one bar - documented, not hidden, and covered by the one `xfail` in the test suite above.
-
-### CLI Options
+Validate the config and broker connection without placing any orders:
 
 ```bash
-python run.py [OPTIONS]
-
-Options:
-  --config PATH         Path to strategy JSON (default: STRATEGY_CONFIG env var)
-  --dry-run             Log trades without executing (for testing)
-  --validate-only       Test config and connections, then exit
-  --replay-mode         Test on historical data (FREE - no subscription needed)
-  --replay-start DATE   Start date for replay (YYYY-MM-DD, default: 2015-01-01)
-  --replay-end DATE     End date for replay (YYYY-MM-DD, default: 2019-12-31)
+python run.py --validate-only
 ```
 
----
-
-## Replay Mode: Test Before You Trade (FREE)
-
-Before paying for Alpaca premium, test your strategy on **9+ years of historical data** for FREE.
-
-**Note on credentials:** replay mode still boots through `run.py`'s normal startup path, which
-authenticates to Alpaca (`broker.connect()`) before anything else runs - by design, even
-non-order-placing modes verify real account connectivity. A **free paper account** (see
-[Getting API Keys](#getting-api-keys)) is required even for `--replay-mode`/`--dry-run`; this is
-not a credential-free code path. This was confirmed directly during validation: a
-`--validate-only` run correctly loaded and validated a real strategy config, then correctly failed
-at the Alpaca authentication step without paper credentials present. If you want to test signal
-logic with zero account setup, see [Testing Strategies with Real Historical Data](#testing-strategies-with-real-historical-data-no-api-keys-needed)
-below instead, which calls `SignalEngine` directly and never touches the broker.
+Run in dry-run mode (signals are logged, nothing is submitted to Alpaca):
 
 ```bash
-# Test on 2015-2019 (pre-COVID normal markets)
-python run.py \
-  --config configs/your_strategy.json \
-  --replay-mode \
-  --replay-start 2015-01-01 \
-  --replay-end 2019-12-31 \
-  --dry-run
+python run.py --dry-run --config configs/example_strategy.json
 ```
 
-**What you get:**
-- Test on 5-9 years of historical data (100% FREE)
-- See signals, trades, P&L, win rate
-- Verify strategy works before upgrading to premium
-- Smart defaults avoid COVID-19 market anomalies
-
-**Recommended testing:**
-1. **Pre-COVID** (2015-2019): 5 years of normal markets
-2. **Post-COVID** (2022-2024): 3 years of recovery
-
-**Cost:** $0 (historical data is free on Alpaca)
-
-**Use the interactive test script:**
-```bash
-./test_replay_mode.sh
-```
-
----
-
-## Testing Strategies with Real Historical Data (No API Keys Needed)
-
-Use `yfinance` (free, no account required) to test signal logic across any ticker locally:
+Run against a paper account (default; `ALPACA_PAPER=true`):
 
 ```bash
-pip install yfinance  # already in requirements.txt
+python run.py --config configs/example_strategy.json
 ```
 
-```python
-import sys, yfinance as yf, pandas as pd
-sys.path.insert(0, '.')
-
-from alphalive.strategy.signal_engine import SignalEngine
-from alphalive.strategy_schema import StrategySchema
-from datetime import datetime
-
-# Download any ticker - data stays in memory, nothing written to disk
-raw = yf.download('SPY', start='2021-01-01', end='2026-01-01', auto_adjust=True)
-df = raw.rename(columns={'Close':'close','High':'high','Low':'low','Open':'open','Volume':'volume'})
-df = df[['open','high','low','close','volume']].reset_index().rename(columns={'Date':'timestamp'})
-
-# Build a minimal config
-config = StrategySchema(
-    schema_version='1.0',
-    strategy={'name': 'rsi_mean_reversion', 'parameters': {'period': 14, 'oversold': 30, 'overbought': 70}},
-    ticker='SPY', timeframe='1Day',
-    risk={'stop_loss_pct': 2.0, 'take_profit_pct': 5.0, 'max_position_size_pct': 10.0,
-          'max_daily_loss_pct': 5.0, 'max_open_positions': 3, 'portfolio_max_positions': 10},
-    execution={'order_type': 'market'}, safety_limits={},
-    metadata={'exported_from': 'test', 'exported_at': datetime.now().isoformat(),
-              'alphalab_version': '1.0.0', 'backtest_id': 'test',
-              'backtest_period': {'start': '2021-01-01', 'end': '2026-01-01'},
-              'performance': {'sharpe_ratio': 1.5, 'sortino_ratio': 2.0, 'total_return_pct': 25.0,
-                              'max_drawdown_pct': 10.0, 'win_rate_pct': 55.0, 'profit_factor': 1.8,
-                              'total_trades': 100, 'calmar_ratio': 2.5}},
-)
-
-engine = SignalEngine(config)
-
-# Replay bars and count signals
-buys, sells = 0, 0
-for i in range(60, len(df)):
-    result = engine.generate_signal(df.iloc[:i+1].copy())
-    if result['signal'] == 'BUY': buys += 1
-    elif result['signal'] == 'SELL': sells += 1
-
-print(f'BUY: {buys}  SELL: {sells}  over {len(df)-60} bars')
-```
-
-**Tested on 20 tickers (SPY, QQQ, AAPL, MSFT, NVDA, META, TSLA, AMD, TSM, JPM, BAC, JNJ, UNH, XOM, COST, V, GOOGL, AMZN, IWM, DIA) - all strategies ran without errors across 1,276 bars each.**
-
-Note: `data/` and `*.parquet` are gitignored - downloaded data is never committed to the repo.
-
----
-
-## Deploy to Railway
-
-Railway is the recommended host - it runs 24/7 for ~$5/month and auto-restarts on crash.
-
-### 1. Prerequisites
-
-- [Railway account](https://railway.app) (free tier works for testing)
-- Alpaca Markets account - sign up at [alpaca.markets](https://alpaca.markets), go to **Your API Keys**, and generate **paper trading** keys first
-- Strategy JSON exported from [AlphaLab](https://github.com/bernardoguterres/AlphaLab) placed in `configs/`
-- (Optional) Telegram bot token from [@BotFather](https://t.me/BotFather)
-
-### 2. Create the Railway project
-
-1. Go to [railway.app/new](https://railway.app/new) → **Deploy from GitHub repo**
-2. Select your AlphaLive fork - Railway detects the `Dockerfile` automatically
-3. Go to **Variables** and add:
+Test signal logic against historical replay data (still authenticates to Alpaca at startup, so paper credentials are required even for replay):
 
 ```bash
-# Required
-ALPACA_API_KEY=PK...
-ALPACA_SECRET_KEY=...
-STRATEGY_CONFIG=configs/ma_crossover_SPY.json
-
-# Strongly recommended
-ALPACA_PAPER=true                    # always start with paper trading
-TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
-TELEGRAM_CHAT_ID=123456789
-LOG_LEVEL=INFO
-HEALTH_SECRET=$(openssl rand -hex 16) # generate a random string
+python run.py --config configs/your_strategy.json --replay-mode \
+  --replay-start 2015-01-01 --replay-end 2019-12-31 --dry-run
 ```
 
-4. Click **Deploy** - Railway builds the image and starts the bot
+---
 
-**Expected startup log**:
-```
-ALL VALIDATIONS PASSED
-Market is closed - sleeping until 9:30 AM ET
-```
+## Deployment Configuration
 
-Railway's healthcheck (`railway.toml`, `/ping`) is served by `alphalive/health.py`, started automatically at boot - no extra setup needed, just make sure `HEALTH_SECRET` is set (used by the detailed `/` status route, not by `/ping` itself).
+AlphaLive can run as a long-lived local process or as a container. A `Dockerfile` (bot) and `Dockerfile.dashboard` (dashboard, optional/separate) exist, plus a `railway.toml` declaring Railway's healthcheck path and restart policy. **These describe an intended shape; no actual Railway deployment has been exercised.** Treat Railway configuration as available, not proven.
 
-### 2b. Deploy the dashboard (optional, separate service)
+**Durable state requires explicit configuration.** `BotState` defaults `STATE_FILE` to `/tmp/alphalive_state.json`, which does not survive a container restart or redeploy. Restart-safe recovery needs `STATE_FILE` on a persistent path (a mounted volume, `PERSISTENT_STORAGE=true`); otherwise every restart starts empty and reconciliation falls back to trusting Alpaca as ground truth. Trailing-stop strategies refuse to start unless `PERSISTENT_STORAGE=true` is set.
 
-The monitoring dashboard (`dashboard/server.py`) is not part of the bot's deploy - add a second Railway service from this same repo, pointing at `Dockerfile.dashboard` (Settings -> Build -> Dockerfile Path). It must share one Railway Volume and the same `STATE_FILE` path as the bot service (`PERSISTENT_STORAGE=true` on both) to see live state.
+Key environment variables:
 
-### 3. Cost
+| Variable | Required | Notes |
+|---|---|---|
+| `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` | Yes | Alpaca credentials |
+| `STRATEGY_CONFIG` / `STRATEGY_CONFIG_DIR` | Yes (one of) | Single strategy or multi-strategy directory |
+| `ALPACA_PAPER` | No, default `true` | Set `false` only for live trading |
+| `STATE_FILE` | No, default `/tmp/...` | Must be a durable path for restart safety |
+| `PERSISTENT_STORAGE` | No, default `false` | Required if using trailing stops |
+| `DRY_RUN` | No, default `false` | Logs signals, places no orders |
+| `TRADING_PAUSED` | No, default `false` | Env-level kill switch |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | No | Enables notifications and commands |
+| `ALPHASIGNAL_URL`, `ALPHASIGNAL_ENABLED` | No | Optional sentiment gate |
 
-| Plan | Price | Best for |
-|------|-------|----------|
-| Starter | $5/month | 1–3 strategies |
-| Hobby | $20/month | 4+ strategies, unlimited hours |
+Multi-strategy mode (`STRATEGY_CONFIG_DIR`) enforces one strategy per ticker at startup - Alpaca holds a single merged position per symbol, so two strategies on the same ticker can't be attributed, and this is rejected before the loop starts.
 
-### 4. Production checklist (before switching to live money)
+---
 
-- [ ] Ran `DRY_RUN=true` for at least one full trading day - signals look correct
-- [ ] Ran `ALPACA_PAPER=true` for 1+ weeks - execution and P&L match expectations
-- [ ] Stop loss and take profit triggered correctly in paper (verify in logs)
-- [ ] Telegram notifications working - received trade alerts and EOD summary
-- [ ] Signal parity test passes: `pytest tests/test_signal_parity.py`
-- [ ] Walk-forward Sharpe in AlphaLab > 0.8 in both test windows
-
-### 5. Switching to live trading
-
-1. Generate **live trading keys** in Alpaca (separate from paper keys)
-2. Update Railway variables: `ALPACA_PAPER=false`, new `ALPACA_API_KEY` + `ALPACA_SECRET_KEY`
-3. Railway auto-redeploys in ~30 seconds
-4. Watch logs for the first hour; be ready to set `TRADING_PAUSED=true` if anything looks wrong
-
-### 6. Kill switch
-
-Fastest way to halt all new entries without stopping the process:
+## Verification
 
 ```bash
-# Telegram (instant, no restart needed):
-/pause
-
-# Railway dashboard (15–30s restart):
-Set TRADING_PAUSED=true in Variables
+pytest tests/ -v --cov=alphalive             # 673 tests collected, one intentional xfail
+pytest tests/test_multi_ticker_parity.py     # CI-enforced signal parity check
+python tests/test_signal_parity.py           # standalone parity report script, not run in CI
+python run.py --validate-only                # config + broker connectivity check
 ```
 
-### Troubleshooting
-
-| Error | Cause | Fix |
-|-------|-------|-----|
-| `Invalid API key` | Wrong key type (paper vs live) | Match `ALPACA_PAPER` to your key type |
-| `Data is stale` | Market closed or feed delay | Normal - bot resumes at 9:30 AM ET automatically |
-| `Telegram offline` | Wrong token or chat ID | Check `TELEGRAM_BOT_TOKEN` has no extra spaces |
-| `Daily loss limit exceeded` | Hit `max_daily_loss_pct` | Working as intended - resumes next trading day |
-| No trades executing | Paused, dry run, or risk limits | Check logs for signal checks and risk rejections |
-
----
-
-## Environment Variables
-
-### Required
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `ALPACA_API_KEY` | Alpaca API key (get from alpaca.markets) | `PK...` |
-| `ALPACA_SECRET_KEY` | Alpaca secret key | `xxx...` |
-| `STRATEGY_CONFIG` | Path to strategy JSON file | `configs/ma_crossover.json` |
-
-### Optional
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ALPACA_PAPER` | `true` | Use paper trading (recommended for testing) |
-| `TELEGRAM_BOT_TOKEN` | `None` | Telegram bot token (for notifications) |
-| `TELEGRAM_CHAT_ID` | `None` | Your Telegram chat ID |
-| `LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
-| `DRY_RUN` | `false` | Log trades without executing |
-| `TRADING_PAUSED` | `false` | Pause trading (kill switch) |
-| `ALPHASIGNAL_URL` | `http://localhost:8000` | AlphaSignal service base URL |
-| `ALPHASIGNAL_ENABLED` | `true` | Set `false` to bypass sentiment filter |
-| `ALPHASIGNAL_SENTIMENT_THRESHOLD` | `-0.3` | Score below which longs are blocked |
-
-### Getting API Keys
-
-**Alpaca Markets**:
-1. Sign up at [alpaca.markets](https://alpaca.markets)
-2. Go to **Your API Keys** in dashboard
-3. Generate new paper trading keys
-4. Copy API Key and Secret Key
-
-**Telegram Bot**:
-1. Open Telegram and search for **@BotFather**
-2. Send `/newbot` and follow prompts
-3. Copy bot token (looks like `123456:ABC-DEF...`)
-4. Start a chat with your bot
-5. Get your chat ID by visiting: `https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates`
-6. Send a message to your bot, then refresh the URL above - your chat ID is in the response
-
----
-
-## Safety Features
-
-AlphaLive has multiple layers of protection:
-
-### Risk Management
-
-- **Stop Loss**: Automatically close positions at configured loss threshold
-- **Take Profit**: Lock in gains at target price
-- **Trailing Stop**: Follow price up, exit on pullback (optional)
-- **Position Sizing**: Max % of account per position (prevents overexposure)
-- **Daily Loss Limit**: Halt all trading if daily loss exceeds threshold
-- **Max Positions**: Limit simultaneous open positions
-
-### Circuit Breakers
-
-- **Consecutive Loss Breaker**: Pause trading after 3 stop-outs in a row
-- **Kill Switch**: Set `TRADING_PAUSED=true` in Railway to halt immediately
-- **Corporate Action Detection**: Skip trading on 20% overnight moves (stock splits, etc.)
-- **Position Drift Auto-Halt**: Halts if Alpaca positions don't match bot's internal tracking
-
-### Operational Safety
-
-- **Data Staleness Checks**: Won't trade on old data (market may be closed)
-- **Startup Warmup Validation**: Ensures indicators are ready before first trade
-- **Rate Limiting**: Exponential backoff prevents API bans
-- **Graceful Degradation**: Telegram failures don't crash trading
-- **SIGTERM Handling**: Clean shutdown on Railway restarts
-
-### Live Trading Warnings
-
-When you switch to live trading (`ALPACA_PAPER=false`), you'll see:
-
-```
-WARNING
-LIVE TRADING MODE - REAL MONEY AT RISK
-WARNING
-```
-
-**Recommendation**: Run on paper for at least 1 week before switching to live.
-
----
-
-## Strategies Supported
-
-AlphaLive supports 8 strategy types. 7 of these are currently directly exportable from AlphaLab
-(`rsi_simple` is research-only and `vwap_reversion` is not currently exportable - see AlphaLab's
-README for why).
-
-> **Performance reality check:** Walk-forward testing shows all 7 validated daily/intraday strategies underperform buy-and-hold SPY (~0.5% vs 13.7% CAGR). Do not go live with daily strategies until walk-forward Sharpe > 0.8 and CAGR > 13%. The `greenblatt_weekly` strategy is the current development focus.
-
-### 1. MA Crossover
-**Description**: Buy when fast SMA crosses above slow SMA, sell when it crosses below.
-
-**Parameters**:
-- `fast_period`: Fast SMA period (default: 10)
-- `slow_period`: Slow SMA period (default: 20)
-
-**Best For**: Trending markets, daily timeframes
-
----
-
-### 2. RSI Mean Reversion
-**Description**: Buy when RSI is oversold, sell when overbought.
-
-**Parameters**:
-- `period`: RSI period (default: 14)
-- `oversold`: Oversold threshold (default: 30)
-- `overbought`: Overbought threshold (default: 70)
-
-**Best For**: Range-bound markets, intraday
-
----
-
-### 3. Momentum Breakout
-**Description**: Buy on new high with volume surge.
-
-**Parameters**:
-- `lookback`: Lookback period for rolling high (default: 20)
-- `surge_pct`: Volume surge multiplier (default: 1.5)
-- `atr_period`: ATR period for trailing stop (default: 14)
-
-**Best For**: Volatile stocks, breakout plays
-
----
-
-### 4. Bollinger Breakout
-**Description**: Buy on consecutive closes above upper band with volume confirmation.
-
-**Parameters**:
-- `period`: Bollinger Bands period (default: 20)
-- `std_dev`: Standard deviation multiplier (default: 2.0)
-- `confirmation_bars`: Consecutive bars above/below band (default: 2)
-
-**Best For**: Trend continuation, daily/hourly
-
----
-
-### 5. VWAP Reversion
-**Description**: Buy when price is far below VWAP and RSI is oversold, sell when far above and RSI is overbought.
-
-**Parameters**:
-- `deviation_threshold`: Deviation in standard deviations (default: 2.0)
-- `rsi_period`: RSI period (default: 14)
-- `oversold`: RSI oversold threshold (default: 30)
-- `overbought`: RSI overbought threshold (default: 70)
-
-**Best For**: Intraday mean reversion
-
----
-
-### 6. Bollinger RSI Combo
-**Description**: Dual confirmation - requires BOTH price ≤ BB lower AND RSI < 45 for entry.
-
-**Parameters**:
-- `bb_period`: Bollinger Bands period (default: 20)
-- `bb_std_dev`: Standard deviation (default: 2.0)
-- `rsi_period`: RSI period (default: 14)
-- `rsi_entry`: RSI entry threshold (default: 45)
-- `rsi_exit`: RSI exit threshold (default: 55)
-
-**Best For**: High-precision entries, 15Min or Daily timeframes (1-3 signals/day)
-
-> Win rate and Sharpe figures removed - not walk-forward validated.
-
----
-
-### 7. Trend Adaptive RSI
-**Description**: Adjusts RSI thresholds based on market regime (uptrend/downtrend/range).
-
-**Parameters**:
-- `rsi_period`: RSI period (default: 14)
-- `trend_sma_fast`: Fast trend SMA (default: 20)
-- `trend_sma_slow`: Slow trend SMA (default: 50)
-- **Uptrend**: Buy RSI 45, Sell 65
-- **Downtrend**: Buy RSI 35, Sell 55
-- **Range**: Buy RSI 35, Sell 65
-
-**Best For**: Adaptive to changing markets, 1Hour timeframes (1-2 signals/day)
-
-> Win rate and Sharpe figures removed - not walk-forward validated.
-
----
-
-### 8. Greenblatt Weekly (`greenblatt_weekly`) - value factor, weekly bars
-
-**Designed for ~1 year holding periods.** Run the Greenblatt screener in AlphaLab first to identify quality candidates (earnings yield + ROE ranked), then deploy weekly entry timing in AlphaLive.
-
-**Timeframe**: `1Week` - AlphaLive fetches daily Alpaca bars and resamples to weekly automatically.
-
-**Entry** (either condition on weekly bars):
-- Weekly RSI < 35 (oversold)
-- 10-week SMA crosses above 50-week SMA (golden cross)
-
-**Exit:**
-- **Default (always active):** Price drops 20% below position peak - trailing stop fires immediately, bypasses minimum hold
-- **Opt-in (disabled by default):** Weekly RSI > 65, or 10w/50w SMA death-cross - only fires after minimum hold elapsed
-
-**Key params:** `fast_sma` (10), `slow_sma` (50), `rsi_oversold` (35), `rsi_overbought` (65), `min_hold_bars` (52), `trailing_stop_pct` (0.20)
-
-**Minimum hold enforcement:** AlphaLive tracks `entry_timestamps` in `state.json`. SELL signals are suppressed until `min_hold_bars` weeks have elapsed, except for the trailing stop which always fires immediately.
-
----
-
-## Example Configs
-
-`configs/production/` holds example strategy configurations (the directory name is historical -
-none of them are validated for production use; see the disclaimer below):
-
-| Config | Strategy | Ticker | Timeframe | Notes |
-|--------|----------|--------|-----------|-------|
-| `rsi_simple_SPY_15Min.json` | RSI Mean Reversion (relaxed 40/60 thresholds) | SPY | 15Min | Not walk-forward validated. Filename note: despite the name, `strategy.name` inside this file is `rsi_mean_reversion` (relaxed thresholds) - it is unrelated to AlphaLab's separate, deliberately non-deployable `rsi_simple` strategy type, which AlphaLive does not support importing at all. |
-| `bollinger_rsi_SPY_15Min.json` | Bollinger RSI Combo | SPY | 15Min | Not walk-forward validated |
-| `trend_adaptive_SPY_1Hour.json` | Trend Adaptive RSI | SPY | 1Hour | Not walk-forward validated |
-| `rsi_mean_reversion_SPY_RELAXED.json` | RSI Mean Reversion | SPY | Daily | Not walk-forward validated |
-| `ma_crossover_AAPL_FAST.json` | MA Crossover | AAPL | Daily | Not walk-forward validated |
-
-> **None of these configs have passed walk-forward validation.** All daily/intraday strategies underperform buy-and-hold SPY in out-of-sample testing (see AlphaLab's walk-forward results). Treat these as example/paper-testing configurations, not production-ready ones. Run `walk_forward_validation.py` in AlphaLab before deploying any config, and paper-trade before considering real money.
-
----
-
-## Multi-Strategy Mode
-
-AlphaLive can run **multiple strategies simultaneously** by loading all JSONs from a directory:
-
-1. **Export multiple strategies** from AlphaLab
-2. **Place the chosen JSONs** in a deploy directory - **max one strategy per ticker** (enforced at startup: Alpaca holds one merged position per symbol, so two strategies on the same ticker can't be attributed and one's SELL would liquidate the other's shares)
-3. **Set environment variable**:
-   ```bash
-   STRATEGY_CONFIG_DIR=configs/
-   ```
-4. **Deploy** → AlphaLive runs all strategies in parallel
-
-**Risk Scope**:
-- **Per-Strategy Limits**: `max_open_positions`, `stop_loss_pct`, `take_profit_pct`
-- **Global Limits**: `max_daily_loss_pct` (halts ALL strategies), `portfolio_max_positions` (total positions across all)
-
-**Example**: 3 strategies with `max_open_positions=[5,3,2]` → total potential = 10 positions, but `portfolio_max_positions=8` caps it at 8.
-
----
-
-## Telegram Notifications
-
-When configured, you'll receive:
-
-- **Bot Started**: "🚀 AlphaLive Started" with strategy details
-- **Trade Executed**: "🟢 BUY 66 AAPL @ $150.00"
-- **Position Closed**: "💰 Position Closed - P&L: $495.00 (+5.00%)"
-- **Stop Loss Hit**: "⚠️ Position Closed - AAPL -$300.00"
-- **Daily Summary**: "📈 Daily Summary - 5 trades, $450 profit, 60% win rate"
-- **Error Alerts**: "⚠️ Alpaca API timeout"
-- **Circuit Breaker**: "⚠️ 3 consecutive losses - trading paused"
-
-**Graceful Degradation**: If Telegram fails, trading continues (alerts are lost but trades still execute).
-
----
-
-## Web Dashboard
-
-AlphaLive includes a real-time web dashboard for monitoring the bot without touching Railway logs or Telegram.
-
-### What it shows
-| Panel | Data |
-|---|---|
-| Stat cards | Portfolio value, daily P&L (green/red), cash, open positions count |
-| Positions table | Every open position - entry price, current price, unrealized P&L, trailing stop level, 20-bar sparkline |
-| Daily P&L trend | Live line chart built from WebSocket pushes (session only) |
-| Portfolio allocation | Donut chart of position market values |
-| Daily loss limit | Progress bar showing how much of your loss limit has been used |
-| System status | Trading active/paused, paper/live/dry-run mode, broker connection, market open/closed |
-| Recent orders | All of today's Alpaca orders with fill price, value, and status |
-
-### How to run
-
-```bash
-# From the project root (venv active)
-pip install fastapi "uvicorn[standard]"
-uvicorn dashboard.server:app --host 0.0.0.0 --port 8888
-```
-
-Open **http://localhost:8888**. Reads from the same `.env` as the bot - no extra config needed.
-
-### How it works
-- Connects to the same Alpaca paper/live account as the bot
-- Reads the bot's state file (`STATE_FILE`) for daily P&L and position highs
-- Pushes a combined data payload to the browser over **WebSocket every 5 seconds** (no polling)
-- Per-position sparklines fetched once per session from `/api/bars/{ticker}`
-- Optional password protection: set `DASHBOARD_PASSWORD=yourpassword` in `.env`
-
-### What it doesn't do
-- Cannot place or cancel orders (read-only)
-- Daily P&L trend resets on page reload (session memory only)
-- "Bot Since" and "Morning Check" only populate once `main.py` has run and written to the state file
-
----
-
-## Operational Toolkit
-
-AlphaLive includes **4 operational scripts** for monitoring and analysis:
-
-### 1. Performance Tracker (`scripts/performance_tracker.py`)
-Compare live trading performance against backtest expectations.
-
-**Usage:**
-```bash
-python scripts/performance_tracker.py --config configs/production/rsi_simple_SPY_15Min.json
-```
-
-**Features:**
-- Fetches completed trades from Alpaca
-- Calculates live win rate, P&L, avg win/loss
-- Compares to backtest expectations (from config metadata)
-- Flags performance divergence (>10% win rate difference)
-- Generates detailed performance reports
-
-**When to use**: Weekly to verify live performance matches backtests
-
----
-
-### 2. Live Signal Monitor (`scripts/live_signal_monitor.py`)
-Real-time signal monitoring showing how close you are to generating a signal.
-
-**Usage:**
-```bash
-python scripts/live_signal_monitor.py --config configs/production/rsi_simple_SPY_15Min.json
-
-# Watch mode (updates every 60s)
-python scripts/live_signal_monitor.py --config configs/production/rsi_simple_SPY_15Min.json --watch
-```
-
-**Features:**
-- Shows current indicator values (RSI, BB, SMA, etc.)
-- Displays distance to next signal ("RSI is 52, need 40 to trigger BUY")
-- Watch mode updates every 60 seconds
-- Educational tool to understand strategy behavior
-
-**When to use**: During first week of deployment to understand signal frequency
-
----
-
-### 3. Trade Journal Generator (`scripts/generate_trade_journal.py`)
-Export all trades to CSV for detailed analysis in Excel/Google Sheets.
-
-**Usage:**
-```bash
-python scripts/generate_trade_journal.py
-
-# Custom date range
-python scripts/generate_trade_journal.py --start-date 2026-01-01 --end-date 2026-03-31
-
-# Custom output file
-python scripts/generate_trade_journal.py --output my_trades.csv
-```
-
-**Features:**
-- Fetches all orders from Alpaca
-- Matches buy/sell pairs using FIFO
-- Calculates P&L, hold time, outcome (WIN/LOSS)
-- Exports to CSV (compatible with Excel, Google Sheets, pandas)
-- Includes entry/exit prices, quantities, timestamps
-
-**When to use**: Monthly for tax records, performance analysis, journal reviews
-
----
-
-### 4. Automated Weekly Report (`scripts/automated_weekly_report.py`)
-Automated weekly performance summary with recommendations.
-
-**Usage:**
-```bash
-# Generate and display report
-python scripts/automated_weekly_report.py
-
-# Send via Telegram
-python scripts/automated_weekly_report.py --telegram
-
-# Save to file only
-python scripts/automated_weekly_report.py --save-only --output-dir reports/
-```
-
-**Features:**
-- Fetches past week's trades
-- Calculates weekly stats (win rate, P&L, best/worst trade)
-- Performance assessment (Excellent/Good/Needs Attention)
-- Next week recommendations
-- Optional Telegram delivery
-- Designed for cron automation (every Sunday night)
-
-**Cron setup (weekly reports):**
-```bash
-# Add to crontab: runs every Sunday at 6 PM
-0 18 * * 0 cd /path/to/AlphaLive && python scripts/automated_weekly_report.py --telegram
-```
-
-**When to use**: Automate weekly performance reviews
-
----
-
-**All scripts include:**
-- Environment variable validation with helpful errors
-- Config path resolution (works from any directory)
-- Retry logic for API calls (3 attempts, exponential backoff)
-- Progress indicators for long operations
-- `--version` flag for tracking
-- Full error tracebacks for debugging
-
----
-
-## Logs
-
-AlphaLive logs to STDOUT in structured format:
-
-```
-2026-03-09 09:35:00 [INFO] alphalive.main: Market is open - running signal check
-2026-03-09 09:35:01 [INFO] alphalive.data.market_data: Fetched 200 bars for AAPL (latest: 2026-03-09 09:34:00 EST)
-2026-03-09 09:35:02 [INFO] alphalive.strategy.signal_engine: BUY signal: MA crossover (fast SMA crossed above slow SMA)
-2026-03-09 09:35:03 [INFO] alphalive.execution.order_manager: MARKET BUY 66 AAPL @ market | Order ID: abc123-def456
-2026-03-09 09:35:05 [INFO] alphalive.broker.alpaca_broker: Order filled: 66 shares @ $150.25
-```
-
-**Railway**: Logs are captured automatically and viewable in dashboard.
-
-**Local**: Logs print to terminal.
-
----
-
-## Troubleshooting
-
-### "Invalid API key"
-- Check that `ALPACA_API_KEY` and `ALPACA_SECRET_KEY` are correct
-- Verify you're using **paper trading keys** (not live keys) if `ALPACA_PAPER=true`
-
-### "Data is stale"
-- Market may be closed (bot sleeps automatically)
-- Check Alpaca status: [status.alpaca.markets](https://status.alpaca.markets)
-
-### "Telegram offline - trading continues but alerts lost"
-- Check `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are correct
-- Verify bot is not blocked
-- Bot will auto-retry every 10 minutes
-
-### "Trade blocked: Daily loss limit exceeded"
-- Bot has hit `max_daily_loss_pct` for the day
-- Trading resumes next trading day automatically
-
-### "Position drift detected - TRADING HALTED"
-- Alpaca positions don't match bot's internal tracking
-- Manually reconcile positions in Alpaca dashboard
-- Set `TRADING_PAUSED=false` to resume
-
----
-
-## Contributing
-
-AlphaLive is part of the Alpha trading suite:
-
-- **AlphaLab**: Backtest strategies, export to AlphaLive
-- **AlphaLive**: Execute strategies 24/7 on Railway (this repo)
-- **AlphaSignal**: Optional sentiment filter - SEC filing RAG
-
-For questions, issues, or contributions, open an issue on GitHub.
+The one `xfail` is the `rsi_mean_reversion`/MSFT ATR residual from [AlphaLab Compatibility](#alphalab-compatibility-and-measured-parity), `strict=True` so the gap can't drift silently. In the pytest suite, external integrations are mocked, so its tests require no API keys or external network access. `python run.py --validate-only` is different: it requires valid Alpaca paper credentials and network access because it checks broker connectivity and market data. CI runs on every push/PR to `main` with dummy credentials.
 
 ---
 
 ## Known Limitations
 
-### Engineering / Validation
-
-See [Validation Status](#validation-status) at the top for the full breakdown. In short: no Alpaca
-paper-account runtime integration has been exercised yet (credentials unavailable during the
-completed validation pass), no long-duration unattended runtime has been demonstrated, and small
-(<1%) documented cross-system numerical differences remain vs AlphaLab on the tested strategies
-(see [Cross-System Parity](#cross-system-parity)).
-
-### Pattern Day Trader (PDT) Rule
-
-**What is it**: SEC regulation requiring $25,000 minimum account balance for accounts that execute 4+ day trades within 5 business days.
-
-**How it affects AlphaLive**:
-- **Paper Trading**: No PDT restrictions (unlimited day trades)
-- **Live Trading with <$25k**:
-  - Limited to 3 day trades per 5 business days
-  - AlphaLive does NOT track day trade count
-  - You must manually monitor via Alpaca dashboard
-  - Exceeding limit results in 90-day trading restriction by your broker
-- **Live Trading with ≥$25k**: No restrictions
-
-**Recommended Strategies**:
-- Use **1Day timeframe** strategies (no day trades)
-- Monitor `daytrade_count` in Alpaca dashboard daily
-- Set `max_trades_per_day` conservatively in strategy JSON
-- Consider swing trading strategies (hold overnight)
-
-**References**:
-- [Alpaca PDT Guide](https://alpaca.markets/learn/pattern-day-trading/)
-- [SEC PDT Rule](https://www.sec.gov/investor/pubs/daytrade.htm)
+- **No exercised Alpaca paper-account runtime** - authentication, order placement, fills, reconciliation against a real account.
+- **No exercised Railway deployment** - the configuration exists; no service has actually been stood up.
+- **No long-duration unattended runtime** - reliability mechanisms are unit/integration-tested, not observed over days or weeks live.
+- **`STATE_FILE` defaults to `/tmp`** - restart-safe recovery is opt-in via explicit durable-path configuration, not automatic.
+- **Idempotency keys do not survive a restart.** Timestamp-based and generated fresh per attempt; a restart in the same window as a scheduled signal check can yield a new key for what is effectively a repeat (see [restart reconciliation](#idempotent-submission-retries-and-restart-reconciliation)).
+- **`1Week` strategies currently evaluate daily, not weekly** - `main.py` routes `1Day`/`1Week` through the same once-per-day morning check instead of gating `1Week` to a weekday. Flagged as a possible implementation gap against design intent, not changed here.
+- **Parity is not exact or exhaustive.** The CI-enforced `rsi_mean_reversion`/MSFT exception is root-caused to the two ATR implementations, while the standalone AAPL diagnostic also reports 4/500 `ma_crossover` and 2/500 `vwap_reversion` mismatches whose causes are not established here (see [parity evidence](#alphalab-compatibility-and-measured-parity)).
+- **The dashboard cannot place orders** and is only as current as the shared state file and Alpaca account it reads.
+- **Telegram in multi-strategy mode centers on the first configured strategy** - `/status`, `/config`, `/performance`, `/close_all`, `/pause`/`/resume` act on that strategy only. `TRADING_PAUSED` and the dashboard's pause file remain global.
+- **`configs/production/` is a historical directory name**, not a claim of production readiness - none of its configs have passed walk-forward validation.
+- **PDT rule is not tracked** - AlphaLive doesn't count day trades; sub-$25k live accounts must monitor Alpaca's own counter.
+- **No real-money trading has ever been performed.**
 
 ---
 
@@ -1140,10 +294,6 @@ All rights reserved. This is proprietary, original work - no license is granted 
 
 **Trading involves substantial risk of loss. Past performance does not guarantee future results.**
 
-- AlphaLive is provided "as is" without warranty
-- You are responsible for your own trading decisions
-- Always test on paper trading before using live funds
-- Monitor your bot regularly
-- Use appropriate position sizing and risk limits
+AlphaLive is provided "as is," without warranty of any kind. You are responsible for your own trading decisions. No real-money trading has ever been performed with this system, and nothing in this document should be read as a claim of production readiness, validated live trading, or continuous uptime. Test on paper before considering real funds, and monitor any deployment regularly.
 
 **Use at your own risk.**
