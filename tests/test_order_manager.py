@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from alphalive.execution.order_manager import OrderManager
 from alphalive.execution.risk_manager import RiskManager
 from alphalive.strategy_schema import StrategySchema, Risk, Execution
-from alphalive.broker.base_broker import Order
+from alphalive.broker.base_broker import Order, Position
 
 ET = ZoneInfo("America/New_York")
 
@@ -40,6 +40,21 @@ def mock_broker():
     broker.place_market_order = Mock(return_value=order)
     broker.place_limit_order = Mock(return_value=order)
     broker.close_position = Mock(return_value=order)
+    # close_position() (2026-09-11 pass 3) sizes the close from the
+    # confirmed current position via get_position(), then places an
+    # ordinary market SELL - no longer calls broker.close_position().
+    broker.get_position = Mock(
+        return_value=Position(
+            symbol="AAPL",
+            qty=66.0,
+            side="long",
+            avg_entry_price=150.0,
+            current_price=150.0,
+            unrealized_pl=0.0,
+            unrealized_plpc=0.0,
+            market_value=9900.0,
+        )
+    )
 
     return broker
 
@@ -377,22 +392,47 @@ def test_check_exits_missing_price(order_manager, mock_risk_manager):
 
 
 def test_close_position(order_manager, mock_broker):
-    """Test close_position method."""
+    """Test close_position method - sizes from the confirmed position and
+    places an ordinary market SELL (2026-09-11 pass 3), not the broker's
+    close-position endpoint."""
     result = order_manager.close_position("AAPL", "Stop loss hit")
 
     assert result["status"] == "success"
     assert result["order_id"] == "order_123"
-    mock_broker.close_position.assert_called_once_with("AAPL")
+    assert result["fill_status"] == "filled"
+    mock_broker.place_market_order.assert_called_once()
+    _, kwargs = mock_broker.place_market_order.call_args
+    assert kwargs["symbol"] == "AAPL"
+    assert kwargs["qty"] == 66.0
+    assert kwargs["side"] == "sell"
+    mock_broker.close_position.assert_not_called()
 
 
 def test_close_position_error(order_manager, mock_broker):
-    """Test close_position with error."""
-    mock_broker.close_position = Mock(side_effect=Exception("Connection error"))
+    """Test close_position when the SELL order itself raises an ambiguous
+    (non-definite-rejection) error - must be quarantined ("blocked"), not
+    declared a definite failure, since the broker's true state is unknown."""
+    mock_broker.place_market_order = Mock(side_effect=Exception("Connection error"))
 
     result = order_manager.close_position("AAPL", "Stop loss hit")
 
-    assert result["status"] == "error"
+    assert result["status"] == "blocked"
+    # No `state` wired on this fixture's OrderManager -> no intent to mark
+    # uncertain, so fill_status stays "unknown" rather than "uncertain".
+    assert result["fill_status"] == "unknown"
     assert "Connection error" in result["reason"]
+
+
+def test_close_position_no_position_is_already_flat(order_manager, mock_broker):
+    """No position to close is reported as a trivial success, not an error -
+    idempotent with a prior successful close."""
+    mock_broker.get_position = Mock(return_value=None)
+
+    result = order_manager.close_position("AAPL", "Stop loss hit")
+
+    assert result["status"] == "success"
+    assert result["fill_status"] == "already_flat"
+    mock_broker.place_market_order.assert_not_called()
 
 
 def test_dry_run_mode():

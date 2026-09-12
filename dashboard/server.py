@@ -44,6 +44,13 @@ except ImportError:
 
 from alphalive.broker.alpaca_broker import AlpacaBroker
 from alphalive.utils.env_bool import read_bool_env
+from alphalive.state import default_state_file_path
+
+# Resolved once so every STATE_FILE fallback in this module (and the bot's
+# own alphalive/config.py) agrees on the same default path - required for
+# the dashboard kill switch, which derives its pause-file path from
+# STATE_FILE and only works when the dashboard and bot share it.
+_DEFAULT_STATE_FILE = default_state_file_path()
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s  %(message)s")
 logger = logging.getLogger(__name__)
@@ -174,7 +181,7 @@ _DEFAULT_STATE: Dict[str, Any] = {
 
 
 def _read_state() -> Dict[str, Any]:
-    path = os.getenv("STATE_FILE", "/tmp/alphalive_state.json")
+    path = os.getenv("STATE_FILE", _DEFAULT_STATE_FILE)
     try:
         with open(path) as f:
             return json.load(f)
@@ -355,7 +362,7 @@ def _build_payload() -> Dict[str, Any]:
         from alphalive.state import BotState
 
         dash_paused = BotState(
-            os.getenv("STATE_FILE", "/tmp/alphalive_state.json")
+            os.getenv("STATE_FILE", _DEFAULT_STATE_FILE)
         ).check_dashboard_paused()
         out["risk"] = {
             "daily_pnl": daily_pnl,
@@ -399,7 +406,7 @@ def _build_payload() -> Dict[str, Any]:
         "paper_trading": os.getenv("ALPACA_PAPER", "true").lower()
         in ("true", "1", "yes"),
         "server_time": datetime.now().isoformat(),
-        "state_file": os.getenv("STATE_FILE", "/tmp/alphalive_state.json"),
+        "state_file": os.getenv("STATE_FILE", _DEFAULT_STATE_FILE),
         "railway_configured": bool(
             os.getenv("RAILWAY_API_TOKEN")
             and os.getenv("RAILWAY_SERVICE_ID")
@@ -580,7 +587,7 @@ async def api_risk():
     from alphalive.state import BotState
 
     dash_paused = BotState(
-        os.getenv("STATE_FILE", "/tmp/alphalive_state.json")
+        os.getenv("STATE_FILE", _DEFAULT_STATE_FILE)
     ).check_dashboard_paused()
     return {
         "daily_pnl": daily_pnl,
@@ -624,7 +631,7 @@ async def api_health():
         "paper_trading": os.getenv("ALPACA_PAPER", "true").lower()
         in ("true", "1", "yes"),
         "server_time": datetime.now().isoformat(),
-        "state_file": os.getenv("STATE_FILE", "/tmp/alphalive_state.json"),
+        "state_file": os.getenv("STATE_FILE", _DEFAULT_STATE_FILE),
         "railway_configured": bool(
             os.getenv("RAILWAY_API_TOKEN")
             and os.getenv("RAILWAY_SERVICE_ID")
@@ -752,9 +759,7 @@ async def api_pause():
     def _do():
         from alphalive.state import BotState
 
-        BotState(
-            os.getenv("STATE_FILE", "/tmp/alphalive_state.json")
-        ).set_dashboard_pause(True)
+        BotState(os.getenv("STATE_FILE", _DEFAULT_STATE_FILE)).set_dashboard_pause(True)
 
     await loop.run_in_executor(None, _do)
     logger.info("Dashboard kill switch ACTIVATED via POST /api/control/pause")
@@ -769,9 +774,9 @@ async def api_resume():
     def _do():
         from alphalive.state import BotState
 
-        BotState(
-            os.getenv("STATE_FILE", "/tmp/alphalive_state.json")
-        ).set_dashboard_pause(False)
+        BotState(os.getenv("STATE_FILE", _DEFAULT_STATE_FILE)).set_dashboard_pause(
+            False
+        )
 
     await loop.run_in_executor(None, _do)
     logger.info("Dashboard kill switch CLEARED via POST /api/control/resume")

@@ -6,7 +6,7 @@ Includes caching, data validation, and rate limit handling.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, time as _time, timedelta
 from typing import Optional, Callable, Any
 from zoneinfo import ZoneInfo
 
@@ -21,6 +21,12 @@ from alphalive.utils.retry import RetryDecision, RetryOutcome, retry_with_backof
 logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
+
+# Regular US equity market close (ET) - the session-completion boundary
+# _resample_to_weekly uses when an explicit as_of falls on the trailing
+# week's own Friday (see that method's docstring). Ordinary session close
+# only; no early-close-calendar awareness exists in this codebase.
+_MARKET_CLOSE_TIME = _time(16, 0)
 
 
 class DataStaleError(Exception):
@@ -138,9 +144,13 @@ class MarketDataFetcher:
             elif str(df.index.tz) != "America/New_York":
                 df.index = df.index.tz_convert(ET)
 
-            # Resample daily → weekly (week ending Friday) for 1Week strategies
+            # Resample daily → weekly (week ending Friday) for 1Week strategies.
+            # `as_of` makes the wall-clock read explicit here at the call
+            # site (not hidden inside the resampler, which touches no
+            # clock) - "now" is what makes today's still-forming week
+            # incomplete for a live fetch.
             if timeframe == "1Week":
-                df = self._resample_to_weekly(df)
+                df = self._resample_to_weekly(df, as_of=datetime.now(ET))
 
             # Keep only the last N bars
             df = df.tail(lookback_bars)
@@ -369,7 +379,9 @@ class MarketDataFetcher:
                 f"Must be one of: 1Day, 1Hour, 15Min, 1Week"
             )
 
-    def _resample_to_weekly(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _resample_to_weekly(
+        self, df: pd.DataFrame, as_of: Optional[pd.Timestamp] = None
+    ) -> pd.DataFrame:
         """Resample a daily OHLCV DataFrame to weekly bars (week ending Friday).
 
         Uses standard OHLCV aggregation:
@@ -378,6 +390,50 @@ class MarketDataFetcher:
           low   = min of the week
           close = last bar of the week
           volume = sum of the week
+
+        Excludes an incomplete trailing week (weekly scheduling policy):
+        pandas' `resample("W-FRI")` labels each bucket by that week's Friday
+        even when the underlying daily data only covers Mon-Wed so far -
+        that bucket's "close" would be a still-forming price, not the
+        week's true close. A weekly strategy must never evaluate against
+        that partial bar.
+
+        Completeness reference (2026-09-11 pass 4 - session-completion
+        semantics on the Friday boundary itself): this function touches no
+        wall clock directly - the caller (get_latest_bars) passes its own
+        fetch time as `as_of`. Two independent checks can each mark the
+        trailing week incomplete:
+
+          1. Data-driven: the week's Friday is later than the last daily
+             bar actually present in `df` (date-only comparison - if the
+             data doesn't reach that Friday at all, there's nothing
+             session-completion could rescue).
+          2. as_of-driven: comparing `as_of` against the week's Friday
+             calendar date is not sufficient by itself - a `df` that (per
+             upstream API behavior) already contains a same-day, still-
+             forming daily bar FOR that Friday would otherwise let a
+             midnight-normalized "Friday <= Friday" comparison pass while
+             the trading session that day hasn't closed yet. So: if
+             `as_of`'s date is strictly before the Friday, incomplete; if
+             strictly after, complete (the week has fully elapsed
+             regardless of intraday clock time); if `as_of` falls ON the
+             Friday itself, complete only once `as_of`'s time-of-day is at
+             or after the market-close boundary (_MARKET_CLOSE_TIME) - the
+             calendar date arriving is not the same as the session closing.
+
+        The week is dropped if EITHER check calls it incomplete - so this
+        never extends past the data's own last bar even if `as_of` is
+        later (no future information beyond what's fetched), and never
+        extends past `as_of` even if the data (unexpectedly) contains
+        later bars (no future information beyond the evaluation time).
+        When `as_of` is omitted, only the data-driven check applies (no
+        clock to reference - matches the historical/backtest-fixture use
+        case, where "session completion" isn't a meaningful concept
+        without a wall-clock evaluation time). No early-close-calendar
+        awareness exists in this codebase (no market-calendar abstraction
+        is available here beyond broker.is_market_open() at the main-loop
+        level) - a genuine early close is not specially handled and is a
+        documented limitation, not silently guessed at.
         """
         weekly = (
             df.resample("W-FRI")
@@ -390,6 +446,46 @@ class MarketDataFetcher:
             )
             .dropna(subset=["close"])
         )
+
+        if len(weekly) > 0 and len(df) > 0:
+            last_daily_date = df.index[-1].normalize()
+            last_weekly_label = weekly.index[-1].normalize()
+
+            incomplete_per_data = last_weekly_label > last_daily_date
+
+            incomplete_per_as_of = False
+            if as_of is not None:
+                as_of_ts = pd.Timestamp(as_of)
+                if df.index.tz is not None:
+                    if as_of_ts.tz is None:
+                        as_of_ts = as_of_ts.tz_localize(df.index.tz)
+                    else:
+                        as_of_ts = as_of_ts.tz_convert(df.index.tz)
+                elif as_of_ts.tz is not None:
+                    # df is tz-naive but as_of is tz-aware - drop tz so the
+                    # two remain comparable (normalize() on a bare
+                    # Timestamp vs. a tz-aware one raises otherwise).
+                    as_of_ts = as_of_ts.tz_localize(None)
+
+                as_of_date = as_of_ts.normalize()
+                if as_of_date < last_weekly_label:
+                    incomplete_per_as_of = True
+                elif as_of_date == last_weekly_label:
+                    # as_of falls on the Friday itself - the calendar date
+                    # arriving is not the same as the session closing.
+                    incomplete_per_as_of = as_of_ts.time() < _MARKET_CLOSE_TIME
+                # else as_of_date > last_weekly_label: the week has fully
+                # elapsed regardless of intraday clock time - complete.
+
+            if incomplete_per_data or incomplete_per_as_of:
+                logger.debug(
+                    f"Dropping incomplete trailing week (label "
+                    f"{last_weekly_label.date()}, last daily bar "
+                    f"{last_daily_date.date()}, as_of "
+                    f"{as_of if as_of is not None else 'n/a'}) - week hasn't "
+                    f"closed yet as of the evaluation time."
+                )
+                weekly = weekly.iloc[:-1]
 
         logger.debug(f"Resampled {len(df)} daily bars → {len(weekly)} weekly bars")
         return weekly

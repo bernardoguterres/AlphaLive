@@ -36,6 +36,7 @@ class RiskManager:
         strategy_name: str,
         safety_limits: SafetyLimits,
         notifier=None,
+        global_risk: Optional["GlobalRiskManager"] = None,
     ):
         """
         Initialize RiskManager.
@@ -46,11 +47,18 @@ class RiskManager:
             strategy_name: Strategy identifier for logging
             safety_limits: Safety limits from strategy config
             notifier: Telegram notifier for alerts (optional)
+            global_risk: Shared GlobalRiskManager instance (optional). When
+                set, can_trade() also checks its manual_paused flag, which
+                is what makes Telegram /pause a genuinely global control in
+                multi-strategy mode instead of only reaching whichever
+                strategy's RiskManager the Telegram listener happened to be
+                constructed with (see GlobalRiskManager.set_manual_pause).
         """
         self.risk_config = risk_config
         self.execution_config = execution_config
         self.strategy_name = strategy_name
         self.notifier = notifier
+        self.global_risk = global_risk
 
         # Daily tracking
         self.daily_pnl = 0.0
@@ -563,6 +571,20 @@ class RiskManager:
                 logger.warning(f"[{self.strategy_name}] {reason}")
                 return (False, reason)
 
+            # 2b. Check the GLOBAL manual pause flag, shared across every
+            #     strategy via GlobalRiskManager (objective 3 fix). The
+            #     per-instance trading_paused_manual above only ever
+            #     reached one strategy's RiskManager when Telegram wired
+            #     to just the first configured strategy - this check makes
+            #     /pause actually global in multi-strategy mode.
+            if self.global_risk is not None and self.global_risk.is_manual_paused():
+                reason = (
+                    f"Trading paused globally via Telegram /pause command "
+                    f"({self.global_risk.manual_pause_reason})"
+                )
+                logger.warning(f"[{self.strategy_name}] {reason}")
+                return (False, reason)
+
         # 3. NEW: Trade frequency limit
         if self.trades_today >= self.max_trades_per_day:
             logger.critical(
@@ -899,8 +921,17 @@ class GlobalRiskManager:
     that must pass BEFORE executing any signal across all strategies.
     """
 
-    def __init__(self):
-        """Initialize global risk manager."""
+    def __init__(self, bot_state=None):
+        """Initialize global risk manager.
+
+        Args:
+            bot_state: Optional BotState instance. When provided, the
+                global manual-pause flag (Telegram /pause) is persisted
+                through it and restored on construction - an operator-
+                issued halt survives a restart instead of silently
+                clearing, matching the durability the env-var and
+                dashboard kill switches already have.
+        """
         # Global daily stats
         self.global_daily_stats = {
             "date": datetime.now(ET).date(),
@@ -914,7 +945,49 @@ class GlobalRiskManager:
         # Track individual strategy managers
         self.strategy_managers: Dict[str, RiskManager] = {}
 
+        # Global Telegram manual pause (objective 3): a single shared flag
+        # every registered strategy's RiskManager.can_trade() consults, so
+        # /pause and /resume are genuinely global in multi-strategy mode.
+        self.bot_state = bot_state
+        self.manual_paused = False
+        self.manual_pause_reason: Optional[str] = None
+        if bot_state is not None and bot_state.get_telegram_pause():
+            self.manual_paused = True
+            self.manual_pause_reason = (
+                bot_state.get_telegram_pause_reason()
+                or "Restored from persisted state (Telegram /pause)"
+            )
+            logger.warning(
+                f"Global trading pause restored from persisted state: "
+                f"{self.manual_pause_reason}"
+            )
+
         logger.info("Global risk manager initialized for multi-strategy mode")
+
+    def set_manual_pause(
+        self, reason: str = "Paused via Telegram /pause command"
+    ) -> None:
+        """Activate the global manual pause. Persisted if bot_state is set."""
+        self.manual_paused = True
+        self.manual_pause_reason = reason
+        if self.bot_state is not None:
+            self.bot_state.set_telegram_pause(True, reason=reason)
+        logger.warning(f"Global trading paused: {reason}")
+
+    def clear_manual_pause(self) -> None:
+        """Clear the global manual pause. Does NOT affect any other halt
+        (env var, dashboard kill switch, per-strategy circuit breaker,
+        daily loss limit) - those are independent and checked separately
+        by can_trade(), by design (a resume must not silently override a
+        different active safety halt)."""
+        self.manual_paused = False
+        self.manual_pause_reason = None
+        if self.bot_state is not None:
+            self.bot_state.set_telegram_pause(False)
+        logger.info("Global trading manual pause cleared")
+
+    def is_manual_paused(self) -> bool:
+        return self.manual_paused
 
     def register_strategy(self, strategy_name: str, risk_manager: RiskManager) -> None:
         """

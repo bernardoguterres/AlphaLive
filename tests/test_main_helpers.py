@@ -368,6 +368,593 @@ def test_check_signal_for_strategy_1day_skips_outside_window(sample_strategy_con
     assert sample_strategy_config.ticker not in morning_checks_done
 
 
+# ---------------------------------------------------------------------------
+# Weekly scheduling (2026-09-11 pass 2): a 1Week strategy evaluates once per
+# ISO calendar week, gated by BotState.get_weekly_eval_key /
+# mark_weekly_eval_done - not once per trading day like 1Day.
+# ---------------------------------------------------------------------------
+
+
+def _weekly_check(
+    weekly_config,
+    now_et,
+    bot_state,
+    morning_checks_done=None,
+    signal_engine=None,
+    market_data=None,
+):
+    if morning_checks_done is None:
+        morning_checks_done = set()
+    if market_data is None:
+        market_data = Mock()
+        market_data.get_latest_bars.return_value = _make_ohlcv_df()
+    if signal_engine is None:
+        signal_engine = Mock()
+        signal_engine.generate_signal.return_value = {
+            "signal": "HOLD",
+            "reason": "n/a",
+            "confidence": 0.5,
+        }
+        # get_state() must return a real (JSON-serializable) dict - an
+        # unconfigured Mock().get_state() returns another Mock, which
+        # bot_state.save_engine_state() would durably store and every
+        # subsequent BotState.save() call would then fail to serialize.
+        signal_engine.get_state.return_value = {}
+
+    main_module._check_signal_for_strategy(
+        weekly_config,
+        now_et,
+        morning_checks_done,
+        {},
+        market_data,
+        {weekly_config.ticker: signal_engine},
+        {weekly_config.ticker: Mock()},
+        None,
+        Mock(),
+        Mock(),
+        main_module.GlobalRiskManager(),
+        bot_state,
+    )
+    return morning_checks_done, market_data
+
+
+def test_iso_week_key_ordinary_dates():
+    # 2024-01-02 is a Tuesday in ISO week 1 of 2024.
+    assert (
+        main_module._iso_week_key(datetime(2024, 1, 2, 9, 40, tzinfo=ET)) == "2024-W01"
+    )
+    # Dec 31 2024 is a Tuesday but falls in ISO week 1 of 2025 - the
+    # year-boundary case naive strftime("%Y-%W") gets wrong.
+    assert (
+        main_module._iso_week_key(datetime(2024, 12, 31, 9, 40, tzinfo=ET))
+        == "2025-W01"
+    )
+
+
+def test_weekly_strategy_ordinary_monday_evaluates(
+    sample_strategy_config, real_bot_state
+):
+    """Ordinary Monday: the first eligible session of the week."""
+    weekly_config = sample_strategy_config.model_copy(update={"timeframe": "1Week"})
+    now_et = datetime(2024, 1, 8, 9, 40, tzinfo=ET)  # a Monday
+    _, market_data = _weekly_check(weekly_config, now_et, real_bot_state)
+    market_data.get_latest_bars.assert_called_once()
+    assert real_bot_state.get_weekly_eval_key(weekly_config.ticker) == "2024-W02"
+
+
+def test_weekly_strategy_monday_holiday_then_tuesday_evaluates(
+    sample_strategy_config, real_bot_state
+):
+    """Monday is a market holiday (loop never reaches this function that
+    day, since broker.is_market_open() gates the whole main loop before
+    _check_signal_for_strategy is ever called - simulated here by simply
+    not calling it for Monday). Tuesday is the first eligible session and
+    must evaluate."""
+    weekly_config = sample_strategy_config.model_copy(update={"timeframe": "1Week"})
+    tuesday = datetime(2024, 1, 9, 9, 40, tzinfo=ET)
+    _, market_data = _weekly_check(weekly_config, tuesday, real_bot_state)
+    market_data.get_latest_bars.assert_called_once()
+    assert real_bot_state.get_weekly_eval_key(weekly_config.ticker) == "2024-W02"
+
+
+def test_weekly_strategy_starts_wednesday_after_missing_monday(
+    sample_strategy_config, real_bot_state
+):
+    """Bot was offline Monday/Tuesday, starts Wednesday - must still
+    evaluate once, on the first eligible session after startup."""
+    weekly_config = sample_strategy_config.model_copy(update={"timeframe": "1Week"})
+    wednesday = datetime(2024, 1, 10, 9, 40, tzinfo=ET)
+    _, market_data = _weekly_check(weekly_config, wednesday, real_bot_state)
+    market_data.get_latest_bars.assert_called_once()
+    assert real_bot_state.get_weekly_eval_key(weekly_config.ticker) == "2024-W02"
+
+
+def test_weekly_strategy_never_evaluates_twice_same_week(
+    sample_strategy_config, real_bot_state
+):
+    weekly_config = sample_strategy_config.model_copy(update={"timeframe": "1Week"})
+    monday = datetime(2024, 1, 8, 9, 40, tzinfo=ET)
+    _weekly_check(weekly_config, monday, real_bot_state)
+
+    # Same week, later in the day / next loop tick.
+    later_monday = datetime(2024, 1, 8, 9, 55, tzinfo=ET)
+    _, market_data2 = _weekly_check(weekly_config, later_monday, real_bot_state)
+    market_data2.get_latest_bars.assert_not_called()
+
+    # Restart later in the SAME week (fresh in-memory morning_checks_done,
+    # but BotState is durable) - Wednesday, must NOT re-evaluate.
+    wednesday = datetime(2024, 1, 10, 9, 40, tzinfo=ET)
+    _, market_data3 = _weekly_check(
+        weekly_config, wednesday, real_bot_state, morning_checks_done=set()
+    )
+    market_data3.get_latest_bars.assert_not_called()
+
+
+def test_weekly_key_marked_complete_on_hold_signal(
+    sample_strategy_config, real_bot_state
+):
+    weekly_config = sample_strategy_config.model_copy(update={"timeframe": "1Week"})
+    monday = datetime(2024, 1, 8, 9, 40, tzinfo=ET)
+    signal_engine = Mock()
+    signal_engine.get_state.return_value = {}
+    signal_engine.generate_signal.return_value = {
+        "signal": "HOLD",
+        "reason": "n/a",
+        "confidence": 0.5,
+    }
+    _weekly_check(weekly_config, monday, real_bot_state, signal_engine=signal_engine)
+    assert real_bot_state.get_weekly_eval_key(weekly_config.ticker) == "2024-W02"
+
+
+def test_weekly_key_marked_complete_on_blocked_signal(
+    sample_strategy_config, real_bot_state
+):
+    """A BUY/SELL signal that reaches execute_signal but is blocked by risk
+    checks is still a completed evaluation - must mark the week done."""
+    weekly_config = sample_strategy_config.model_copy(update={"timeframe": "1Week"})
+    monday = datetime(2024, 1, 8, 9, 40, tzinfo=ET)
+    signal_engine = Mock()
+    signal_engine.get_state.return_value = {}
+    signal_engine.generate_signal.return_value = {
+        "signal": "BUY",
+        "reason": "n/a",
+        "confidence": 0.5,
+    }
+    market_data = Mock()
+    market_data.get_latest_bars.return_value = _make_ohlcv_df()
+    market_data.get_current_price.return_value = 105.0
+    order_manager = Mock()
+    order_manager.execute_signal.return_value = {
+        "status": "blocked",
+        "reason": "max positions",
+    }
+    broker = Mock()
+    broker.get_account.return_value = Mock(equity=100000.0)
+    broker.get_all_positions.return_value = []
+
+    main_module._check_signal_for_strategy(
+        weekly_config,
+        monday,
+        set(),
+        {},
+        market_data,
+        {weekly_config.ticker: signal_engine},
+        {weekly_config.ticker: order_manager},
+        None,
+        broker,
+        Mock(),
+        main_module.GlobalRiskManager(),
+        real_bot_state,
+    )
+
+    assert real_bot_state.get_weekly_eval_key(weekly_config.ticker) == "2024-W02"
+
+
+def test_weekly_key_marked_complete_even_if_order_intent_becomes_uncertain(
+    sample_strategy_config, real_bot_state
+):
+    """An order attempt that comes back "error"/uncertain from the order
+    manager is still a completed evaluation - the strategy decided and
+    acted (or tried to); it must not get a second logical order next
+    cycle just because the outcome was uncertain."""
+    weekly_config = sample_strategy_config.model_copy(update={"timeframe": "1Week"})
+    monday = datetime(2024, 1, 8, 9, 40, tzinfo=ET)
+    signal_engine = Mock()
+    signal_engine.get_state.return_value = {}
+    signal_engine.generate_signal.return_value = {
+        "signal": "BUY",
+        "reason": "n/a",
+        "confidence": 0.5,
+    }
+    market_data = Mock()
+    market_data.get_latest_bars.return_value = _make_ohlcv_df()
+    market_data.get_current_price.return_value = 105.0
+    order_manager = Mock()
+    order_manager.execute_signal.return_value = {
+        "status": "error",
+        "reason": "uncertain - quarantined",
+    }
+    broker = Mock()
+    broker.get_account.return_value = Mock(equity=100000.0)
+    broker.get_all_positions.return_value = []
+
+    main_module._check_signal_for_strategy(
+        weekly_config,
+        monday,
+        set(),
+        {},
+        market_data,
+        {weekly_config.ticker: signal_engine},
+        {weekly_config.ticker: order_manager},
+        None,
+        broker,
+        Mock(),
+        main_module.GlobalRiskManager(),
+        real_bot_state,
+    )
+
+    assert real_bot_state.get_weekly_eval_key(weekly_config.ticker) == "2024-W02"
+
+
+def test_weekly_data_fetch_failure_does_not_mark_complete(
+    sample_strategy_config, real_bot_state
+):
+    weekly_config = sample_strategy_config.model_copy(update={"timeframe": "1Week"})
+    monday = datetime(2024, 1, 8, 9, 40, tzinfo=ET)
+    market_data = Mock()
+    market_data.get_latest_bars.side_effect = main_module.DataStaleError("stale")
+
+    main_module._check_signal_for_strategy(
+        weekly_config,
+        monday,
+        set(),
+        {},
+        market_data,
+        {weekly_config.ticker: Mock()},
+        {weekly_config.ticker: Mock()},
+        None,
+        Mock(),
+        Mock(),
+        main_module.GlobalRiskManager(),
+        real_bot_state,
+    )
+
+    assert real_bot_state.get_weekly_eval_key(weekly_config.ticker) is None
+
+
+def test_weekly_evaluation_exception_does_not_mark_complete(
+    sample_strategy_config, real_bot_state
+):
+    weekly_config = sample_strategy_config.model_copy(update={"timeframe": "1Week"})
+    monday = datetime(2024, 1, 8, 9, 40, tzinfo=ET)
+    signal_engine = Mock()
+    signal_engine.generate_signal.side_effect = RuntimeError("boom")
+    market_data = Mock()
+    market_data.get_latest_bars.return_value = _make_ohlcv_df()
+
+    main_module._check_signal_for_strategy(
+        weekly_config,
+        monday,
+        set(),
+        {},
+        market_data,
+        {weekly_config.ticker: signal_engine},
+        {weekly_config.ticker: Mock()},
+        None,
+        Mock(),
+        Mock(),
+        main_module.GlobalRiskManager(),
+        real_bot_state,
+    )
+
+    assert real_bot_state.get_weekly_eval_key(weekly_config.ticker) is None
+
+
+def test_weekly_failure_then_retry_same_day_succeeds(
+    sample_strategy_config, real_bot_state
+):
+    """After a failed attempt (not marked complete), a later retry within
+    the same 9:35-9:59 window (fresh in-memory morning_checks_done, as a
+    restart would produce) must be allowed to actually evaluate."""
+    weekly_config = sample_strategy_config.model_copy(update={"timeframe": "1Week"})
+    monday = datetime(2024, 1, 8, 9, 40, tzinfo=ET)
+    market_data = Mock()
+    market_data.get_latest_bars.side_effect = main_module.DataStaleError("stale")
+
+    main_module._check_signal_for_strategy(
+        weekly_config,
+        monday,
+        set(),
+        {},
+        market_data,
+        {weekly_config.ticker: Mock()},
+        {weekly_config.ticker: Mock()},
+        None,
+        Mock(),
+        Mock(),
+        main_module.GlobalRiskManager(),
+        real_bot_state,
+    )
+    assert real_bot_state.get_weekly_eval_key(weekly_config.ticker) is None
+
+    # Retry (simulating a restart - fresh in-memory set) - this time it works.
+    market_data2 = Mock()
+    market_data2.get_latest_bars.return_value = _make_ohlcv_df()
+    signal_engine = Mock()
+    signal_engine.get_state.return_value = {}
+    signal_engine.generate_signal.return_value = {
+        "signal": "HOLD",
+        "reason": "n/a",
+        "confidence": 0.5,
+    }
+    main_module._check_signal_for_strategy(
+        weekly_config,
+        monday,
+        set(),  # fresh, as a restart would be
+        {},
+        market_data2,
+        {weekly_config.ticker: signal_engine},
+        {weekly_config.ticker: Mock()},
+        None,
+        Mock(),
+        Mock(),
+        main_module.GlobalRiskManager(),
+        real_bot_state,
+    )
+    assert real_bot_state.get_weekly_eval_key(weekly_config.ticker) == "2024-W02"
+
+
+def test_concurrent_scheduler_ticks_cannot_evaluate_same_strategy_week_twice(
+    sample_strategy_config, real_bot_state
+):
+    """try_begin_weekly_eval is the atomic claim primitive - even if two
+    "ticks" call it for the exact same (ticker, week_key) without either
+    having finished yet, only one may claim it."""
+    weekly_config = sample_strategy_config.model_copy(update={"timeframe": "1Week"})
+    week_key = "2024-W02"
+
+    first_claim = real_bot_state.try_begin_weekly_eval(weekly_config.ticker, week_key)
+    second_claim = real_bot_state.try_begin_weekly_eval(weekly_config.ticker, week_key)
+
+    assert first_claim is True
+    assert second_claim is False
+
+    # After releasing, a fresh claim for the same week is still refused
+    # once it's been marked done - end_weekly_eval alone doesn't un-do a
+    # completion.
+    real_bot_state.end_weekly_eval(weekly_config.ticker, week_key)
+    real_bot_state.mark_weekly_eval_done(weekly_config.ticker, week_key)
+    assert real_bot_state.try_begin_weekly_eval(weekly_config.ticker, week_key) is False
+
+
+def test_concurrent_scheduler_ticks_real_threads(
+    sample_strategy_config, real_bot_state
+):
+    """Same guarantee, exercised with real concurrent threads racing to
+    claim the same (ticker, week_key)."""
+    import threading
+
+    weekly_config = sample_strategy_config.model_copy(update={"timeframe": "1Week"})
+    week_key = "2024-W02"
+    results = []
+    barrier = threading.Barrier(10)
+
+    def _try_claim():
+        barrier.wait()
+        results.append(
+            real_bot_state.try_begin_weekly_eval(weekly_config.ticker, week_key)
+        )
+
+    threads = [threading.Thread(target=_try_claim) for _ in range(10)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=5)
+
+    assert results.count(True) == 1
+    assert results.count(False) == 9
+
+
+def test_weekly_strategy_transitions_to_next_week(
+    sample_strategy_config, real_bot_state
+):
+    weekly_config = sample_strategy_config.model_copy(update={"timeframe": "1Week"})
+    monday_w2 = datetime(2024, 1, 8, 9, 40, tzinfo=ET)
+    _weekly_check(weekly_config, monday_w2, real_bot_state)
+    assert real_bot_state.get_weekly_eval_key(weekly_config.ticker) == "2024-W02"
+
+    monday_w3 = datetime(2024, 1, 15, 9, 40, tzinfo=ET)
+    _, market_data2 = _weekly_check(
+        weekly_config, monday_w3, real_bot_state, morning_checks_done=set()
+    )
+    market_data2.get_latest_bars.assert_called_once()
+    assert real_bot_state.get_weekly_eval_key(weekly_config.ticker) == "2024-W03"
+
+
+def test_weekly_strategy_dst_transition_does_not_duplicate_or_skip(
+    sample_strategy_config, real_bot_state
+):
+    """US/Eastern DST ended 2024-11-03. The Monday before (10-28, EDT,
+    UTC-4) and the Monday after (11-04, EST, UTC-5) are different ISO
+    weeks and both must evaluate exactly once; nothing about the UTC
+    offset change should affect the (date-only) week key."""
+    weekly_config = sample_strategy_config.model_copy(update={"timeframe": "1Week"})
+    monday_before = datetime(2024, 10, 28, 9, 40, tzinfo=ET)
+    _, md1 = _weekly_check(weekly_config, monday_before, real_bot_state)
+    md1.get_latest_bars.assert_called_once()
+    assert real_bot_state.get_weekly_eval_key(weekly_config.ticker) == "2024-W44"
+
+    monday_after = datetime(2024, 11, 4, 9, 40, tzinfo=ET)
+    _, md2 = _weekly_check(
+        weekly_config, monday_after, real_bot_state, morning_checks_done=set()
+    )
+    md2.get_latest_bars.assert_called_once()
+    assert real_bot_state.get_weekly_eval_key(weekly_config.ticker) == "2024-W45"
+
+
+def test_daily_strategy_scheduling_unaffected_by_weekly_change(
+    sample_strategy_config, real_bot_state
+):
+    """1Day strategies must not be routed through weekly-key logic at all."""
+    now_et = datetime(2024, 1, 8, 9, 40, tzinfo=ET)
+    market_data = Mock()
+    market_data.get_latest_bars.return_value = _make_ohlcv_df()
+    signal_engine = Mock()
+    signal_engine.get_state.return_value = {}
+    signal_engine.generate_signal.return_value = {
+        "signal": "HOLD",
+        "reason": "n/a",
+        "confidence": 0.5,
+    }
+    morning_checks_done = set()
+
+    main_module._check_signal_for_strategy(
+        sample_strategy_config,
+        now_et,
+        morning_checks_done,
+        {},
+        market_data,
+        {sample_strategy_config.ticker: signal_engine},
+        {sample_strategy_config.ticker: Mock()},
+        None,
+        Mock(),
+        Mock(),
+        main_module.GlobalRiskManager(),
+        real_bot_state,
+    )
+
+    market_data.get_latest_bars.assert_called_once()
+    assert sample_strategy_config.ticker in morning_checks_done
+    # 1Day never touches weekly_eval_keys.
+    assert real_bot_state.get_weekly_eval_key(sample_strategy_config.ticker) is None
+
+
+def test_mark_weekly_eval_done_returns_false_and_still_mutates_in_memory_on_write_failure(
+    real_bot_state,
+):
+    """Unit-level: BotState.save() itself catches write errors and returns
+    False rather than raising; mark_weekly_eval_done propagates that False,
+    while the in-memory key is already set (mutated before save() is
+    called) regardless of whether the write succeeded."""
+    with patch("os.replace", side_effect=OSError("disk full")):
+        persisted = real_bot_state.mark_weekly_eval_done("AAPL", "2024-W02")
+
+    assert persisted is False
+    assert real_bot_state.get_weekly_eval_key("AAPL") == "2024-W02"
+
+
+def test_weekly_persistence_failure_halts_trading_and_alerts(
+    sample_strategy_config, real_bot_state, monkeypatch
+):
+    """Objective 3: a failed weekly-key persistence write must halt further
+    automatic evaluation (TRADING_PAUSED) and surface an alert - not just
+    rely on same-process in-memory protection."""
+    weekly_config = sample_strategy_config.model_copy(update={"timeframe": "1Week"})
+    monday = datetime(2024, 1, 8, 9, 40, tzinfo=ET)
+    notifier = Mock()
+    market_data = Mock()
+    market_data.get_latest_bars.return_value = _make_ohlcv_df()
+    signal_engine = Mock()
+    signal_engine.get_state.return_value = {}
+    signal_engine.generate_signal.return_value = {
+        "signal": "HOLD",
+        "reason": "n/a",
+        "confidence": 0.5,
+    }
+
+    with patch.dict("os.environ", {}, clear=False):
+        with patch("os.replace", side_effect=OSError("disk full")):
+            main_module._check_signal_for_strategy(
+                weekly_config,
+                monday,
+                set(),
+                {},
+                market_data,
+                {weekly_config.ticker: signal_engine},
+                {weekly_config.ticker: Mock()},
+                None,
+                Mock(),
+                notifier,
+                main_module.GlobalRiskManager(),
+                real_bot_state,
+            )
+        import os as os_module
+
+        assert os_module.environ.get("TRADING_PAUSED") == "true"
+
+    notifier.send_error_alert.assert_called()
+    alert_text = notifier.send_error_alert.call_args[0][0]
+    assert "weekly evaluation marker" in alert_text.lower()
+
+
+def test_weekly_resample_excludes_incomplete_current_week():
+    """market_data._resample_to_weekly must drop a trailing week whose
+    Friday hasn't been reached yet by the available daily data - Mon-Wed
+    2024-01-15..17 (ISO week 3) must NOT appear as a weekly bar."""
+    from alphalive.data.market_data import MarketDataFetcher
+
+    fetcher = MarketDataFetcher.__new__(
+        MarketDataFetcher
+    )  # bypass __init__ (no broker needed)
+
+    # Two complete weeks (Mon 1/1 - Fri 1/12, both full Mon-Fri) plus a
+    # partial third week (Mon 1/15 - Wed 1/17 only, no Thu/Fri yet).
+    dates = pd.bdate_range("2024-01-01", "2024-01-17", tz=ET)
+    df = pd.DataFrame(
+        {
+            "open": [100.0 + i for i in range(len(dates))],
+            "high": [101.0 + i for i in range(len(dates))],
+            "low": [99.0 + i for i in range(len(dates))],
+            "close": [100.5 + i for i in range(len(dates))],
+            "volume": [1000] * len(dates),
+        },
+        index=pd.DatetimeIndex(dates),
+    )
+
+    weekly = fetcher._resample_to_weekly(df)
+
+    last_daily_date = df.index[-1].normalize()  # 2024-01-17 (Wednesday)
+    assert last_daily_date == pd.Timestamp("2024-01-17", tz=ET)
+    # The incomplete week (label = Friday 2024-01-19, which hasn't
+    # happened yet relative to the last daily bar) must be excluded.
+    assert pd.Timestamp("2024-01-19", tz=ET) not in weekly.index
+    # Every remaining week's Friday label must be on/before the last
+    # available daily bar - i.e. only fully-closed weeks remain.
+    assert all(idx.normalize() <= last_daily_date for idx in weekly.index)
+    # And the two genuinely complete weeks are still present.
+    assert pd.Timestamp("2024-01-05", tz=ET) in weekly.index  # week 1 Friday
+    assert pd.Timestamp("2024-01-12", tz=ET) in weekly.index  # week 2 Friday
+
+
+def test_weekly_resample_keeps_week_when_data_reaches_its_friday():
+    """A week whose data DOES reach (or pass) its Friday must be kept -
+    this guards against the exclusion being overly aggressive."""
+    from alphalive.data.market_data import MarketDataFetcher
+
+    fetcher = MarketDataFetcher.__new__(MarketDataFetcher)
+    dates = pd.bdate_range("2024-01-01", "2024-01-12", tz=ET)  # ends Fri 1/12
+    df = pd.DataFrame(
+        {
+            "open": [100.0 + i for i in range(len(dates))],
+            "high": [101.0 + i for i in range(len(dates))],
+            "low": [99.0 + i for i in range(len(dates))],
+            "close": [100.5 + i for i in range(len(dates))],
+            "volume": [1000] * len(dates),
+        },
+        index=pd.DatetimeIndex(dates),
+    )
+
+    weekly = fetcher._resample_to_weekly(df)
+    assert pd.Timestamp("2024-01-12", tz=ET) in weekly.index
+
+
+@pytest.fixture
+def real_bot_state(tmp_path):
+    from alphalive.state import BotState
+
+    return BotState(state_file=str(tmp_path / "weekly_state.json"))
+
+
 def test_check_signal_for_strategy_1day_skips_if_already_done(sample_strategy_config):
     now_et = datetime(2024, 1, 2, 9, 40, tzinfo=ET)
     morning_checks_done = {sample_strategy_config.ticker}
@@ -1209,6 +1796,143 @@ def test_run_position_reconciliation_broker_error_caught():
         broker, {}, app_config, notifier, _mock_bot_state()
     )
 
+    notifier.send_alert.assert_not_called()
+
+
+def test_run_position_reconciliation_qty_mismatch_pauses_trading():
+    """Objective 7: broker and ledger both know about the ticker, but the
+    quantities disagree (e.g. a partial fill or manual trade outside the
+    bot). Presence-only drift checks previously missed this entirely."""
+    pos = _mock_position(qty=15.0)  # broker shows 15 shares
+    broker = Mock()
+    broker.get_all_positions.return_value = [pos]
+
+    bot_state = _mock_bot_state(
+        {"AAPL": {"qty": 10, "entry_price": 150.0}}
+    )  # ledger: 10
+    order_manager_map = {"AAPL": Mock()}
+    app_config = Mock(trading_paused=False)
+    notifier = Mock()
+
+    with patch.dict("os.environ", {}, clear=False):
+        main_module._run_position_reconciliation(
+            broker, order_manager_map, app_config, notifier, bot_state
+        )
+
+    assert app_config.trading_paused is True
+    assert notifier.send_alert.called
+    first_alert_text = notifier.send_alert.call_args_list[0][0][0]
+    assert "AAPL" in first_alert_text
+    assert "mismatch" in first_alert_text.lower()
+
+
+def test_reconcile_open_submission_intents_noop_when_none_open():
+    bot_state = Mock()
+    bot_state.list_open_intents.return_value = []
+    notifier = Mock()
+    main_module._reconcile_open_submission_intents({}, bot_state, notifier)
+    notifier.send_alert.assert_not_called()
+
+
+def test_reconcile_open_submission_intents_quarantine_alerts():
+    intent = {
+        "intent_id": "i1",
+        "ticker": "AAPL",
+        "side": "BUY",
+        "client_order_id": "AAPL_buy_i1",
+        "status": "uncertain",
+    }
+    bot_state = Mock()
+    bot_state.list_open_intents.return_value = [intent]
+    om = Mock()
+    om._reconcile_intent.return_value = {
+        "action": "quarantine",
+        "detail": "lookup failed",
+    }
+    notifier = Mock()
+
+    main_module._reconcile_open_submission_intents({"AAPL": om}, bot_state, notifier)
+
+    om._reconcile_intent.assert_called_once_with(intent)
+    notifier.send_alert.assert_called_once()
+    assert "uncertain" in notifier.send_alert.call_args[0][0].lower()
+    bot_state.update_submission_intent.assert_not_called()
+
+
+def test_reconcile_open_submission_intents_terminal_marks_reconciled():
+    intent = {
+        "intent_id": "i2",
+        "ticker": "AAPL",
+        "side": "BUY",
+        "client_order_id": "AAPL_buy_i2",
+        "status": "submitted",
+    }
+    bot_state = Mock()
+    bot_state.list_open_intents.return_value = [intent]
+    om = Mock()
+    om._reconcile_intent.return_value = {"action": "terminal", "detail": "rejected"}
+    notifier = Mock()
+
+    main_module._reconcile_open_submission_intents({"AAPL": om}, bot_state, notifier)
+
+    bot_state.update_submission_intent.assert_called_once_with(
+        "i2", status=main_module.INTENT_RECONCILED
+    )
+    notifier.send_alert.assert_not_called()
+
+
+def test_reconcile_open_submission_intents_missing_order_manager_is_skipped():
+    intent = {
+        "intent_id": "i3",
+        "ticker": "DELISTED",
+        "side": "BUY",
+        "client_order_id": "x",
+        "status": "prepared",
+    }
+    bot_state = Mock()
+    bot_state.list_open_intents.return_value = [intent]
+    notifier = Mock()
+
+    # Should not raise even though no OrderManager exists for this ticker.
+    main_module._reconcile_open_submission_intents({}, bot_state, notifier)
+    notifier.send_alert.assert_not_called()
+
+
+def test_reconcile_open_submission_intents_reconciliation_error_is_caught():
+    intent = {
+        "intent_id": "i4",
+        "ticker": "AAPL",
+        "side": "BUY",
+        "client_order_id": "x",
+        "status": "submitting",
+    }
+    bot_state = Mock()
+    bot_state.list_open_intents.return_value = [intent]
+    om = Mock()
+    om._reconcile_intent.side_effect = RuntimeError("boom")
+    notifier = Mock()
+
+    # Should not raise.
+    main_module._reconcile_open_submission_intents({"AAPL": om}, bot_state, notifier)
+    notifier.send_alert.assert_not_called()
+
+
+def test_run_position_reconciliation_matching_qty_no_drift():
+    pos = _mock_position(qty=10.0)
+    broker = Mock()
+    broker.get_all_positions.return_value = [pos]
+
+    bot_state = _mock_bot_state({"AAPL": {"qty": 10.0, "entry_price": 150.0}})
+    order_manager_map = {"AAPL": Mock()}
+    app_config = Mock(trading_paused=False)
+    notifier = Mock()
+
+    with patch.dict("os.environ", {}, clear=False):
+        main_module._run_position_reconciliation(
+            broker, order_manager_map, app_config, notifier, bot_state
+        )
+
+    assert app_config.trading_paused is False
     notifier.send_alert.assert_not_called()
 
 
