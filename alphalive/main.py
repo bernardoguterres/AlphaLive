@@ -23,7 +23,11 @@ from alphalive.services.alphasignal_client import (
     AlphaSignalClient,
     run_pre_execution_checks,
 )
-from alphalive.state import BotState, check_trailing_stop_requirements
+from alphalive.state import (
+    BotState,
+    check_trailing_stop_requirements,
+    INTENT_RECONCILED,
+)
 from alphalive.broker.alpaca_broker import AlpacaBroker
 from alphalive.data.market_data import MarketDataFetcher, DataStaleError
 from alphalive.strategy.signal_engine import SignalEngine
@@ -435,6 +439,69 @@ def _build_startup_message(all_strategy_configs: list, mode: str) -> str:
     )
 
 
+def _iso_week_key(now_et: datetime) -> str:
+    """ISO-8601 calendar-week key ("2026-W03"), Monday-start and
+    year-boundary safe (unlike naive strftime("%Y-%W")). Used to gate a
+    1Week strategy to evaluating once per calendar week. Pure calendar-date
+    arithmetic - never looks at time-of-day, so DST transitions cannot
+    affect it.
+    """
+    iso_year, iso_week, _ = now_et.isocalendar()
+    return f"{iso_year}-W{iso_week:02d}"
+
+
+def _mark_periodic_check_done(
+    strat_cfg, now_et: datetime, morning_checks_done: set, bot_state, notifier=None
+) -> None:
+    """Mark a 1Day/1Week strategy's periodic check as DEFINITIVELY completed
+    for this pass - the evaluation actually reached a decision (HOLD, a
+    blocked signal, an order attempt, or a deliberate safety skip like
+    split-detection). Use _mark_periodic_check_attempted instead for a data-
+    fetch failure, evaluation exception, or timeout - those must NOT mark
+    the week complete, so a later retry (same day, or after a restart) can
+    still happen. See "Weekly-key persistence timing" in the 2026-09-11
+    pass-3 report for the exact per-outcome policy this encodes.
+
+    For 1Week, releases the in-flight claim from try_begin_weekly_eval and
+    durably persists the ISO calendar-week key. If that persistence write
+    itself fails, further automatic evaluation is halted (TRADING_PAUSED)
+    rather than silently continuing on in-memory-only protection - see
+    BotState.mark_weekly_eval_done's docstring.
+    """
+    morning_checks_done.add(strat_cfg.ticker)
+    if strat_cfg.timeframe == "1Week":
+        week_key = _iso_week_key(now_et)
+        bot_state.end_weekly_eval(strat_cfg.ticker, week_key)
+        persisted = bot_state.mark_weekly_eval_done(strat_cfg.ticker, week_key)
+        if not persisted:
+            msg = (
+                f"Failed to durably persist the weekly evaluation marker for "
+                f"{strat_cfg.ticker} ({week_key}) - halting trading "
+                f"(TRADING_PAUSED) to avoid an undetected duplicate weekly "
+                f"evaluation after a restart."
+            )
+            logger.critical(msg)
+            os.environ["TRADING_PAUSED"] = "true"
+            if notifier:
+                notifier.send_error_alert(f"⛔ {msg}")
+
+
+def _mark_periodic_check_attempted(
+    strat_cfg, now_et: datetime, morning_checks_done: set, bot_state
+) -> None:
+    """Mark only the in-memory same-day/same-process guard - used when a
+    1Day/1Week check did NOT reach a decision (data-fetch failure,
+    strategy-evaluation exception, signal-generation timeout). The
+    persisted weekly key is deliberately left untouched so the week can
+    still be retried later today, after a restart, or on a later trading
+    day within the same ISO week - only _mark_periodic_check_done (a
+    genuine completion) earns the durable "done" marker.
+    """
+    morning_checks_done.add(strat_cfg.ticker)
+    if strat_cfg.timeframe == "1Week":
+        bot_state.end_weekly_eval(strat_cfg.ticker, _iso_week_key(now_et))
+
+
 def _check_signal_for_strategy(
     strat_cfg,
     now_et: datetime,
@@ -455,6 +522,17 @@ def _check_signal_for_strategy(
             return
         if strat_cfg.ticker in morning_checks_done:
             return
+        if strat_cfg.timeframe == "1Week":
+            week_key = _iso_week_key(now_et)
+            if not bot_state.try_begin_weekly_eval(strat_cfg.ticker, week_key):
+                # Already evaluated this ISO calendar week (possibly before
+                # a restart earlier today), or another in-flight evaluation
+                # for this exact ticker/week is already claimed. Sync the
+                # in-memory guard so the rest of today's ~30s loop ticks
+                # short-circuit on `morning_checks_done` instead of
+                # re-checking BotState.
+                morning_checks_done.add(strat_cfg.ticker)
+                return
     else:
         if not should_run_signal_check(
             strat_cfg.timeframe,
@@ -493,7 +571,9 @@ def _check_signal_for_strategy(
                     f"Likely stock split/reverse split.\n"
                     f"Signal check skipped today for safety."
                 )
-                morning_checks_done.add(strat_cfg.ticker)
+                _mark_periodic_check_done(
+                    strat_cfg, now_et, morning_checks_done, bot_state, notifier
+                )
                 return
 
         timeout = order_manager_map[strat_cfg.ticker].risk.signal_timeout_seconds
@@ -521,7 +601,11 @@ def _check_signal_for_strategy(
                 f"⏱️ Signal generation timeout: {strat_cfg.ticker} "
                 f"(exceeded {timeout}s)"
             )
-            morning_checks_done.add(strat_cfg.ticker)
+            # A timeout means we never reached a decision - do not mark the
+            # week/day complete, so a later retry is still possible.
+            _mark_periodic_check_attempted(
+                strat_cfg, now_et, morning_checks_done, bot_state
+            )
             executor.shutdown(wait=False)
             return
         executor.shutdown(wait=False)
@@ -649,12 +733,17 @@ def _check_signal_for_strategy(
                     logger.error(f"Trade error: {result['reason']}")
 
     except DataStaleError as e:
+        # A data-fetch/staleness failure is not a completed evaluation -
+        # never mark the week/day done, so a later retry can still happen.
         logger.warning(f"Data staleness during signal check: {e}")
         notifier.send_error_alert(f"⚠️ Data staleness on {strat_cfg.ticker}: {str(e)}")
-        morning_checks_done.add(strat_cfg.ticker)
+        _mark_periodic_check_attempted(
+            strat_cfg, now_et, morning_checks_done, bot_state
+        )
         return
 
     except Exception as e:
+        # Likewise, an evaluation exception is not a completed evaluation.
         logger.error(
             f"Signal check error [{strat_cfg.strategy.name}/{strat_cfg.ticker}]: {e}",
             exc_info=True,
@@ -662,7 +751,9 @@ def _check_signal_for_strategy(
         notifier.send_error_alert(
             f"Signal check failed: {strat_cfg.strategy.name}/{strat_cfg.ticker}"
         )
-        morning_checks_done.add(strat_cfg.ticker)
+        _mark_periodic_check_attempted(
+            strat_cfg, now_et, morning_checks_done, bot_state
+        )
         return
 
     # Persist engine state (stateful strategies must survive restarts).
@@ -672,7 +763,11 @@ def _check_signal_for_strategy(
         strat_cfg.ticker, signal_engine_map[strat_cfg.ticker].get_state()
     )
 
-    morning_checks_done.add(strat_cfg.ticker)
+    # Reached here only via a genuine decision (HOLD, blocked, or an order
+    # attempt regardless of its outcome) - a completed evaluation.
+    _mark_periodic_check_done(
+        strat_cfg, now_et, morning_checks_done, bot_state, notifier
+    )
     last_signal_check_map[strat_cfg.ticker] = time.time()
 
 
@@ -850,6 +945,63 @@ def _sync_position_ledger(broker, bot_state, notifier) -> None:
             )
 
 
+def _reconcile_open_submission_intents(
+    order_manager_map: dict, bot_state, notifier
+) -> None:
+    """Startup reconciliation for durable submission intents (objective 1).
+
+    Any intent left non-terminal by a crash (prepared/submitting/submitted/
+    partially_filled/uncertain) is resolved against the broker BEFORE the
+    main loop starts, using each OrderManager's own _reconcile_intent - the
+    same logic execute_signal uses on the next signal for that ticker, run
+    proactively here so a quarantine is visible immediately at startup
+    rather than silently waiting for the next signal check. An intent that
+    stays "uncertain" keeps blocking new orders for that (ticker, side)
+    until a later reconciliation succeeds or an operator intervenes -
+    never silently cleared here.
+    """
+    open_intents = bot_state.list_open_intents()
+    if not open_intents:
+        return
+
+    logger.info(f"Startup: reconciling {len(open_intents)} open submission intent(s)")
+    for intent in open_intents:
+        ticker = intent["ticker"]
+        om = order_manager_map.get(ticker)
+        if om is None:
+            logger.warning(
+                f"Startup: open submission intent {intent['intent_id']} for "
+                f"{ticker} but no OrderManager is configured for it (config "
+                f"changed since the intent was created?) - leaving it as-is "
+                f"for manual review."
+            )
+            continue
+        try:
+            result = om._reconcile_intent(intent)
+        except Exception as e:
+            logger.error(
+                f"Startup: reconciliation errored for intent "
+                f"{intent['intent_id']} ({ticker}): {e}"
+            )
+            continue
+
+        action = result["action"]
+        logger.info(
+            f"Startup: intent {intent['intent_id']} ({ticker} {intent['side']}) "
+            f"-> {action} ({result.get('detail')})"
+        )
+        if action == "quarantine":
+            notifier.send_alert(
+                f"⚠️ Startup: submission intent for {ticker} {intent['side']} is "
+                f"uncertain ({result.get('detail')}) - quarantined. No new order "
+                f"for this ticker/side will be placed until this is reconciled."
+            )
+        elif action == "terminal":
+            bot_state.update_submission_intent(
+                intent["intent_id"], status=INTENT_RECONCILED
+            )
+
+
 def _run_position_reconciliation(
     broker,
     order_manager_map: dict,
@@ -881,7 +1033,8 @@ def _run_position_reconciliation(
             for pos in alpaca_positions
         }
 
-        internal_tickers: set = set(bot_state.get_open_positions().keys())
+        ledger = bot_state.get_open_positions()
+        internal_tickers: set = set(ledger.keys())
 
         drift_detected = False
 
@@ -898,6 +1051,26 @@ def _run_position_reconciliation(
                     f"<b>Alpaca Position:</b> {alpaca_pos['qty']} shares "
                     f"@ ${alpaca_pos['avg_entry_price']:.2f}\n"
                     f"<b>Bot Position:</b> NOT TRACKED\n\n"
+                    f"⛔ <b>TRADING AUTO-PAUSED</b>\n"
+                    f"Fix: Set TRADING_PAUSED=false in Railway after verifying positions."
+                )
+                continue
+
+            ledger_qty = ledger.get(ticker, {}).get("qty")
+            if (
+                ledger_qty is not None
+                and abs(float(ledger_qty) - float(alpaca_pos["qty"])) > 1e-6
+            ):
+                drift_detected = True
+                logger.critical(
+                    f"POSITION DRIFT: qty mismatch for {ticker}: ledger tracks "
+                    f"{ledger_qty} shares, Alpaca shows {alpaca_pos['qty']}."
+                )
+                notifier.send_alert(
+                    f"🚨 <b>CRITICAL: POSITION DRIFT DETECTED</b>\n\n"
+                    f"<b>Ticker:</b> {ticker}\n"
+                    f"<b>Alpaca Position:</b> {alpaca_pos['qty']} shares\n"
+                    f"<b>Bot Ledger:</b> {ledger_qty} shares (quantity mismatch)\n\n"
                     f"⛔ <b>TRADING AUTO-PAUSED</b>\n"
                     f"Fix: Set TRADING_PAUSED=false in Railway after verifying positions."
                 )
@@ -1063,7 +1236,7 @@ def main(
     signal_engine_map = {}
     risk_manager_map = {}
     order_manager_map = {}
-    global_risk = GlobalRiskManager()
+    global_risk = GlobalRiskManager(bot_state=bot_state)
 
     notifier = TelegramNotifier(
         bot_token=app_config.telegram.bot_token,
@@ -1089,6 +1262,7 @@ def main(
             execution_config=strategy_config.execution,
             strategy_name=strategy_name,
             safety_limits=strategy_config.safety_limits,
+            global_risk=global_risk,
         )
 
         # Create order manager for this strategy
@@ -1098,6 +1272,7 @@ def main(
             config=strategy_config,
             notifier=notifier,
             dry_run=app_config.dry_run,
+            state=bot_state,
         )
 
         # Register with the global risk manager so max_daily_loss_pct is
@@ -1105,6 +1280,13 @@ def main(
         global_risk.register_strategy(ticker, risk_manager_map[ticker])
 
         logger.info(f"  Initialized components for {strategy_name} ({ticker})")
+
+    # Reconcile any submission intent a crash left non-terminal, BEFORE the
+    # main loop starts (objective 1) - closes the restart-duplicate-order
+    # window as far as possible: a fresh process resolves what the broker
+    # actually did with any in-flight order from the last run instead of
+    # generating a new client_order_id and risking a duplicate.
+    _reconcile_open_submission_intents(order_manager_map, bot_state, notifier)
 
     # Restore stateful signal-engine state (in_position/entry/peak) from the
     # state file, reconciled against the just-synced position ledger.
@@ -1118,8 +1300,13 @@ def main(
 
     # 5. Initialize Telegram command listener
     # Polls for inbound commands (/status, /pause, /resume, etc.) on background thread
-    # NOTE: For multi-strategy mode, uses first strategy's components
-    # (command listener doesn't yet fully support multi-strategy)
+    # NOTE: /pause and /resume route through the shared `global_risk` object
+    # (GlobalRiskManager.set_manual_pause/clear_manual_pause) so they gate
+    # every registered strategy's RiskManager.can_trade(), not just the
+    # first one. /status, /config, /performance, /close_all still reflect
+    # only the first configured strategy's broker/order-manager view -
+    # that part of multi-strategy Telegram support remains out of scope
+    # for this pass (see CLAUDE.md).
     cmd_listener = None
     if app_config.telegram.enabled:
         first_strategy = all_strategy_configs[0]
@@ -1133,6 +1320,9 @@ def main(
             broker=broker,
             notifier=notifier,
             config=first_strategy,
+            global_risk=global_risk,
+            order_manager_map=order_manager_map,
+            strategy_configs={cfg.ticker: cfg for cfg in all_strategy_configs},
         )
         cmd_listener.start()
         logger.info("Telegram command listener started (polling every 5s)")

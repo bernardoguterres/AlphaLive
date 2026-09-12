@@ -452,9 +452,30 @@ def test_close_position_dry_run_does_not_call_broker(om):
 
 
 def test_close_position_error_notifies(om):
-    om.broker.close_position.side_effect = RuntimeError("broker down")
+    """close_position (2026-09-11 pass 3) sizes from the confirmed position
+    and places an ordinary market SELL - a raised, ambiguous (non-definite-
+    rejection) error there is quarantined ("blocked"), not "error", since
+    the broker's true state is unknown; the notifier is still alerted."""
+    from alphalive.broker.base_broker import Position
+
+    om.broker.get_position = Mock(
+        return_value=Position(
+            symbol="AAPL",
+            qty=66.0,
+            side="long",
+            avg_entry_price=150.0,
+            current_price=150.0,
+            unrealized_pl=0.0,
+            unrealized_plpc=0.0,
+            market_value=9900.0,
+        )
+    )
+    om.broker.place_market_order.side_effect = RuntimeError("broker down")
 
     result = om.close_position("AAPL", reason="test exit")
 
-    assert result["status"] == "error"
+    assert result["status"] == "blocked"
+    # No `state` wired on this fixture's OrderManager -> fill_status stays
+    # "unknown" rather than "uncertain" (nothing to mark uncertain in).
+    assert result["fill_status"] == "unknown"
     om.notifier.send_error_alert.assert_called_once()

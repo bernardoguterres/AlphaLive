@@ -20,6 +20,7 @@ from alphalive.migrations import migrate_schema
 from alphalive.strategy_schema import StrategySchema
 from alphalive.portfolio_schema import PortfolioStrategySchema, all_portfolio_tickers
 from alphalive.utils.env_bool import read_bool_env
+from alphalive.state import default_state_file_path, is_hosted_execution
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +138,8 @@ class AppConfig(BaseModel):
     dry_run: bool = Field(default=False, description="Dry run mode (no real trades)")
     trading_paused: bool = Field(default=False, description="Pause all trading")
     state_file: str = Field(
-        default="/tmp/alphalive_state.json", description="State persistence file path"
+        default_factory=default_state_file_path,
+        description="State persistence file path",
     )
     health_port: int = Field(default=8080, description="Health check HTTP port")
     health_secret: str = Field(default="", description="Health check secret token")
@@ -428,7 +430,7 @@ def load_env() -> AppConfig:
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         dry_run=read_bool_env("DRY_RUN", default=False),
         trading_paused=read_bool_env("TRADING_PAUSED", default=False),
-        state_file=os.getenv("STATE_FILE", "/tmp/alphalive_state.json"),
+        state_file=os.getenv("STATE_FILE", default_state_file_path()),
         health_port=int(os.getenv("HEALTH_PORT", "8080")),
         health_secret=os.getenv("HEALTH_SECRET", ""),
         persistent_storage=read_bool_env("PERSISTENT_STORAGE", default=False),
@@ -450,7 +452,37 @@ def load_env() -> AppConfig:
         f"({alphasignal_config.url}, threshold={alphasignal_config.sentiment_threshold})"
     )
 
+    _warn_if_ephemeral_state_path(app_config)
+
     return app_config
+
+
+def _warn_if_ephemeral_state_path(app_config: "AppConfig") -> None:
+    """Loudly warn when running under hosted execution (Railway) with a
+    STATE_FILE that lives under a known-ephemeral directory and no
+    persistent storage configured.
+
+    Does not halt startup by itself - unlike trailing-stop's hard refusal
+    (state.check_trailing_stop_requirements), a strategy with no trailing
+    stop and no in-position stateful engine can tolerate losing state
+    across a redeploy. But it's never safe to assume Railway provides
+    persistence without an explicitly-mounted Volume, so this is a loud,
+    unmissable warning rather than silence.
+    """
+    ephemeral_prefixes = ("/tmp/", "/tmp")
+    path = app_config.state_file
+    looks_ephemeral = path.startswith(ephemeral_prefixes) or path == "/tmp"
+
+    if is_hosted_execution() and looks_ephemeral and not app_config.persistent_storage:
+        logger.warning(
+            "STATE_FILE (%s) is under an ephemeral directory and this looks like a "
+            "hosted (Railway) deploy with PERSISTENT_STORAGE not set to true. State "
+            "(position ledger, engine state, submission intents, trailing-stop highs) "
+            "will NOT survive a redeploy or container replacement. Mount a Railway "
+            "Volume, set STATE_FILE to a path on it, and set PERSISTENT_STORAGE=true "
+            "unless this is intentional (e.g. a disposable test deploy).",
+            path,
+        )
 
 
 # =============================================================================

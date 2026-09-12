@@ -64,7 +64,7 @@ def mock_broker():
     broker.is_market_open.return_value = True
 
     # Mock place_order
-    broker.place_order.return_value = Order(
+    _default_order = Order(
         id="order_123",
         symbol="AAPL",
         qty=10.0,
@@ -77,6 +77,15 @@ def mock_broker():
         submitted_at=datetime.now(),
         filled_at=datetime.now(),
     )
+    broker.place_order.return_value = _default_order
+    # place_market_order/place_limit_order: used by OrderManager.execute_signal
+    # and close_position (2026-09-11 pass 3 - close_position now places an
+    # ordinary market SELL rather than calling a separate close-position
+    # endpoint), so tests using this shared fixture need a realistic Order
+    # back, not an unconfigured Mock whose numeric fields would crash
+    # float()/comparisons in the real code paths.
+    broker.place_market_order.return_value = _default_order
+    broker.place_limit_order.return_value = _default_order
 
     # Mock get_bars
     broker.get_bars.return_value = [

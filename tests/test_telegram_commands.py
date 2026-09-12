@@ -40,6 +40,7 @@ def mock_components():
     ]
     risk_manager.consecutive_losses = 0
     risk_manager.trading_paused_manual = False
+    risk_manager.trading_paused_by_circuit_breaker = False
 
     # Mock broker
     broker = Mock()
