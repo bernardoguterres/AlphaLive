@@ -181,7 +181,7 @@ async def test_timeout_fails_open():
         )
 
     assert allowed is True
-    assert sentiment == {"gate_status": GATE_STATUS_ERROR_BYPASS}
+    assert sentiment == {"gate_status": GATE_STATUS_ERROR_BYPASS, "fail_policy": "open"}
 
 
 # ---------------------------------------------------------------------------
@@ -276,3 +276,109 @@ async def test_gate_returns_sentiment_filter_result():
     assert allowed is False
     assert pred == {"sentiment_score": -0.9}
     mock_alphasignal.is_execution_allowed.assert_called_once_with(TICKER, 2)
+
+
+# ---------------------------------------------------------------------------
+# 2026-10: stale evidence + explicit failure policy
+# ---------------------------------------------------------------------------
+
+import asyncio as _asyncio  # noqa: E402
+
+from alphalive.services.alphasignal_client import (  # noqa: E402
+    GATE_STATUS_ERROR_BYPASS as _ERR,
+    GATE_STATUS_STALE_BYPASS as _STALE,
+    AlphaSignalClient as _Client,
+    _detect_contract_issue,
+    run_pre_execution_checks as _gate,
+)
+
+
+def _client_returning(payload, policy="open"):
+    c = _Client(base_url="http://127.0.0.1:9", fail_policy=policy)
+
+    async def fake(ticker):
+        return payload
+
+    c.get_sentiment = fake
+    return c
+
+
+_STALE_PAYLOAD = {
+    "sentiment_score": 0.0,
+    "latest_score": None,
+    "data_available": True,
+    "status": "stale",
+    "degraded": False,
+    "contract_issue": None,
+}
+
+
+def test_stale_evidence_is_not_evaluated_and_follows_open_policy():
+    ok, pred = _asyncio.run(
+        _client_returning(_STALE_PAYLOAD).is_execution_allowed("AAPL", 2)
+    )
+    assert (
+        ok is True and pred["gate_status"] == _STALE and pred["fail_policy"] == "open"
+    )
+
+
+def test_closed_policy_blocks_entries_when_sentiment_cannot_be_evaluated():
+    ok, pred = _asyncio.run(
+        _client_returning(_STALE_PAYLOAD, "closed").is_execution_allowed("AAPL", 2)
+    )
+    assert ok is False and pred["gate_status"] == _STALE
+
+    class Boom(_Client):
+        async def is_execution_allowed(self, *a):
+            raise RuntimeError("down")
+
+    ok, pred = _asyncio.run(_gate(Boom(fail_policy="closed"), "AAPL", 2))
+    assert ok is False and pred["gate_status"] == _ERR
+
+
+def test_evaluated_scores_are_unaffected_by_fail_policy():
+    payload = {
+        "sentiment_score": 0.5,
+        "latest_score": 0.5,
+        "data_available": True,
+        "status": "ok",
+        "degraded": False,
+        "contract_issue": None,
+    }
+    ok, pred = _asyncio.run(
+        _client_returning(payload, "closed").is_execution_allowed("AAPL", 2)
+    )
+    assert ok is True and pred["gate_status"] == "available_pass"
+
+
+def test_stale_with_a_score_is_a_contract_violation():
+    assert _detect_contract_issue({"status": "stale"}, 0.3) is not None
+    assert _detect_contract_issue({"status": "stale"}, None) is None
+
+
+def test_invalid_fail_policy_is_rejected():
+    with pytest.raises(ValueError):
+        _Client(fail_policy="maybe")
+
+
+# ---------------------------------------------------------------------------
+# Threshold boundary - the comparison is strict: BUY blocked iff score < threshold
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "score, expected",
+    [(-0.3, True), (-0.3001, False), (-1.0, False), (1.0, True)],
+)
+async def test_long_is_blocked_only_strictly_below_threshold(score, expected):
+    client = _make_client()
+    with patch.object(
+        client, "get_sentiment", new=AsyncMock(return_value=_sentiment_dict(score))
+    ):
+        allowed, sentiment = await client.is_execution_allowed(
+            TICKER, intended_direction=2
+        )
+    assert allowed is expected
+    assert sentiment["gate_status"] == (
+        GATE_STATUS_AVAILABLE_PASS if expected else GATE_STATUS_AVAILABLE_BLOCK
+    )

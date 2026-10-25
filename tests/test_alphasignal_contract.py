@@ -117,6 +117,32 @@ async def test_status_no_data_fails_open():
     assert sentiment["gate_status"] == GATE_STATUS_NO_DATA_BYPASS
 
 
+@pytest.mark.parametrize("policy,expected", [("open", True), ("closed", False)])
+async def test_null_score_without_status_is_not_scored_as_neutral(policy, expected):
+    """A legacy response with no status and a null score carries no evidence.
+    It used to be coerced to 0.0 and approved as available_pass regardless of
+    the fail policy."""
+    client = AlphaSignalClient(fail_policy=policy)
+    allowed, sentiment = await _allowed(client, {"latest_score": None, "signals": []})
+    assert sentiment["gate_status"] == GATE_STATUS_NO_DATA_BYPASS
+    assert sentiment["sentiment_score"] is None
+    assert allowed is expected
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"status": "stale", "latest_score": None},
+        {"status": "no_data", "data_available": False, "latest_score": None},
+    ],
+)
+async def test_missing_evidence_never_reports_a_numeric_score(data):
+    """Stale/no-data must stay distinguishable from a genuine 0.0 reading
+    (see test_genuine_neutral_is_available_pass)."""
+    _, sentiment = await _allowed(AlphaSignalClient(), data)
+    assert sentiment["sentiment_score"] is None
+
+
 async def test_data_available_false_without_status_field_fails_open():
     client = AlphaSignalClient()
     allowed, sentiment = await _allowed(
@@ -523,4 +549,6 @@ async def test_gate_result_carries_no_broker_or_risk_state():
         "total_chunk_count",
         "contract_issue",
         "gate_status",
+        "fail_policy",  # which explicit policy applied (2026-10)
+        "last_document_date",  # evidence age (2026-10)
     }

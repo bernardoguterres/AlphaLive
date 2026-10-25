@@ -28,13 +28,20 @@ def trailing_stop_strategy_config(sample_strategy_dict):
 
 
 @pytest.fixture
-def mock_app_config():
-    from alphalive.config import AppConfig, BrokerConfig, TelegramConfig
+def mock_app_config(tmp_path):
+    from alphalive.config import (
+        AlphaSignalConfig,
+        AppConfig,
+        BrokerConfig,
+        TelegramConfig,
+    )
 
     return AppConfig(
         broker=BrokerConfig(api_key="k", secret_key="s", paper=True),
         telegram=TelegramConfig(),
-        state_file="/tmp/test_alphalive_state.json",
+        alphasignal=AlphaSignalConfig(enabled=False),
+        # Per-test file: the bot takes an exclusive lock on its state file.
+        state_file=str(tmp_path / "alphalive_state.json"),
     )
 
 

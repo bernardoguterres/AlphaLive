@@ -20,15 +20,20 @@ from zoneinfo import ZoneInfo
 
 from alphalive.config import load_config_path, load_env, validate_all
 from alphalive.services.alphasignal_client import (
+    IDENTITY_UNCHECKED,
+    IDENTITY_UNREACHABLE,
+    IDENTITY_WRONG_SERVICE,
     AlphaSignalClient,
     run_pre_execution_checks,
 )
+from alphalive.utils.env_bool import read_bool_env
 from alphalive.state import (
     BotState,
+    StateLockError,
     check_trailing_stop_requirements,
-    INTENT_RECONCILED,
 )
 from alphalive.broker.alpaca_broker import AlpacaBroker
+from alphalive.broker.transport import READ_ONLY_ENV
 from alphalive.data.market_data import MarketDataFetcher, DataStaleError
 from alphalive.strategy.signal_engine import SignalEngine
 from alphalive.execution.risk_manager import RiskManager, GlobalRiskManager
@@ -251,7 +256,7 @@ def _run_monthly_screener(screener, bot_state, notifier, now_et: datetime) -> No
     top = candidates[:5]
     lines = "\n".join(
         f"  {i}. {c.ticker} (rank {c.combined_rank}, EY {c.earnings_yield:.1%}, "
-        f"ROE {c.return_on_equity:.1%})"
+        f"ROC {c.return_on_capital:.1%})"
         for i, c in enumerate(top, 1)
     )
     notifier.send_message(
@@ -341,6 +346,66 @@ def _restore_engine_states(
                 rebuilt["vwap_position"] = 1
             engine.restore_state(rebuilt)
         bot_state.save_engine_state(ticker, engine.get_state())
+
+
+def _apply_corporate_actions(positions, bot_state, notifier) -> None:
+    """Detect broker-side splits on held positions and rescale our RAW
+    bookkeeping (ledger qty/entry, trailing-stop position high).
+
+    The broker rescales quantity and average entry on a split while keeping
+    cost basis. Our ledger and the raw position_high would otherwise stay in
+    pre-split units: the trailing stop would see a ~-50%/-75% "drop" and the
+    reconciler a qty mismatch. Heuristic: qty changed, no order in flight
+    for the ticker, and cost basis (qty x avg entry) unchanged within 1%.
+    Anything else stays a genuine drift for _run_position_reconciliation.
+    """
+    ledger = bot_state.get_open_positions()
+    busy = {i["ticker"] for i in bot_state.list_open_intents()}
+    for pos in positions:
+        entry = ledger.get(pos.symbol)
+        if entry is None or pos.symbol in busy:
+            continue
+        lq, bq = float(entry.get("qty") or 0), float(pos.qty or 0)
+        if lq <= 0 or bq <= 0 or abs(bq - lq) <= 1e-6:
+            continue
+        l_cost = lq * float(entry.get("entry_price") or 0)
+        b_cost = bq * float(pos.avg_entry_price or 0)
+        if l_cost <= 0 or abs(b_cost / l_cost - 1) > 0.01:
+            continue
+        ratio = bq / lq
+        bot_state.record_position_open(pos.symbol, bq, float(pos.avg_entry_price))
+        high = bot_state.get_position_high(pos.symbol)
+        if high:
+            bot_state.state["position_highs"][pos.symbol] = high / ratio
+            bot_state.save()
+        msg = (
+            f"Corporate action on {pos.symbol}: broker qty {lq:g} -> {bq:g} "
+            f"(x{ratio:.4g}) with unchanged cost basis - ledger and trailing-stop "
+            f"high rescaled."
+        )
+        logger.warning(msg)
+        notifier.send_alert(f"ℹ️ {msg}")
+
+
+def _sync_engines_with_ledger(signal_engine_map: dict, bot_state) -> None:
+    """Ledger wins, continuously: align each engine's long/flat flag with
+    the broker-confirmed position ledger whenever no order for that ticker
+    is still in flight (an unfilled BUY must not leave the engine "long",
+    a risk-exit close must not leave it "long" either)."""
+    ledger = bot_state.get_open_positions()
+    busy = {i["ticker"] for i in bot_state.list_open_intents()}
+    for ticker, engine in signal_engine_map.items():
+        if ticker in busy:
+            continue
+        before = engine.get_state()
+        entry = ledger.get(ticker)
+        engine.sync_position(
+            entry is not None,
+            entry_price=(entry or {}).get("entry_price", 0.0),
+            peak_price=bot_state.get_position_high(ticker) or 0.0,
+        )
+        if engine.get_state() != before:
+            bot_state.save_engine_state(ticker, engine.get_state())
 
 
 def _run_startup_warmup(
@@ -469,6 +534,16 @@ def _mark_periodic_check_done(
     BotState.mark_weekly_eval_done's docstring.
     """
     morning_checks_done.add(strat_cfg.ticker)
+    if strat_cfg.timeframe == "1Day":
+        # Not halting on a failed write: a duplicate daily entry is still
+        # blocked by the persisted cooldown, open-intent guard and cap.
+        if not bot_state.mark_daily_eval_done(
+            strat_cfg.ticker, now_et.strftime("%Y-%m-%d")
+        ):
+            logger.warning(
+                f"Could not persist the daily evaluation marker for "
+                f"{strat_cfg.ticker} - a restart today may re-evaluate it."
+            )
     if strat_cfg.timeframe == "1Week":
         week_key = _iso_week_key(now_et)
         bot_state.end_weekly_eval(strat_cfg.ticker, week_key)
@@ -522,6 +597,17 @@ def _check_signal_for_strategy(
             return
         if strat_cfg.ticker in morning_checks_done:
             return
+        if strat_cfg.timeframe == "1Day":
+            if bot_state.get_daily_eval_date(strat_cfg.ticker) == now_et.strftime(
+                "%Y-%m-%d"
+            ):
+                # Completed earlier today, before a restart.
+                morning_checks_done.add(strat_cfg.ticker)
+                logger.info(
+                    f"Daily evaluation for {strat_cfg.ticker} already completed "
+                    f"today ({now_et:%Y-%m-%d} ET) - not re-evaluating after restart"
+                )
+                return
         if strat_cfg.timeframe == "1Week":
             week_key = _iso_week_key(now_et)
             if not bot_state.try_begin_weekly_eval(strat_cfg.ticker, week_key):
@@ -632,11 +718,15 @@ def _check_signal_for_strategy(
             )
 
         if signal_result["signal"] in ("BUY", "SELL"):
-            _signal_direction = 2 if signal_result["signal"] == "BUY" else 0
             _sentiment_allowed = True
-            _sentiment_pred: dict = {}
+            _sentiment_pred: dict = {"gate_status": "not_applicable_exit"}
 
-            if alphasignal_client is not None:
+            # The sentiment gate is an ENTRY filter. AlphaLive is long-only:
+            # a SELL closes/reduces a long, so it is never sentiment-gated
+            # (previously every SELL was sent as direction 0 = "short" and
+            # was blocked by positive sentiment, trapping the position).
+            if alphasignal_client is not None and signal_result["signal"] == "BUY":
+                _signal_direction = 2
                 _sentiment_allowed, _sentiment_pred = asyncio.run(
                     run_pre_execution_checks(
                         alphasignal_client=alphasignal_client,
@@ -651,10 +741,16 @@ def _check_signal_for_strategy(
             )
 
             if not _sentiment_allowed:
+                _score = _sentiment_pred.get("sentiment_score")
                 logger.info(
                     "Execution blocked by sentiment filter - "
-                    f"sentiment_score={_sentiment_pred.get('sentiment_score', 'N/A')} "
-                    f"gate_status={_gate_status}"
+                    + (
+                        f"sentiment_score={_score:.3f} "
+                        if isinstance(_score, (int, float))
+                        else "sentiment_score=none (no usable evidence) "
+                    )
+                    + f"gate_status={_gate_status} "
+                    f"fail_policy={_sentiment_pred.get('fail_policy', 'n/a')}"
                 )
             else:
                 price = market_data.get_current_price(strat_cfg.ticker)
@@ -665,10 +761,18 @@ def _check_signal_for_strategy(
                     raise
                 _record_broker_call(order_manager_map, success=True)
 
-                global_can_trade, global_reason = global_risk.check_global_daily_loss(
-                    account_equity=account.equity,
-                    max_daily_loss_pct=strat_cfg.risk.max_daily_loss_pct,
-                )
+                # Entry-only, like every other risk gate: a latched global
+                # daily-loss halt must never keep a strategy SELL from
+                # reducing exposure.
+                if signal_result["signal"] == "BUY":
+                    global_can_trade, global_reason = (
+                        global_risk.check_global_daily_loss(
+                            account_equity=account.equity,
+                            max_daily_loss_pct=strat_cfg.risk.max_daily_loss_pct,
+                        )
+                    )
+                else:
+                    global_can_trade, global_reason = True, "OK"
 
                 if not global_can_trade:
                     logger.warning(f"Trade blocked (global): {global_reason}")
@@ -690,39 +794,27 @@ def _check_signal_for_strategy(
                         account_equity=account.equity,
                         current_positions_count=len(strategy_positions),
                         total_portfolio_positions=len(all_positions),
-                        current_bar=len(df),
+                        current_bar=df.index,
                     )
 
                 if result["status"] == "success":
-                    logger.info(f"Order placed: {result['order_id']}")
-                    logger.info(
-                        f"Trade executed | {signal_result['signal']} "
-                        f"{result['filled_qty']} {strat_cfg.ticker} "
-                        f"@ ${result['filled_price']:.2f} | "
-                        f"Total: ${result['filled_qty'] * result['filled_price']:.2f}"
-                    )
-                    # Update the persisted position ledger (drift reconciliation
-                    # + min-hold tracking). Skip in dry-run: no real order was
-                    # placed, so the broker will never show this position.
-                    if not order_manager_map[strat_cfg.ticker].dry_run:
-                        if signal_result["signal"] == "BUY":
-                            bot_state.record_position_open(
-                                strat_cfg.ticker,
-                                result["filled_qty"],
-                                result["filled_price"],
-                            )
-                            bot_state.record_entry(strat_cfg.ticker)
-                        else:  # SELL - full exit (sized to held qty)
-                            bot_state.record_position_close(strat_cfg.ticker)
-                            bot_state.clear_position_high(strat_cfg.ticker)
-                            bot_state.clear_entry_timestamp(strat_cfg.ticker)
-                    notifier.send_trade_notification(
-                        ticker=strat_cfg.ticker,
-                        side=signal_result["signal"],
-                        qty=result["filled_qty"],
-                        price=result["filled_price"],
-                        reason=signal_result["reason"],
-                    )
+                    # Order ACCEPTED by the broker. The position ledger, P&L
+                    # and risk counters are updated only from broker-confirmed
+                    # fills (OrderManager._apply_order_progress), which may
+                    # arrive now or on a later sync.
+                    if result.get("order_status") == "dry_run":
+                        logger.info(
+                            f"Dry run: no order sent | {signal_result['signal']} "
+                            f"{result.get('requested_qty')} {strat_cfg.ticker}"
+                        )
+                    else:
+                        logger.info(
+                            f"Order submitted | {signal_result['signal']} "
+                            f"{result.get('requested_qty')} {strat_cfg.ticker} | "
+                            f"order {result['order_id']} "
+                            f"status={result.get('order_status')} "
+                            f"| confirmed filled {result.get('filled_qty')}"
+                        )
                 elif result["status"] == "blocked":
                     logger.warning(f"Trade blocked: {result['reason']}")
                     logger.info(
@@ -790,6 +882,11 @@ def _run_exit_checks(
             raise
         _record_broker_call(order_manager_map, success=True)
 
+        try:
+            _apply_corporate_actions(positions, bot_state, notifier)
+        except Exception as e:  # bookkeeping must never block exits/reconciliation
+            logger.error(f"Corporate-action check failed: {e}", exc_info=True)
+
         if positions:
             current_prices = {}
             for pos in positions:
@@ -840,8 +937,11 @@ def _run_exit_checks(
                     )
 
                     if result["status"] == "success":
+                        # Confirmed flat at the broker. The fill itself (P&L,
+                        # ledger, risk counters) was booked from the broker's
+                        # order report by OrderManager._apply_order_progress -
+                        # booking it again here would double count.
                         bot_state.clear_position_high(ticker)
-                        bot_state.record_position_close(ticker)
                         bot_state.clear_entry_timestamp(ticker)
 
                         # SL/TP closed the position outside the signal engine -
@@ -858,46 +958,10 @@ def _run_exit_checks(
                             bot_state.save_engine_state(
                                 ticker, signal_engine_map[ticker].get_state()
                             )
-
-                        closed_pos = next(
-                            (p for p in positions if p.symbol == exit_signal["ticker"]),
-                            None,
+                        notifier.send_alert(
+                            f"Position closed by risk exit: {ticker} - "
+                            f"{exit_signal['reason']}"
                         )
-                        if closed_pos:
-                            commission = order_manager_map[
-                                ticker
-                            ].config.risk.commission_per_trade
-                            # Prefer the actual fill price from the close order;
-                            # fall back to the pre-order price if the fill
-                            # hasn't been reported yet (market order in flight).
-                            exit_price = (
-                                result.get("filled_price")
-                                or exit_signal["current_price"]
-                            )
-                            exit_qty = result.get("filled_qty") or closed_pos.qty
-                            pnl = (
-                                exit_price - closed_pos.avg_entry_price
-                            ) * exit_qty - (2 * commission)
-                            pnl_pct = (
-                                (exit_price - closed_pos.avg_entry_price)
-                                / closed_pos.avg_entry_price
-                            ) * 100
-
-                            order_manager_map[ticker].risk.record_trade(
-                                ticker=exit_signal["ticker"], pnl=pnl
-                            )
-                            global_risk.record_trade(strategy_name=ticker, pnl=pnl)
-                            bot_state.add_daily_pnl(pnl)
-
-                            notifier.send_position_closed_notification(
-                                ticker=exit_signal["ticker"],
-                                qty=exit_qty,
-                                entry_price=closed_pos.avg_entry_price,
-                                exit_price=exit_price,
-                                pnl=pnl,
-                                pnl_pct=pnl_pct,
-                                reason=exit_signal["reason"],
-                            )
 
     except Exception as e:
         logger.error(f"Exit check error: {e}", exc_info=True)
@@ -948,58 +1012,46 @@ def _sync_position_ledger(broker, bot_state, notifier) -> None:
 def _reconcile_open_submission_intents(
     order_manager_map: dict, bot_state, notifier
 ) -> None:
-    """Startup reconciliation for durable submission intents (objective 1).
+    """Startup reconciliation for durable submission intents.
 
-    Any intent left non-terminal by a crash (prepared/submitting/submitted/
-    partially_filled/uncertain) is resolved against the broker BEFORE the
-    main loop starts, using each OrderManager's own _reconcile_intent - the
-    same logic execute_signal uses on the next signal for that ticker, run
-    proactively here so a quarantine is visible immediately at startup
-    rather than silently waiting for the next signal check. An intent that
-    stays "uncertain" keeps blocking new orders for that (ticker, side)
-    until a later reconciliation succeeds or an operator intervenes -
-    never silently cleared here.
+    Every intent a previous run left non-terminal is resolved against the
+    broker through OrderManager.sync_open_intents() - the same code path the
+    main loop runs every iteration: fills that happened while the bot was
+    down are booked exactly once, finished orders get their terminal
+    status, never-sent ("prepared") intents are abandoned. An intent that
+    stays unresolved keeps blocking new orders for its ticker.
     """
     open_intents = bot_state.list_open_intents()
     if not open_intents:
         return
 
     logger.info(f"Startup: reconciling {len(open_intents)} open submission intent(s)")
+    configured = set(order_manager_map)
     for intent in open_intents:
-        ticker = intent["ticker"]
-        om = order_manager_map.get(ticker)
-        if om is None:
+        if intent["ticker"] not in configured:
             logger.warning(
                 f"Startup: open submission intent {intent['intent_id']} for "
-                f"{ticker} but no OrderManager is configured for it (config "
-                f"changed since the intent was created?) - leaving it as-is "
-                f"for manual review."
+                f"{intent['ticker']} but no OrderManager is configured for it - "
+                f"leaving it as-is for manual review."
             )
-            continue
+    for ticker, om in order_manager_map.items():
         try:
-            result = om._reconcile_intent(intent)
+            results = om.sync_open_intents()
         except Exception as e:
-            logger.error(
-                f"Startup: reconciliation errored for intent "
-                f"{intent['intent_id']} ({ticker}): {e}"
-            )
+            logger.error(f"Startup: intent reconciliation failed for {ticker}: {e}")
             continue
-
-        action = result["action"]
-        logger.info(
-            f"Startup: intent {intent['intent_id']} ({ticker} {intent['side']}) "
-            f"-> {action} ({result.get('detail')})"
-        )
-        if action == "quarantine":
-            notifier.send_alert(
-                f"⚠️ Startup: submission intent for {ticker} {intent['side']} is "
-                f"uncertain ({result.get('detail')}) - quarantined. No new order "
-                f"for this ticker/side will be placed until this is reconciled."
+        for res in results:
+            action = res.get("action") or res.get("outcome")
+            logger.info(
+                f"Startup: intent {res['intent_id']} ({ticker}) -> {action} "
+                f"({res.get('detail', '')})"
             )
-        elif action == "terminal":
-            bot_state.update_submission_intent(
-                intent["intent_id"], status=INTENT_RECONCILED
-            )
+            if action == "quarantine":
+                notifier.send_alert(
+                    f"⚠️ Startup: submission intent for {ticker} is uncertain "
+                    f"({res.get('detail')}) - quarantined. No new order for this "
+                    f"ticker until it resolves."
+                )
 
 
 def _run_position_reconciliation(
@@ -1016,12 +1068,32 @@ def _run_position_reconciliation(
     multi-day hold would otherwise look like drift every morning.
     """
     try:
+        # Book any fills that landed since this iteration's sync, then
+        # leave tickers with an order still working out of the comparison:
+        # the ledger moves only on confirmed fills, so a fill arriving
+        # between the two reads would otherwise look like drift and halt.
+        for om in order_manager_map.values():
+            try:
+                om.sync_open_intents()
+            except Exception as e:
+                logger.warning(f"Pre-reconciliation intent sync failed: {e}")
+        # Only orders known to be working count; a quarantined (uncertain)
+        # intent is an unknown outcome and drift beside it must still halt.
+        busy = {
+            i["ticker"]
+            for i in bot_state.list_open_intents()
+            if i.get("status") in ("submitting", "submitted", "partially_filled")
+        }
         try:
             alpaca_positions = broker.get_all_positions()
         except Exception as e:
             _record_broker_call(order_manager_map, success=False, error=e)
             raise
         _record_broker_call(order_manager_map, success=True)
+        try:
+            _apply_corporate_actions(alpaca_positions, bot_state, notifier)
+        except Exception as e:  # bookkeeping must never block exits/reconciliation
+            logger.error(f"Corporate-action check failed: {e}", exc_info=True)
 
         alpaca_tickers = {
             pos.symbol: {
@@ -1038,7 +1110,13 @@ def _run_position_reconciliation(
 
         drift_detected = False
 
+        if busy:
+            logger.info(
+                f"Reconciliation skips tickers with orders in flight: {sorted(busy)}"
+            )
         for ticker, alpaca_pos in alpaca_tickers.items():
+            if ticker in busy:
+                continue
             if ticker not in internal_tickers:
                 drift_detected = True
                 logger.critical(
@@ -1076,6 +1154,8 @@ def _run_position_reconciliation(
                 )
 
         for ticker in internal_tickers:
+            if ticker in busy:
+                continue
             if ticker not in alpaca_tickers:
                 drift_detected = True
                 logger.critical(
@@ -1161,11 +1241,22 @@ def main(
             )
 
     # State file - used for dashboard kill switch and trailing stop persistence
-    bot_state = BotState(app_config.state_file)
+    # exclusive=True: one execution process per state file. A second
+    # process (overlapping redeploy, accidental double start) fails fast
+    # here instead of overwriting the first one's intents/ledger.
+    try:
+        bot_state = BotState(app_config.state_file, exclusive=True)
+    except StateLockError as e:
+        logger.critical(str(e))
+        sys.exit(1)
 
     # Override with command-line args
     app_config.dry_run = dry_run or app_config.dry_run
     app_config.broker.paper = paper
+    # A --dry-run flag (not only the DRY_RUN env var) also arms the
+    # read-only broker transport, unless that is set explicitly.
+    if app_config.dry_run:
+        os.environ.setdefault(READ_ONLY_ENV, "true")
 
     if not validate_all(all_strategy_configs, app_config):
         logger.critical("Configuration validation failed. Exiting.")
@@ -1195,6 +1286,42 @@ def main(
         paper=app_config.broker.paper,
     )
 
+    # AlphaSignal identity preflight, before any broker contact. A missing
+    # URL or a URL answered by a different service is a configuration error
+    # and stops startup; an unreachable service is an outage - logged, and
+    # the fail policy decides entries until it is verified.
+    alphasignal_identity = (IDENTITY_UNCHECKED, "")
+    if app_config.alphasignal.enabled:
+        if not app_config.alphasignal.url:
+            logger.critical(
+                "ALPHASIGNAL_ENABLED=true but ALPHASIGNAL_URL is not set. Set it "
+                "explicitly (there is no default) or set ALPHASIGNAL_ENABLED=false. "
+                "Exiting."
+            )
+            sys.exit(1)
+        alphasignal_identity = asyncio.run(
+            AlphaSignalClient(
+                base_url=app_config.alphasignal.url,
+                timeout_seconds=app_config.alphasignal.timeout_seconds,
+            ).check_identity()
+        )
+        status, detail = alphasignal_identity
+        if status == IDENTITY_WRONG_SERVICE:
+            logger.critical(
+                f"ALPHASIGNAL_URL {app_config.alphasignal.url} is not an AlphaSignal "
+                f"service ({detail}). Fix ALPHASIGNAL_URL. Exiting."
+            )
+            sys.exit(1)
+        if status == IDENTITY_UNREACHABLE:
+            logger.warning(
+                f"AlphaSignal at {app_config.alphasignal.url} is unreachable at "
+                f"startup ({detail}); identity unverified. Entries follow "
+                f"ALPHASIGNAL_FAIL_POLICY={app_config.alphasignal.fail_policy} "
+                "until it answers as AlphaSignal."
+            )
+        else:
+            logger.info(f"AlphaSignal identity verified: {detail}")
+
     # 2. Initialize components
     logger.info("Initializing subsystems...")
 
@@ -1221,11 +1348,18 @@ def main(
             api_key=app_config.alphasignal.api_key,
             timeout_seconds=app_config.alphasignal.timeout_seconds,
             sentiment_threshold=app_config.alphasignal.sentiment_threshold,
+            fail_policy=app_config.alphasignal.fail_policy,
+            verify_identity=True,
+        )
+        alphasignal_client.identity, alphasignal_client.identity_detail = (
+            alphasignal_identity
         )
         logger.info(
             f"AlphaSignal sentiment filter enabled | "
             f"URL: {app_config.alphasignal.url} | "
-            f"Threshold: {app_config.alphasignal.sentiment_threshold}"
+            f"Threshold: {app_config.alphasignal.sentiment_threshold} | "
+            f"Timeout: {app_config.alphasignal.timeout_seconds}s | "
+            f"Fail policy (entries): {app_config.alphasignal.fail_policy}"
         )
     else:
         logger.info("AlphaSignal sentiment filter disabled (ALPHASIGNAL_ENABLED=false)")
@@ -1244,11 +1378,6 @@ def main(
         enabled=app_config.telegram.enabled,
     )
 
-    # Reconcile the persisted position ledger with the broker before trading.
-    # Restart-time differences are adopted with an alert; only mid-session
-    # drift (checked every 30 min) auto-halts.
-    _sync_position_ledger(broker, bot_state, notifier)
-
     for strategy_config in all_strategy_configs:
         strategy_name = strategy_config.strategy.name
         ticker = strategy_config.ticker
@@ -1264,6 +1393,9 @@ def main(
             safety_limits=strategy_config.safety_limits,
             global_risk=global_risk,
         )
+        # Persisted daily counters (trade count, realised P&L, loss streak,
+        # breaker, cooldown bar) - a restart must not reset risk limits.
+        risk_manager_map[ticker].attach_state(bot_state, key=ticker)
 
         # Create order manager for this strategy
         order_manager_map[ticker] = OrderManager(
@@ -1287,6 +1419,12 @@ def main(
     # actually did with any in-flight order from the last run instead of
     # generating a new client_order_id and risking a duplicate.
     _reconcile_open_submission_intents(order_manager_map, bot_state, notifier)
+
+    # Only AFTER intents are reconciled (fills that happened while the bot
+    # was down are now booked once, through their intents) reconcile the
+    # ledger with broker positions. Anything still unexplained is adopted
+    # (or removed) with an alert; only mid-session drift auto-halts.
+    _sync_position_ledger(broker, bot_state, notifier)
 
     # Restore stateful signal-engine state (in_position/entry/peak) from the
     # state file, reconciled against the just-synced position ledger.
@@ -1467,6 +1605,10 @@ def main(
                     )
                 drawdown_alert_sent = False
 
+                # The persisted daily P&L (dashboard Daily P&L / loss gauge) is
+                # date-keyed; without this it accumulated across days.
+                bot_state.roll_daily_pnl(current_day)
+
                 # Reset daily for all strategies
                 for ticker in risk_manager_map:
                     risk_manager_map[ticker].reset_daily()
@@ -1481,11 +1623,19 @@ def main(
             # informational (dashboard + AlphaLab candidate list), not execution.
             _run_monthly_screener(screener, bot_state, notifier, now_et)
 
-            # --- Dashboard kill switch (checked every loop iteration) ---
-            if bot_state.check_dashboard_paused():
-                logger.info("Trading paused via dashboard kill switch - sleeping 30s")
-                time.sleep(30)
-                continue
+            # --- Pause controls (dashboard / Telegram / TRADING_PAUSED) ---
+            # Same entry-only policy for all three (see
+            # GlobalRiskManager.entries_paused_reason): no new entries, open
+            # entry orders cancelled, exits and fill sync keep running.
+            _pause_reason = global_risk.entries_paused_reason()
+            if _pause_reason is None:
+                try:
+                    if read_bool_env("TRADING_PAUSED", default=False):
+                        _pause_reason = "TRADING_PAUSED env var"
+                except ValueError:
+                    _pause_reason = "TRADING_PAUSED env var (malformed - failing safe)"
+            if _pause_reason:
+                logger.info(f"New entries paused ({_pause_reason}); exits stay active")
 
             # --- Market closed? Sleep longer ---
             if not broker.is_market_open():
@@ -1528,6 +1678,22 @@ def main(
                 continue
 
             # === MARKET IS OPEN ===
+
+            # --- Order lifecycle sync: book broker-confirmed fills and resolve
+            # finished/abandoned intents BEFORE any new decision, exit check
+            # or reconciliation reads the ledger. ---
+            for _om in order_manager_map.values():
+                try:
+                    _om.sync_open_intents()
+                except Exception as e:
+                    logger.error(f"Order sync failed: {e}", exc_info=True)
+            _sync_engines_with_ledger(signal_engine_map, bot_state)
+            if _pause_reason:
+                for _om in order_manager_map.values():
+                    try:
+                        _om.cancel_open_entry_orders(_pause_reason)
+                    except Exception as e:
+                        logger.error(f"Entry-order cancellation failed: {e}")
 
             # --- Intraday drawdown monitoring ---
             try:
