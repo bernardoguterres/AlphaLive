@@ -94,6 +94,7 @@ def mock_risk_manager():
 @pytest.fixture
 def om(sample_config, mock_risk_manager):
     broker = Mock()
+    broker.get_position.return_value = None  # flat unless a test says otherwise
     notifier = Mock()
     manager = OrderManager(
         broker=broker,

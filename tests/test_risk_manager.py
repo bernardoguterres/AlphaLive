@@ -366,21 +366,29 @@ def test_can_trade_buy_still_blocked_by_manual_pause(risk_manager):
     assert can_trade is False
 
 
-def test_can_trade_sell_still_blocked_by_degraded_mode(risk_manager):
-    """Bug 2.6's exemption is deliberately narrow - degraded mode (broker
-    connection unstable) is a hard limit that should block everything,
-    including exits, since we can't safely place ANY order right now."""
+def test_can_trade_sell_allowed_in_degraded_mode(risk_manager):
+    """Exit policy (2026-10): every can_trade() gate is an ENTRY restriction.
+    A long-only SELL can only reduce exposure; degraded mode does not make
+    attempting it unsafe (an ambiguous broker outcome is quarantined by the
+    intent lifecycle, never resubmitted blindly), whereas refusing it can
+    trap a losing position. BUYs stay blocked."""
     risk_manager.degraded_mode = True
-
-    can_trade, reason = risk_manager.can_trade(
+    sell_ok, _ = risk_manager.can_trade(
         ticker="AAPL",
         signal="SELL",
         account_equity=100000.0,
         current_positions_count=1,
         total_portfolio_positions=1,
     )
-
-    assert can_trade is False
+    buy_ok, _ = risk_manager.can_trade(
+        ticker="AAPL",
+        signal="BUY",
+        account_equity=100000.0,
+        current_positions_count=0,
+        total_portfolio_positions=0,
+    )
+    assert sell_ok is True
+    assert buy_ok is False
 
 
 def test_can_trade_circuit_breaker(risk_manager):
@@ -485,7 +493,9 @@ def test_reset_daily(risk_manager):
     assert risk_manager.daily_trades == []
     assert risk_manager.consecutive_losses == 0
     assert risk_manager.trading_paused_by_circuit_breaker is False
-    assert risk_manager.last_reset_date == date.today()
+    assert (
+        risk_manager.last_reset_date == datetime.now(ET).date()
+    )  # trading date, not host-local
 
 
 def test_reset_daily_uses_et_day_not_host_local_day(risk_manager):
@@ -532,7 +542,9 @@ def test_global_risk_manager_initialization():
     """Test GlobalRiskManager initialization."""
     grm = GlobalRiskManager()
 
-    assert grm.global_daily_stats["date"] == date.today()
+    assert (
+        grm.global_daily_stats["date"] == datetime.now(ET).date()
+    )  # trading date, not host-local
     assert grm.global_daily_stats["total_pnl"] == 0.0
     assert grm.global_daily_stats["strategies_halted"] is False
 

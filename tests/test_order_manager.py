@@ -438,6 +438,7 @@ def test_close_position_no_position_is_already_flat(order_manager, mock_broker):
 def test_dry_run_mode():
     """Test dry run mode."""
     mock_broker = Mock()
+    mock_broker.get_position.return_value = None
     mock_risk_manager = Mock()
     mock_risk_manager.can_trade = Mock(return_value=(True, "OK"))
     mock_risk_manager.calculate_position_size = Mock(return_value=66)
