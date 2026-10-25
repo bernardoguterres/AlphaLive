@@ -66,11 +66,11 @@ AlphaLive is a continuously running process, polling roughly every 30 seconds du
 
 ## Execution Lifecycle and Reliability
 
-Each loop iteration checks the market and the dashboard's pause file, then runs whichever strategy checks are due: `1Day`/`1Week` after ~09:35 ET (a per-ticker "checked today" flag), `1Hour` hourly, `15Min` every 15 minutes, and exits every 5 minutes. The loop never exits on an unhandled error; a catch-all sleeps 60 seconds and continues.
+Each loop iteration checks the market and the dashboard's pause file, then runs whichever strategy checks are due: `1Day`/`1Week` after ~09:35 ET (a per-ticker "checked today" date, persisted so a restart does not re-evaluate), `1Hour` hourly, `15Min` every 15 minutes, and exits every 5 minutes. The loop never exits on an unhandled error; a catch-all sleeps 60 seconds and continues.
 
-**Risk checks run in a fixed order:** kill switch (`TRADING_PAUSED` / Telegram `/pause`), trade-frequency limit, API budget, degraded-mode status, daily loss limit, consecutive-loss breaker, position caps, cooldown. SELLs skip position-cap/cooldown but respect the rest, size only from held broker quantity, and are blocked with no open position, so AlphaLive never shorts.
+**Risk checks run in a fixed order:** kill switch (`TRADING_PAUSED` / Telegram `/pause`), trade-frequency limit, API budget, degraded-mode status, daily loss limit, consecutive-loss breaker, position caps, cooldown. Every check gates entries only: a SELL is never blocked by a risk check (including the global daily-loss halt), sizes only from held broker quantity, and are blocked with no open position, so AlphaLive never shorts.
 
-**The AlphaSignal sentiment gate is optional, fails open, and applies both ways:** negative sentiment can block a BUY, positive sentiment a SELL. Timeout, no data, malformed responses, full degradation, and unusable partial degradation all fail open with a distinct, logged reason. A structurally valid partial degradation (at least one reliable chunk, a non-null score) is evaluated through the normal threshold instead, tagged distinctly from an undegraded result. The gate covers only strategy-generated BUY/SELL signals, never protective exits, and never bypasses the independent risk, pause, or reconciliation checks evaluated elsewhere.
+**The AlphaSignal sentiment gate is optional and applies to entries only:** negative sentiment can block a BUY; SELLs and protective exits are never gated. When sentiment can't be evaluated - timeout, unavailable, no data, stale evidence (nothing inside AlphaSignal's freshness window), malformed responses, full degradation, or unusable partial degradation - `ALPHASIGNAL_FAIL_POLICY` decides: `open` (default) allows the entry, `closed` blocks it, each with a distinct, logged reason. **Under the default `open` policy sentiment is not a safeguard:** an unavailable, slow (over `ALPHASIGNAL_TIMEOUT_SECONDS`, default 6 s), stale or empty sentiment service lets every entry through; only an evaluated score strictly below the threshold blocks one (`latest_score` is on [-1.0, 1.0]; `ALPHASIGNAL_SENTIMENT_THRESHOLD` defaults to -0.3 and must lie in [-1.0, 0.0]; a BUY is blocked iff `score < threshold`). Use `closed` if missing sentiment should stop entries. That policy covers genuine unavailability only. `ALPHASIGNAL_URL` has no default, and the service at that address must identify itself (`/health` reports `service: "alphasignal"` and a supported contract). An unset URL, or a different service that answers (HTTP 200 included), stops startup before any broker call; if it is only discovered later, entries are blocked as a configuration error whatever the policy. A structurally valid partial degradation (at least one reliable chunk, a non-null score) is evaluated through the normal threshold instead, tagged distinctly from an undegraded result. The gate covers only strategy-generated BUY/SELL signals, never protective exits, and never bypasses the independent risk, pause, or reconciliation checks evaluated elsewhere.
 
 **Position reconciliation** compares live positions against the persisted ledger, not order history: once at startup (adopting/removing drift with a Telegram notice, not a halt) and again every 30 minutes (where disagreement halts trading). A greater than 20% overnight move skips the check and alerts via Telegram rather than trading a split-distorted bar.
 
@@ -122,7 +122,7 @@ sequenceDiagram
 
 AlphaLab and AlphaLive each independently implement every strategy's signal logic, since importing AlphaLab's code would make a parity test meaningless. Two non-comparable sources of evidence exist and should not be combined into one figure.
 
-**`tests/test_multi_ticker_parity.py`** is pytest-collected, CI-enforced across all 7 daily/intraday strategies on real SPY/MSFT data (500 bars each), and passes at zero mismatches except one `strict=True` `xfail`: `rsi_mean_reversion` on MSFT, 2 of 500 bars, root-caused to a slight ATR disagreement that occasionally shifts a stop-loss exit by a bar.
+**`tests/test_multi_ticker_parity.py`** is pytest-collected, CI-enforced across all 7 daily/intraday strategies on real SPY/MSFT data (500 bars each), and passes with zero decision-bar mismatches for all 7 strategies (the suite no longer carries an `xfail` for the earlier `rsi_mean_reversion`/MSFT ATR residual; 956 passed, 0 xfailed on 2026-10-21).
 
 **`tests/test_signal_parity.py`** is a standalone, non-CI diagnostic writing dated reports to the gitignored `tests/reports/` directory, with fixtures from AlphaLive's own engine (not AlphaLab), so it detects drift against a prior run of this codebase, not an AlphaLab discrepancy. Current output: 4 `ma_crossover` mismatches (unresolved), 43 `rsi_mean_reversion` mismatches (a stale fixture predating a switch to Wilder RSI), 2 `vwap_reversion` mismatches (unresolved), zero for the other two. None of it is independent AlphaLab ground truth, and no aggregate percentage is published.
 
@@ -165,7 +165,7 @@ cp .env.example .env   # add ALPACA_API_KEY / ALPACA_SECRET_KEY
 ```
 
 ```bash
-python run.py --validate-only                                     # config + broker check, no orders
+python run.py --validate-only --config configs/example_strategy.json   # offline config check: no credentials, broker or network
 python run.py --dry-run --config configs/example_strategy.json    # signals logged, nothing submitted
 python run.py --config configs/example_strategy.json              # paper account (unvalidated against a real funded account)
 ```
@@ -190,7 +190,7 @@ Key environment variables:
 | `DRY_RUN` | No, `false` | Logs signals, places no orders |
 | `TRADING_PAUSED` | No, `false` | Env-level kill switch |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | No | Notifications and commands |
-| `ALPHASIGNAL_URL`, `ALPHASIGNAL_ENABLED` | No | Sentiment gate |
+| `ALPHASIGNAL_URL`, `ALPHASIGNAL_ENABLED` | URL required while the gate is enabled (default); no default address | Sentiment gate; the URL must identify as AlphaSignal at startup |
 
 Multi-strategy mode (`STRATEGY_CONFIG_DIR`) enforces one strategy per ticker at startup, since Alpaca holds one merged position per symbol.
 
@@ -199,12 +199,47 @@ Multi-strategy mode (`STRATEGY_CONFIG_DIR`) enforces one strategy per ticker at 
 ## Verification
 
 ```bash
-pytest tests/ -v                              # 863 passed, 1 xfailed
+pytest tests/ -v                              # 956 passed (2026-10-21)
 pytest tests/test_multi_ticker_parity.py      # CI-enforced parity checks
-python run.py --validate-only                 # requires paper credentials and network access
+python run.py --validate-only --config <file>  # offline: no credentials, broker or network
 ```
 
-The one `xfail` is the `rsi_mean_reversion`/MSFT ATR residual described above, `strict=True` so it can't drift silently. The pytest suite mocks all external integrations and needs no API keys or network access; `run.py --validate-only` needs real credentials plus network access, so it was not run for this pass. `tests/test_signal_parity.py` is excluded here since it writes report files. CI runs the suite on every push/PR to `main` with dummy credentials.
+The pytest suite mocks all external integrations and needs no API keys or network access; `run.py --validate-only` is offline too: it validates the strategy config without loading `.env`, credentials or a broker (verified through the real entry point with credential and network access made to fail). `tests/test_signal_parity.py` is excluded here since it writes report files. CI runs the suite on every push/PR to `main` with dummy credentials.
+
+### Read-only paper check (`scripts/paper_readonly_check.py`)
+
+A bounded, read-only session against the Alpaca **paper** account through the normal `run.py` entry point. It runs twice: once across the 09:35–09:59 ET daily decision, and again as a same-day restart. It also runs a market-data probe and prints a redacted summary.
+
+**Safety controls:**
+- **Paper only:** only a paper key (prefix `PK`) is accepted, and the run is pinned to `https://paper-api.alpaca.markets`.
+- **Read-only:** `DRY_RUN=true` and `--dry-run` are set, and the transport refuses every non-GET request before it is sent.
+- **Isolated:** a fresh run directory with no `.env`, a disposable `STATE_FILE`, and Telegram variables removed.
+- **Bounded:** each session has a hard time limit, after which it is sent SIGTERM and then SIGKILL.
+
+The output lists:
+- Alpaca requests by method and path;
+- refused mutation attempts, kept separate from "no attempt";
+- the decision lines;
+- the last completed bar against the latest trade.
+
+It hides amounts, quantities, IDs and keys.
+
+```bash
+cd AlphaLive
+python3 scripts/paper_readonly_check.py        # start at ~09:33 ET on a trading day; exits on its own (~10 min)
+```
+
+**Credentials:** `ALPACA_API_KEY`/`ALPACA_SECRET_KEY` from the shell, otherwise from `AlphaLive/.env` (`--env-file` to override). Only those two variables and the sentiment/feed settings are read.
+
+**Options:**
+- `--first-seconds` (default 480) and `--restart-seconds` (default 120) set the session lengths; each is capped at 1800.
+- `--out-dir` sets where logs go (default: the system temp directory).
+
+**Sentiment:** settings pass through unchanged. With sentiment enabled, `ALPHASIGNAL_URL` must be set, either in the env file or with `--alphasignal-url`; otherwise the run aborts before contacting Alpaca. At startup AlphaLive confirms that the URL identifies as AlphaSignal, and it exits on a different service before any broker call.
+
+**Simulator mode** checks the mechanics with no credentials:
+- `--simulator http://127.0.0.1:8765` runs the check against `tests/broker_sim/alpaca_sim.py`.
+- Adding `--simulate-mutation-attempt` sets `DRY_RUN=false` with the guard still on, so an entry is attempted and refused. It is only allowed with `--simulator`.
 
 ---
 
