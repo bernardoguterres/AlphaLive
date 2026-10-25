@@ -11,7 +11,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import Literal, List, Optional
 
 from pydantic import BaseModel, Field, field_validator, ValidationError
 from dotenv import load_dotenv
@@ -97,9 +97,11 @@ class AlphaSignalConfig(BaseModel):
         ALPHASIGNAL_ENABLED - set false to skip sentiment gating
     """
 
+    # No default: a guessed localhost:8000 reached an unrelated local app
+    # on the developer machine (2026-10). Required when enabled.
     url: str = Field(
-        default="http://localhost:8000",
-        description="AlphaSignal service base URL",
+        default="",
+        description="AlphaSignal service base URL (required when enabled)",
     )
     api_key: str = Field(
         default="",
@@ -123,6 +125,11 @@ class AlphaSignalConfig(BaseModel):
         default=True,
         description="Set false to bypass sentiment gating entirely",
     )
+    # What an ENTRY does when sentiment cannot be evaluated (timeout, error,
+    # no data, stale evidence, degraded/invalid response): "open" allows it
+    # (default), "closed" blocks it. Exits are never sentiment-gated.
+    # Env: ALPHASIGNAL_FAIL_POLICY.
+    fail_policy: Literal["open", "closed"] = "open"
 
 
 class AppConfig(BaseModel):
@@ -415,11 +422,12 @@ def load_env() -> AppConfig:
 
     # Build AlphaSignal config
     alphasignal_config = AlphaSignalConfig(
-        url=os.getenv("ALPHASIGNAL_URL", "http://localhost:8000"),
+        url=os.getenv("ALPHASIGNAL_URL", "").strip(),
         api_key=os.getenv("ALPHASIGNAL_API_KEY", ""),
-        timeout_seconds=float(os.getenv("ALPHASIGNAL_TIMEOUT_SECONDS", "3.0")),
+        timeout_seconds=float(os.getenv("ALPHASIGNAL_TIMEOUT_SECONDS", "6.0")),
         sentiment_threshold=float(os.getenv("ALPHASIGNAL_SENTIMENT_THRESHOLD", "-0.3")),
         enabled=read_bool_env("ALPHASIGNAL_ENABLED", default=True),
+        fail_policy=os.getenv("ALPHASIGNAL_FAIL_POLICY", "open").strip().lower(),
     )
 
     # Build app config
@@ -490,36 +498,19 @@ def _warn_if_ephemeral_state_path(app_config: "AppConfig") -> None:
 # =============================================================================
 
 
-def validate_all(
+def validate_strategies(
     strategies: List[StrategySchema],
-    app_config: AppConfig,
     portfolio_strategies: Optional[List[PortfolioStrategySchema]] = None,
-) -> bool:
-    """
-    Validate all configurations and print summary.
-
-    Args:
-        strategies: List of single-ticker strategy configurations
-        app_config: Application configuration
-        portfolio_strategies: Optional list of multi-ticker portfolio
-            strategy configurations (see portfolio_schema.py). Defaults to
-            none, so existing single-ticker-only deployments are unaffected.
+) -> List[str]:
+    """Strategy-level checks that need no credentials, broker or network
+    (shared by validate_all and the offline ``run.py --validate-only``).
 
     Returns:
-        True if all valid, False otherwise
-
-    Displays:
-        Summary table with configuration status for each component
+        List of error messages (empty = valid)
     """
     portfolio_strategies = portfolio_strategies or []
-    logger.info("=" * 80)
-    logger.info("ALPHALIVE CONFIGURATION SUMMARY")
-    logger.info("=" * 80)
+    errors: List[str] = []
 
-    all_valid = True
-    errors = []
-
-    # Validate strategies
     logger.info(f"\nSTRATEGIES ({len(strategies)} loaded):")
     for i, strategy in enumerate(strategies, 1):
         try:
@@ -531,7 +522,6 @@ def validate_all(
             )
         except Exception as e:
             logger.error(f"[{i}] Invalid strategy: {e}")
-            all_valid = False
             errors.append(f"Strategy {i}: {e}")
 
     # Validate portfolio (multi-ticker) strategies, if any.
@@ -565,7 +555,6 @@ def validate_all(
                 f"directory, or run it as a separate deployment/account."
             )
             logger.error(msg)
-            all_valid = False
             errors.append(msg)
         else:
             seen_tickers[strategy.ticker] = strategy.strategy.name
@@ -580,7 +569,6 @@ def validate_all(
                 f"merged position per symbol - remove the overlap before deploying."
             )
             logger.error(msg)
-            all_valid = False
             errors.append(msg)
         else:
             seen_tickers[ticker] = owner
@@ -603,10 +591,41 @@ def validate_all(
                     f"Remove the overlap before deploying."
                 )
                 logger.error(msg)
-                all_valid = False
                 errors.append(msg)
             else:
                 seen_by_portfolio[t] = (i, label)
+
+    return errors
+
+
+def validate_all(
+    strategies: List[StrategySchema],
+    app_config: AppConfig,
+    portfolio_strategies: Optional[List[PortfolioStrategySchema]] = None,
+) -> bool:
+    """
+    Validate all configurations and print summary.
+
+    Args:
+        strategies: List of single-ticker strategy configurations
+        app_config: Application configuration
+        portfolio_strategies: Optional list of multi-ticker portfolio
+            strategy configurations (see portfolio_schema.py). Defaults to
+            none, so existing single-ticker-only deployments are unaffected.
+
+    Returns:
+        True if all valid, False otherwise
+
+    Displays:
+        Summary table with configuration status for each component
+    """
+    portfolio_strategies = portfolio_strategies or []
+    logger.info("=" * 80)
+    logger.info("ALPHALIVE CONFIGURATION SUMMARY")
+    logger.info("=" * 80)
+
+    errors = validate_strategies(strategies, portfolio_strategies)
+    all_valid = not errors
 
     # Validate broker
     logger.info(f"\nBROKER:")

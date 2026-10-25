@@ -829,6 +829,58 @@ def test_daily_strategy_scheduling_unaffected_by_weekly_change(
     assert real_bot_state.get_weekly_eval_key(sample_strategy_config.ticker) is None
 
 
+def test_daily_check_not_repeated_after_restart_same_day(
+    sample_strategy_config, tmp_path
+):
+    """A restart inside 09:35-09:59 ET (fresh in-memory set, state reloaded
+    from disk) must not re-run a completed 1Day evaluation; the next day
+    evaluates normally."""
+    from alphalive.state import BotState
+
+    state_path = str(tmp_path / "daily_state.json")
+    first_run = BotState(state_file=state_path)
+    _, market_data = _weekly_check(
+        sample_strategy_config, datetime(2024, 1, 8, 9, 36, tzinfo=ET), first_run
+    )
+    market_data.get_latest_bars.assert_called_once()
+    first_run.close()
+
+    restarted = BotState(state_file=state_path)
+    assert restarted.get_daily_eval_date(sample_strategy_config.ticker) == "2024-01-08"
+    done, market_data = _weekly_check(
+        sample_strategy_config, datetime(2024, 1, 8, 9, 50, tzinfo=ET), restarted
+    )
+    market_data.get_latest_bars.assert_not_called()
+    assert sample_strategy_config.ticker in done
+
+    _, market_data = _weekly_check(
+        sample_strategy_config, datetime(2024, 1, 9, 9, 36, tzinfo=ET), restarted
+    )
+    market_data.get_latest_bars.assert_called_once()
+    assert restarted.get_daily_eval_date(sample_strategy_config.ticker) == "2024-01-09"
+
+
+def test_daily_failed_attempt_is_retried_after_restart(
+    sample_strategy_config, real_bot_state
+):
+    """A data-fetch failure is not a completed decision - nothing is
+    persisted, so a restart the same morning retries."""
+    failing = Mock()
+    failing.get_latest_bars.side_effect = RuntimeError("feed down")
+    _weekly_check(
+        sample_strategy_config,
+        datetime(2024, 1, 8, 9, 36, tzinfo=ET),
+        real_bot_state,
+        market_data=failing,
+    )
+    assert real_bot_state.get_daily_eval_date(sample_strategy_config.ticker) is None
+
+    _, market_data = _weekly_check(
+        sample_strategy_config, datetime(2024, 1, 8, 9, 40, tzinfo=ET), real_bot_state
+    )
+    market_data.get_latest_bars.assert_called_once()
+
+
 def test_mark_weekly_eval_done_returns_false_and_still_mutates_in_memory_on_write_failure(
     real_bot_state,
 ):
@@ -1059,7 +1111,13 @@ def test_check_signal_for_strategy_buy_signal_executes_order(sample_strategy_con
     )
 
     order_manager.execute_signal.assert_called_once()
-    notifier.send_trade_notification.assert_called_once()
+    # Cooldown is counted in completed bars: main passes the bars' index,
+    # not len(df) (a constant lookback length).
+    passed = order_manager.execute_signal.call_args.kwargs["current_bar"]
+    assert isinstance(passed, pd.Index) and len(passed) > 1
+    # Trade notifications are fill-driven (OrderManager._apply_order_progress);
+    # a mere submission is not announced as a trade.
+    notifier.send_trade_notification.assert_not_called()
 
 
 def test_check_signal_for_strategy_buy_signal_blocked(sample_strategy_config):
@@ -1267,7 +1325,6 @@ def test_check_signal_for_strategy_not_delayed_by_hanging_telegram(
     just that send_message() itself returns quickly in isolation.
     """
     import time as time_module
-    from unittest.mock import patch as mock_patch
 
     from alphalive.notifications.telegram_bot import TelegramNotifier
 
@@ -1287,27 +1344,29 @@ def test_check_signal_for_strategy_not_delayed_by_hanging_telegram(
     notifier = TelegramNotifier(bot_token="test_token", chat_id="123456")
     morning_checks_done = set()
 
-    def _hanging_post(*args, **kwargs):
-        time_module.sleep(5.0)  # simulate a hung/unreachable Telegram server
-        raise RuntimeError("should never actually complete in this test")
+    # Simulate a hung Telegram server at the send itself. Replaced on the
+    # instance (never restored) so the background worker cannot fall
+    # through to a real HTTP call after the timed block - patching
+    # httpx.post only for the duration of the call let the queued message
+    # reach the network later.
+    notifier._send_now = lambda *args, **kwargs: time_module.sleep(5.0)
 
-    with mock_patch("httpx.post", side_effect=_hanging_post):
-        start = time_module.monotonic()
-        main_module._check_signal_for_strategy(
-            sample_strategy_config,
-            now_et,
-            morning_checks_done,
-            {},
-            market_data,
-            signal_engine_map,
-            {},
-            None,
-            Mock(),
-            notifier,
-            main_module.GlobalRiskManager(),
-            Mock(),
-        )
-        elapsed = time_module.monotonic() - start
+    start = time_module.monotonic()
+    main_module._check_signal_for_strategy(
+        sample_strategy_config,
+        now_et,
+        morning_checks_done,
+        {},
+        market_data,
+        signal_engine_map,
+        {},
+        None,
+        Mock(),
+        notifier,
+        main_module.GlobalRiskManager(),
+        Mock(),
+    )
+    elapsed = time_module.monotonic() - start
 
     assert elapsed < 1.0, (
         f"_check_signal_for_strategy took {elapsed:.2f}s - a hanging "
@@ -1440,6 +1499,63 @@ def test_check_signal_for_strategy_with_pre_execution_checks_blocked(
     order_manager.execute_signal.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "pred,expected",
+    [
+        (
+            {
+                "sentiment_score": None,
+                "gate_status": "stale_bypass",
+                "fail_policy": "closed",
+            },
+            "sentiment_score=none (no usable evidence) gate_status=stale_bypass "
+            "fail_policy=closed",
+        ),
+        (
+            {"sentiment_score": -0.9, "gate_status": "available_block"},
+            "sentiment_score=-0.900 gate_status=available_block",
+        ),
+    ],
+)
+def test_sentiment_block_log_distinguishes_missing_evidence(
+    sample_strategy_config, caplog, pred, expected
+):
+    """A block caused by missing evidence must not be logged as score 0.0."""
+    market_data = Mock()
+    market_data.get_latest_bars.return_value = _make_ohlcv_df()
+    signal_engine = Mock()
+    signal_engine.get_state.return_value = {}
+    signal_engine.generate_signal.return_value = {
+        "signal": "BUY",
+        "confidence": 0.8,
+        "reason": "x",
+    }
+    with patch(
+        "alphalive.main.run_pre_execution_checks", return_value=(False, pred)
+    ), caplog.at_level("INFO", logger="alphalive.main"):
+        main_module._check_signal_for_strategy(
+            sample_strategy_config,
+            datetime(2024, 1, 2, 9, 40, tzinfo=ET),
+            set(),
+            {},
+            market_data,
+            {sample_strategy_config.ticker: signal_engine},
+            {sample_strategy_config.ticker: Mock()},
+            Mock(),
+            Mock(),
+            Mock(),
+            main_module.GlobalRiskManager(),
+            Mock(),
+        )
+    line = next(
+        r.getMessage()
+        for r in caplog.records
+        if "blocked by sentiment" in r.getMessage()
+    )
+    assert expected in line
+    assert "sentiment_score=0.0" not in line
+
+
 # ---------------------------------------------------------------------------
 # _run_exit_checks()
 # ---------------------------------------------------------------------------
@@ -1533,7 +1649,10 @@ def test_run_exit_checks_exit_fires_and_closes_position():
         ticker="AAPL", reason="stop_loss"
     )
     bot_state.clear_position_high.assert_called_once_with("AAPL")
-    notifier.send_position_closed_notification.assert_called_once()
+    assert "Position closed by risk exit" in notifier.send_alert.call_args[0][0]
+    # P&L is booked from the broker's fill report, never here.
+    order_manager.risk.record_trade.assert_not_called()
+    bot_state.add_daily_pnl.assert_not_called()
 
 
 def test_run_exit_checks_dry_run_skips_close():
@@ -1700,10 +1819,36 @@ def test_run_exit_checks_broker_success_recorded_on_risk_manager():
 # ---------------------------------------------------------------------------
 
 
-def _mock_bot_state(ledger=None):
+def _mock_bot_state(ledger=None, open_intents=None):
     bot_state = Mock()
     bot_state.get_open_positions.return_value = ledger or {}
+    bot_state.list_open_intents.return_value = open_intents or []
     return bot_state
+
+
+@pytest.mark.parametrize("in_flight,halted", [(True, False), (False, True)])
+def test_reconciliation_skips_ticker_with_order_in_flight(in_flight, halted):
+    """Regression (2026-10 review): the ledger moves only on confirmed fills,
+    so a fill landing between the intent sync and this check (ledger 10,
+    broker 13) looked like drift and auto-halted entries. A ticker with a
+    working order is now left to intent reconciliation."""
+    broker = Mock()
+    broker.get_all_positions.return_value = [_mock_position(qty=13.0)]
+    bot_state = _mock_bot_state(
+        {"AAPL": {"qty": 10, "entry_price": 150.0}},
+        open_intents=(
+            [{"ticker": "AAPL", "status": "partially_filled"}] if in_flight else []
+        ),
+    )
+    om = Mock()
+    order_manager_map = {"AAPL": om}
+    app_config = Mock(trading_paused=False)
+    with patch.dict("os.environ", {}, clear=False):
+        main_module._run_position_reconciliation(
+            broker, order_manager_map, app_config, Mock(), bot_state
+        )
+    om.sync_open_intents.assert_called_once()
+    assert app_config.trading_paused is halted
 
 
 def test_run_position_reconciliation_no_drift():
@@ -1835,49 +1980,37 @@ def test_reconcile_open_submission_intents_noop_when_none_open():
 
 
 def test_reconcile_open_submission_intents_quarantine_alerts():
-    intent = {
-        "intent_id": "i1",
-        "ticker": "AAPL",
-        "side": "BUY",
-        "client_order_id": "AAPL_buy_i1",
-        "status": "uncertain",
-    }
+    intent = {"intent_id": "i1", "ticker": "AAPL", "side": "BUY", "status": "uncertain"}
     bot_state = Mock()
     bot_state.list_open_intents.return_value = [intent]
     om = Mock()
-    om._reconcile_intent.return_value = {
-        "action": "quarantine",
-        "detail": "lookup failed",
-    }
+    om.sync_open_intents.return_value = [
+        {"intent_id": "i1", "action": "quarantine", "detail": "lookup failed"}
+    ]
     notifier = Mock()
 
     main_module._reconcile_open_submission_intents({"AAPL": om}, bot_state, notifier)
 
-    om._reconcile_intent.assert_called_once_with(intent)
+    om.sync_open_intents.assert_called_once()
     notifier.send_alert.assert_called_once()
     assert "uncertain" in notifier.send_alert.call_args[0][0].lower()
-    bot_state.update_submission_intent.assert_not_called()
 
 
-def test_reconcile_open_submission_intents_terminal_marks_reconciled():
-    intent = {
-        "intent_id": "i2",
-        "ticker": "AAPL",
-        "side": "BUY",
-        "client_order_id": "AAPL_buy_i2",
-        "status": "submitted",
-    }
+def test_reconcile_open_submission_intents_terminal_is_resolved_by_order_manager():
+    """Terminal statuses are written by OrderManager._reconcile_intent itself
+    (after booking any fills) - startup only reports, no alert."""
+    intent = {"intent_id": "i2", "ticker": "AAPL", "side": "BUY", "status": "submitted"}
     bot_state = Mock()
     bot_state.list_open_intents.return_value = [intent]
     om = Mock()
-    om._reconcile_intent.return_value = {"action": "terminal", "detail": "rejected"}
+    om.sync_open_intents.return_value = [
+        {"intent_id": "i2", "action": "terminal", "detail": "rejected"}
+    ]
     notifier = Mock()
 
     main_module._reconcile_open_submission_intents({"AAPL": om}, bot_state, notifier)
 
-    bot_state.update_submission_intent.assert_called_once_with(
-        "i2", status=main_module.INTENT_RECONCILED
-    )
+    bot_state.update_submission_intent.assert_not_called()
     notifier.send_alert.assert_not_called()
 
 
@@ -1903,13 +2036,12 @@ def test_reconcile_open_submission_intents_reconciliation_error_is_caught():
         "intent_id": "i4",
         "ticker": "AAPL",
         "side": "BUY",
-        "client_order_id": "x",
         "status": "submitting",
     }
     bot_state = Mock()
     bot_state.list_open_intents.return_value = [intent]
     om = Mock()
-    om._reconcile_intent.side_effect = RuntimeError("boom")
+    om.sync_open_intents.side_effect = RuntimeError("boom")
     notifier = Mock()
 
     # Should not raise.
@@ -2042,41 +2174,40 @@ def _run_signal_check_with_result(
     return bot_state
 
 
-def test_buy_success_records_position_in_ledger(sample_strategy_config):
+def test_buy_submission_does_not_book_position(sample_strategy_config):
+    """An accepted order is not a fill: main.py must not write the ledger
+    (pre-repair it recorded the requested qty at the decision price)."""
     bot_state = _run_signal_check_with_result(
         sample_strategy_config,
         "BUY",
         {
             "status": "success",
             "order_id": "o1",
-            "filled_qty": 10,
-            "filled_price": 150.0,
+            "order_status": "submitted",
+            "requested_qty": 10,
+            "filled_qty": 0.0,
+            "filled_price": None,
         },
     )
-    bot_state.record_position_open.assert_called_once_with(
-        sample_strategy_config.ticker, 10, 150.0
-    )
-    bot_state.record_entry.assert_called_once_with(sample_strategy_config.ticker)
+    bot_state.record_position_open.assert_not_called()
+    bot_state.record_entry.assert_not_called()
 
 
-def test_sell_success_clears_ledger_and_tracking(sample_strategy_config):
+def test_sell_submission_does_not_clear_ledger(sample_strategy_config):
+    """The ledger is reduced only by broker-confirmed SELL fills."""
     bot_state = _run_signal_check_with_result(
         sample_strategy_config,
         "SELL",
         {
             "status": "success",
             "order_id": "o2",
-            "filled_qty": 10,
-            "filled_price": 160.0,
+            "order_status": "submitted",
+            "requested_qty": 10,
+            "filled_qty": 0.0,
+            "filled_price": None,
         },
     )
-    bot_state.record_position_close.assert_called_once_with(
-        sample_strategy_config.ticker
-    )
-    bot_state.clear_position_high.assert_called_once_with(sample_strategy_config.ticker)
-    bot_state.clear_entry_timestamp.assert_called_once_with(
-        sample_strategy_config.ticker
-    )
+    bot_state.record_position_close.assert_not_called()
 
 
 def test_dry_run_buy_does_not_touch_ledger(sample_strategy_config):
@@ -2348,7 +2479,7 @@ def _screener_candidate(ticker="AAPL"):
     c.ticker = ticker
     c.combined_rank = 3
     c.earnings_yield = 0.05
-    c.return_on_equity = 0.30
+    c.return_on_capital = 0.30
     return c
 
 
@@ -2458,9 +2589,10 @@ def test_compute_daily_stats_partial_sell_leaves_remaining_lot():
     assert stats["win_rate"] == 50.0
 
 
-def test_exit_check_pnl_uses_fill_price_when_available():
-    """P&L and the Telegram notification must use the close order's actual
-    fill price, not the pre-order price the exit was decided on."""
+def test_exit_check_does_not_book_pnl_itself():
+    """Risk-exit P&L is booked once, from the broker's cumulative fill report
+    (OrderManager._apply_order_progress) - the exit loop must not book a
+    second, decision-price-based figure."""
     pos = _mock_position(avg_entry=100.0, current=90.0)
     broker = Mock()
     broker.get_all_positions.return_value = [pos]
@@ -2471,64 +2603,214 @@ def test_exit_check_pnl_uses_fill_price_when_available():
     order_manager.check_exits.return_value = [
         {"ticker": "AAPL", "reason": "Stop loss hit", "current_price": 90.0}
     ]
-    # Actual fill came back worse than the decision price (slippage)
     order_manager.close_position.return_value = {
         "status": "success",
         "order_id": "o9",
         "filled_price": 89.5,
         "filled_qty": 10.0,
     }
-    order_manager.config.risk.commission_per_trade = 0.0
-
-    notifier = Mock()
+    bot_state = Mock()
+    global_risk = main_module.GlobalRiskManager()
     main_module._run_exit_checks(
         broker,
         market_data,
         {"AAPL": order_manager},
-        Mock(),
+        bot_state,
         Mock(dry_run=False),
-        notifier,
-        main_module.GlobalRiskManager(),
+        Mock(),
+        global_risk,
         {"AAPL": Mock()},
     )
+    order_manager.risk.record_trade.assert_not_called()
+    bot_state.add_daily_pnl.assert_not_called()
+    assert global_risk.global_daily_stats["total_trades"] == 0
 
-    kwargs = notifier.send_position_closed_notification.call_args.kwargs
-    assert kwargs["exit_price"] == 89.5
-    assert kwargs["pnl"] == pytest.approx((89.5 - 100.0) * 10.0)
 
-
-def test_exit_check_pnl_falls_back_to_decision_price():
-    """No fill details yet (market order in flight): fall back to the price
-    the exit was decided on."""
+def test_exit_check_pending_close_does_not_reset_state():
+    """A close that is only accepted/pending is not 'flat': engine and
+    trailing-stop state stay as they are until the broker confirms."""
     pos = _mock_position(avg_entry=100.0, current=90.0)
     broker = Mock()
     broker.get_all_positions.return_value = [pos]
     market_data = Mock()
     market_data.get_current_price.return_value = 90.0
-
     order_manager = Mock()
     order_manager.check_exits.return_value = [
         {"ticker": "AAPL", "reason": "Stop loss hit", "current_price": 90.0}
     ]
-    order_manager.close_position.return_value = {
-        "status": "success",
-        "order_id": "o9",
-        "filled_price": None,
-        "filled_qty": None,
-    }
-    order_manager.config.risk.commission_per_trade = 0.0
-
-    notifier = Mock()
+    order_manager.close_position.return_value = {"status": "pending", "order_id": "o9"}
+    bot_state = Mock()
+    engine = Mock()
     main_module._run_exit_checks(
         broker,
         market_data,
         {"AAPL": order_manager},
-        Mock(),
+        bot_state,
         Mock(dry_run=False),
-        notifier,
+        Mock(),
         main_module.GlobalRiskManager(),
-        {"AAPL": Mock()},
+        {"AAPL": engine},
+    )
+    bot_state.clear_position_high.assert_not_called()
+    engine.restore_state.assert_not_called()
+
+
+def test_sell_signal_is_never_sentiment_gated(sample_strategy_config):
+    """The AlphaSignal gate is an ENTRY filter. Pre-repair every SELL was sent
+    as direction 0 ('short') and blocked by positive sentiment."""
+    with patch("alphalive.main.run_pre_execution_checks") as gate:
+        gate.return_value = (False, {"gate_status": "available_block"})
+        now_et = datetime(2024, 1, 2, 9, 40, tzinfo=ET)
+        market_data = Mock()
+        market_data.get_latest_bars.return_value = _make_ohlcv_df()
+        market_data.get_current_price.return_value = 150.0
+        engine = Mock()
+        engine.generate_signal.return_value = {
+            "signal": "SELL",
+            "confidence": 1.0,
+            "reason": "x",
+        }
+        om = Mock()
+        om.execute_signal.return_value = {"status": "success", "order_id": "o"}
+        broker = Mock()
+        broker.get_account.return_value = Mock(equity=100000.0)
+        broker.get_all_positions.return_value = []
+        main_module._check_signal_for_strategy(
+            sample_strategy_config,
+            now_et,
+            set(),
+            {},
+            market_data,
+            {sample_strategy_config.ticker: engine},
+            {sample_strategy_config.ticker: om},
+            Mock(),
+            broker,
+            Mock(),
+            main_module.GlobalRiskManager(),
+            Mock(),
+        )
+        gate.assert_not_called()
+        om.execute_signal.assert_called_once()
+
+
+@pytest.mark.parametrize("signal,executed", [("SELL", True), ("BUY", False)])
+def test_global_daily_loss_halt_blocks_entries_but_not_strategy_sells(
+    sample_strategy_config, signal, executed
+):
+    """Regression (2026-10 review): once the global daily-loss halt latched,
+    a strategy SELL was reported "Trade blocked (global)" and the position
+    stayed open. The halt is entry-only, like every other risk gate."""
+    market_data = Mock()
+    market_data.get_latest_bars.return_value = _make_ohlcv_df()
+    market_data.get_current_price.return_value = 150.0
+    signal_engine = Mock()
+    signal_engine.get_state.return_value = {}
+    signal_engine.generate_signal.return_value = {
+        "signal": signal,
+        "confidence": 0.8,
+        "reason": "x",
+    }
+    order_manager = Mock()
+    order_manager.execute_signal.return_value = {"status": "success"}
+    broker = Mock()
+    broker.get_account.return_value = Mock(equity=100000.0)
+    broker.get_all_positions.return_value = []
+    global_risk = main_module.GlobalRiskManager()
+    global_risk.global_daily_stats["strategies_halted"] = True
+    global_risk.global_daily_stats["halt_reason"] = "global daily loss"
+    global_risk._check_daily_reset = lambda: None
+
+    main_module._check_signal_for_strategy(
+        sample_strategy_config,
+        datetime(2024, 1, 2, 9, 40, tzinfo=ET),
+        set(),
+        {},
+        market_data,
+        {sample_strategy_config.ticker: signal_engine},
+        {sample_strategy_config.ticker: order_manager},
+        None,
+        broker,
+        Mock(),
+        global_risk,
+        Mock(),
+    )
+    assert order_manager.execute_signal.called is executed
+
+
+def test_daily_markers_are_per_ticker_for_multiple_strategies(
+    sample_strategy_config, tmp_path
+):
+    """Each 1Day strategy (one per ticker - validate_all refuses duplicates)
+    gets its own marker; completing one never suppresses another."""
+    from alphalive.state import BotState
+
+    state = BotState(state_file=str(tmp_path / "multi.json"))
+    other = sample_strategy_config.model_copy(update={"ticker": "MSFT"})
+    now = datetime(2024, 1, 8, 9, 36, tzinfo=ET)
+    _, md1 = _weekly_check(sample_strategy_config, now, state)
+    _, md2 = _weekly_check(other, now, state)
+    md1.get_latest_bars.assert_called_once()
+    md2.get_latest_bars.assert_called_once()
+    assert state.get_daily_eval_date(sample_strategy_config.ticker) == "2024-01-08"
+    assert state.get_daily_eval_date("MSFT") == "2024-01-08"
+
+
+def test_sentiment_timeout_block_under_closed_policy_is_final_for_the_day(
+    sample_strategy_config, tmp_path
+):
+    """Deliberate policy: when sentiment can't be evaluated and the closed
+    fail policy blocks the BUY, that is a completed decision - it is saved,
+    and a restart (or a later warm sentiment call) does not re-open it the
+    same day. The next trading day evaluates afresh."""
+    from alphalive.state import BotState
+
+    path = str(tmp_path / "closed.json")
+    state = BotState(state_file=path)
+    engine = Mock()
+    engine.get_state.return_value = {}
+    engine.generate_signal.return_value = {
+        "signal": "BUY",
+        "confidence": 0.8,
+        "reason": "x",
+    }
+    om = Mock()
+    blocked = (
+        False,
+        {
+            "gate_status": "error_bypass",
+            "fail_policy": "closed",
+            "sentiment_score": None,
+        },
     )
 
-    kwargs = notifier.send_position_closed_notification.call_args.kwargs
-    assert kwargs["exit_price"] == 90.0
+    def run(now, st):
+        md = Mock()
+        md.get_latest_bars.return_value = _make_ohlcv_df()
+        with patch("alphalive.main.run_pre_execution_checks", return_value=blocked):
+            main_module._check_signal_for_strategy(
+                sample_strategy_config,
+                now,
+                set(),
+                {},
+                md,
+                {sample_strategy_config.ticker: engine},
+                {sample_strategy_config.ticker: om},
+                Mock(),
+                Mock(),
+                Mock(),
+                main_module.GlobalRiskManager(),
+                st,
+            )
+        return md
+
+    run(datetime(2024, 1, 8, 9, 36, tzinfo=ET), state)
+    om.execute_signal.assert_not_called()
+    assert state.get_daily_eval_date(sample_strategy_config.ticker) == "2024-01-08"
+    state.close()
+    restarted = BotState(state_file=path)
+    run(
+        datetime(2024, 1, 8, 9, 45, tzinfo=ET), restarted
+    ).get_latest_bars.assert_not_called()
+    run(
+        datetime(2024, 1, 9, 9, 36, tzinfo=ET), restarted
+    ).get_latest_bars.assert_called_once()

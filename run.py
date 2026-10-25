@@ -11,6 +11,8 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
+import numpy as np
+import pandas as pd
 
 from alphalive.utils.env_bool import read_bool_env
 
@@ -53,6 +55,73 @@ def _read_bool_env_or_exit(var_name: str, default: bool) -> bool:
         sys.exit(1)
 
 
+# --- Offline validation (run.py --validate-only) ---------------------------
+# Checks only what can be checked without credentials, a broker or the
+# network: the strategy JSON parses against the schema (and its migrations),
+# the strategy set is deployable together (one strategy per ticker), trailing
+# stops have persistent storage, and each strategy's signal code runs on
+# synthetic bars. It never reads a .env file or Alpaca credentials and never
+# builds a broker or data client; broker connectivity is only exercised by a
+# real (dry-run/paper) start. tests/test_validate_offline.py runs it through
+# this entry point with credential reads and network calls made to fail.
+
+
+def _synthetic_bars(n: int = 300) -> pd.DataFrame:
+    rng = np.random.default_rng(0)
+    close = 100 + np.cumsum(rng.normal(0, 1, n))
+    idx = pd.bdate_range(end="2024-12-31", periods=n, tz="America/New_York")
+    return pd.DataFrame(
+        {
+            "open": close,
+            "high": close + 1,
+            "low": close - 1,
+            "close": close,
+            "volume": np.full(n, 1e6),
+        },
+        index=idx,
+    )
+
+
+def validate_offline(config_path: str) -> int:
+    """Validate strategy configuration offline; returns a process exit code."""
+    from alphalive.config import load_config_path, validate_strategies
+    from alphalive.state import check_trailing_stop_requirements
+    from alphalive.strategy.signal_engine import SignalEngine
+
+    print("Validating configuration offline (no credentials, broker or network)...")
+    try:
+        strategies = load_config_path(config_path)
+    except Exception as e:  # schema/JSON/migration errors
+        print(f"INVALID: could not load {config_path}: {e}")
+        return 1
+    print(f"Loaded {len(strategies)} strategy/strategies")
+
+    errors = validate_strategies(strategies)
+    for strategy in strategies:
+        try:
+            check_trailing_stop_requirements(strategy)
+        except SystemExit:
+            errors.append(
+                f"{strategy.ticker}: trailing_stop_enabled requires PERSISTENT_STORAGE=true"
+            )
+        try:
+            result = SignalEngine(strategy).generate_signal(_synthetic_bars())
+            print(
+                f"  {strategy.strategy.name}/{strategy.ticker}: signal code runs "
+                f"(synthetic bars -> {result['signal']})"
+            )
+        except Exception as e:
+            errors.append(f"{strategy.ticker}: signal generation failed: {e}")
+
+    if errors:
+        print("INVALID:")
+        for e in errors:
+            print(f"  - {e}")
+        return 1
+    print("VALID (offline checks only; broker connectivity is not tested)")
+    return 0
+
+
 def main():
     """Main entry point."""
     # Load .env before argparse builds its defaults below - --config and
@@ -61,6 +130,26 @@ def main():
     # function. Without this, a .env-only setup (no shell export) silently
     # falls back to STRATEGY_CONFIG_DIR/STRATEGY_CONFIG's hardcoded default
     # and crashes with FileNotFoundError. Mirrors load_env()'s own logic.
+    #
+    # --validate-only is the exception: it is an offline check and must not
+    # load credentials (it used to load .env, build the broker and call
+    # GET /v2/account). It runs here, before .env, the broker or any
+    # network-dependent startup, and takes --config or STRATEGY_CONFIG(_DIR)
+    # from the shell only.
+    if "--validate-only" in sys.argv[1:]:
+        pre = argparse.ArgumentParser(add_help=False)
+        pre.add_argument("--validate-only", action="store_true")
+        pre.add_argument(
+            "--config",
+            default=os.environ.get("STRATEGY_CONFIG_DIR")
+            or os.environ.get("STRATEGY_CONFIG"),
+        )
+        known, _ = pre.parse_known_args()
+        if not known.config:
+            print("--validate-only needs --config (or STRATEGY_CONFIG in the shell)")
+            sys.exit(2)
+        sys.exit(validate_offline(known.config))
+
     dotenv_path = Path(".env")
     if dotenv_path.exists():
         load_dotenv(dotenv_path)
@@ -70,8 +159,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Validate config and connections, then exit
-  python run.py --validate-only
+  # Validate strategy config offline (no credentials, broker or network)
+  python run.py --validate-only --config configs/example_strategy.json
 
   # Run in dry-run mode (log trades but don't execute)
   python run.py --dry-run
@@ -113,7 +202,7 @@ Environment Variables:
     parser.add_argument(
         "--validate-only",
         action="store_true",
-        help="Validate config and connections, then exit",
+        help="Validate strategy config offline (no credentials or network), then exit",
     )
 
     # Replay mode arguments
@@ -149,108 +238,6 @@ Environment Variables:
     # Paper/live is controlled by ALPACA_PAPER env var, not CLI flag
     # (safer for Railway - can't accidentally pass --live flag)
     paper = _read_bool_env_or_exit("ALPACA_PAPER", default=True)
-
-    # --- validate-only branch ---
-    if args.validate_only:
-        print("Validating configuration and connections...")
-        print()
-
-        from alphalive.config import load_config_path, load_env, validate_all
-        from alphalive.broker.alpaca_broker import AlpacaBroker
-
-        try:
-            # Load config (supports single file or directory)
-            strategy_configs = load_config_path(args.config)
-            app_config = load_env()
-
-            print(f"Loaded {len(strategy_configs)} strategy/strategies")
-            print()
-
-            # Validate
-            if not validate_all(strategy_configs, app_config):
-                print("Configuration validation failed")
-                sys.exit(1)
-
-            # Refuse to validate-pass a trailing-stop strategy without
-            # persistent storage - same gate main.py's real startup path
-            # enforces (audit bug 2.4). check_trailing_stop_requirements()
-            # exits(1) itself with a clear message on failure.
-            from alphalive.state import check_trailing_stop_requirements
-
-            for strategy_config in strategy_configs:
-                check_trailing_stop_requirements(strategy_config)
-
-            print("Configuration valid")
-            print()
-
-            # Test broker connection
-            print("Testing Alpaca connection...")
-            broker = AlpacaBroker(
-                api_key=app_config.broker.api_key,
-                secret_key=app_config.broker.secret_key,
-                paper=app_config.broker.paper,
-                base_url=app_config.broker.base_url,
-            )
-
-            if broker.connect():
-                print("Broker connection successful")
-                account = broker.get_account()
-                print(f"   Account equity: ${account.equity:,.2f}")
-                print()
-            else:
-                print("Broker connection failed")
-                sys.exit(1)
-
-            # Test market data (use first strategy)
-            print("Testing market data...")
-            from alphalive.data.market_data import MarketDataFetcher
-
-            market_data = MarketDataFetcher(
-                api_key=app_config.broker.api_key,
-                secret_key=app_config.broker.secret_key,
-            )
-
-            test_strategy = strategy_configs[0]  # Use first strategy for testing
-
-            try:
-                df = market_data.get_latest_bars(
-                    test_strategy.ticker, test_strategy.timeframe, lookback_bars=50
-                )
-                print(
-                    f"Market data OK ({len(df)} bars fetched for {test_strategy.ticker})"
-                )
-                print()
-            except Exception as e:
-                print(f"Market data error: {e}")
-                sys.exit(1)
-
-            # Test signal generation
-            print("Testing signal generation...")
-            from alphalive.strategy.signal_engine import SignalEngine
-
-            signal_engine = SignalEngine(test_strategy)
-            test_signal = signal_engine.generate_signal(df)
-            print(f"Signal generation OK")
-            print(f"   Test signal: {test_signal['signal']}")
-            print(f"   Warmup complete: {test_signal.get('warmup_complete', True)}")
-            print()
-
-            print("=" * 80)
-            print("ALL VALIDATIONS PASSED")
-            print("=" * 80)
-            print()
-            print("Ready to run:")
-            print(f"  python run.py --config {args.config}")
-            print()
-
-            sys.exit(0)
-
-        except Exception as e:
-            print(f"Validation error: {e}")
-            import traceback
-
-            traceback.print_exc()
-            sys.exit(1)
 
     # --- Normal run ---
     if not paper:

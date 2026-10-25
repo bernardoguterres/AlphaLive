@@ -10,7 +10,7 @@ lets each test exercise exactly one loop iteration (or a chosen error path)
 without hanging or touching any real network/broker.
 """
 
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import AsyncMock, Mock, patch, MagicMock
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -27,6 +27,7 @@ def _make_app_config(**overrides):
         broker=BrokerConfig(api_key="test_key", secret_key="test_secret", paper=True),
         telegram=TelegramConfig(enabled=False),
     )
+    cfg.alphasignal.url = "http://alphasignal.test"
     for k, v in overrides.items():
         setattr(cfg, k, v)
     return cfg
@@ -74,7 +75,10 @@ def main_mocks(sample_strategy_config):
         "alphalive.main.signal.signal"
     ), patch(
         "alphalive.main.time.sleep"
-    ) as m_sleep:
+    ) as m_sleep, patch(
+        "alphalive.main.AlphaSignalClient.check_identity",
+        new=AsyncMock(return_value=("verified", "AlphaSignal 0.1.0, contract 2")),
+    ) as m_identity:
 
         m_load_cfg.return_value = [sample_strategy_config]
         m_load_env.return_value = _make_app_config()
@@ -184,13 +188,26 @@ def test_main_weekend_sleep_path(main_mocks):
     main_mocks["notifier"].send_message.assert_called()  # startup message sent
 
 
-def test_main_dashboard_paused_sleeps(main_mocks):
+def test_main_dashboard_pause_blocks_entries_but_keeps_exits_running(main_mocks):
+    """Pause policy (2026-10): the dashboard kill switch has the same
+    entry-only semantics as Telegram /pause and TRADING_PAUSED - exit checks
+    and fill sync keep running, open entry orders are cancelled. (It used
+    to `continue` the whole loop, freezing exits and fill booking too.)"""
     main_mocks["state"].check_dashboard_paused.return_value = True
+    main_mocks["state"].get_telegram_pause.return_value = False
+    main_mocks["state"].list_open_intents.return_value = []
+    main_mocks["broker"].is_market_open.return_value = True
     main_mocks["sleep"].side_effect = _sleep_raises_after(1)
 
-    main_module.main(config_path="dummy.json")
+    with patch("alphalive.main.datetime") as m_dt:
+        m_dt.now.return_value = datetime(2024, 1, 2, 10, 0, tzinfo=ET)
+        main_module.main(config_path="dummy.json")
 
-    main_mocks["sleep"].assert_called_with(30)
+    om = main_mocks["OrderManager"].return_value
+    om.sync_open_intents.assert_called()
+    om.cancel_open_entry_orders.assert_called()
+    assert "dashboard" in om.cancel_open_entry_orders.call_args[0][0]
+    assert main_mocks["broker"].get_all_positions.called  # exit checks ran
 
 
 def test_main_market_open_runs_signal_and_exit_checks(main_mocks):
@@ -328,10 +345,47 @@ def test_main_alphasignal_enabled(main_mocks):
     with patch("alphalive.main.AlphaSignalClient") as m_alphasignal_cls, patch(
         "alphalive.main.datetime"
     ) as m_dt:
+        m_alphasignal_cls.return_value.check_identity = AsyncMock(
+            return_value=("verified", "AlphaSignal 0.1.0, contract 2")
+        )
         m_dt.now.return_value = datetime(2024, 1, 6, 10, 0, tzinfo=ET)
         main_module.main(config_path="dummy.json")
 
-        m_alphasignal_cls.assert_called_once()
+        # one probe for the startup identity check, one gate client
+        assert m_alphasignal_cls.call_count == 2
+        assert m_alphasignal_cls.call_args.kwargs["verify_identity"] is True
+
+
+@pytest.mark.parametrize(
+    "url, identity, exits",
+    [
+        ("", None, True),
+        ("http://jarvis.test", ("wrong_service", "HTTP 200, not JSON"), True),
+        ("http://alphasignal.test", ("unreachable", "ConnectError"), False),
+    ],
+    ids=["missing-url", "wrong-service", "outage"],
+)
+def test_alphasignal_preflight_stops_before_the_broker_on_misconfiguration(
+    main_mocks, url, identity, exits
+):
+    cfg = _make_app_config()
+    cfg.alphasignal.enabled = True
+    cfg.alphasignal.url = url
+    main_mocks["load_env"].return_value = cfg
+    main_mocks["sleep"].side_effect = _sleep_raises_after(1)
+    with patch(
+        "alphalive.main.AlphaSignalClient.check_identity",
+        new=AsyncMock(return_value=identity),
+    ), patch("alphalive.main.datetime") as m_dt:
+        m_dt.now.return_value = datetime(2024, 1, 6, 10, 0, tzinfo=ET)
+        if exits:
+            with pytest.raises(SystemExit) as exc:
+                main_module.main(config_path="dummy.json")
+            assert exc.value.code == 1
+            main_mocks["AlpacaBroker"].assert_not_called()
+        else:
+            main_module.main(config_path="dummy.json")  # outage: keeps running
+            main_mocks["AlpacaBroker"].assert_called_once()
 
 
 def test_main_sigterm_handler_sends_shutdown_notification(main_mocks):

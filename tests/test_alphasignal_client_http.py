@@ -76,7 +76,7 @@ async def test_get_sentiment_no_signals_defaults_neutral():
     ):
         result = await client.get_sentiment("AAPL")
 
-    assert result["sentiment_score"] == 0.0
+    assert result["sentiment_score"] is None
     assert result["confidence"] == 0.0
     assert result["sources"] == []
 
@@ -97,7 +97,7 @@ async def test_get_sentiment_parses_data_available_false():
     ):
         result = await client.get_sentiment("AAPL")
 
-    assert result["sentiment_score"] == 0.0
+    assert result["sentiment_score"] is None
     assert result["data_available"] is False
 
 
@@ -162,4 +162,4 @@ async def test_run_pre_execution_checks_exception_fails_open():
     )
 
     assert allowed is True
-    assert pred == {"gate_status": GATE_STATUS_ERROR_BYPASS}
+    assert pred == {"gate_status": GATE_STATUS_ERROR_BYPASS, "fail_policy": "open"}

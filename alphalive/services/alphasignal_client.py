@@ -68,6 +68,33 @@ GATE_STATUS_PARTIAL_DEGRADED_BLOCK = (
 GATE_STATUS_INVALID_RESPONSE_BYPASS = (
     "invalid_response_bypass"  # impossible field combination - fail open
 )
+GATE_STATUS_STALE_BYPASS = (
+    "stale_bypass"  # data exists but none within AlphaSignal's freshness window
+)
+# The configured URL answers but is not AlphaSignal (or speaks an
+# incompatible sentiment contract). A configuration error, not an outage:
+# the BUY is blocked whatever the fail policy, and logged CRITICAL.
+GATE_STATUS_MISCONFIGURED_BLOCK = "misconfigured_block"
+
+# Service identity (GET {url}/health/): AlphaSignal reports
+# service="alphasignal" and the sentiment contract it implements.
+IDENTITY_UNCHECKED = "unchecked"
+IDENTITY_VERIFIED = "verified"
+IDENTITY_WRONG_SERVICE = "wrong_service"  # answered, but not AlphaSignal
+IDENTITY_UNREACHABLE = "unreachable"  # no answer / timeout / 5xx: an outage
+SUPPORTED_SENTIMENT_CONTRACTS = {"2"}
+
+# Outcomes where the gate could NOT evaluate sentiment. What happens then is
+# the explicit failure policy (ALPHASIGNAL_FAIL_POLICY): "open" (default)
+# allows the entry, "closed" blocks it. Exits are never sent to the gate.
+NON_EVALUATING_STATUSES = {
+    GATE_STATUS_NO_DATA_BYPASS,
+    GATE_STATUS_ERROR_BYPASS,
+    GATE_STATUS_FULL_DEGRADED_BYPASS,
+    GATE_STATUS_PARTIAL_DEGRADED_BYPASS,
+    GATE_STATUS_INVALID_RESPONSE_BYPASS,
+    GATE_STATUS_STALE_BYPASS,
+}
 
 # Partial-degradation product policy (established 2026-09-11): a
 # structurally valid partially-degraded response - status="degraded",
@@ -105,6 +132,8 @@ def _detect_contract_issue(data: dict, latest_score: Optional[float]) -> Optiona
 
     if status == "ok" and data_available is False:
         return "status=ok but data_available=false"
+    if status == "stale" and latest_score is not None:
+        return "status=stale but latest_score is not null"
     if degradation_reason == "full_extraction_failure" and latest_score is not None:
         return "degradation_reason=full_extraction_failure but latest_score is not null"
     if (
@@ -122,22 +151,35 @@ class AlphaSignalClient:
     Args:
         base_url: AlphaSignal service URL. From config.
         api_key: Auth key if required. From config.
-        timeout_seconds: Request timeout. Default 3.0.
+        timeout_seconds: Request timeout. Default 6.0.
         sentiment_threshold: Score below which execution is suppressed.
             Default -0.3. Range assumed [-1.0, 1.0].
     """
 
     def __init__(
         self,
-        base_url: str = "http://localhost:8000",
+        base_url: str = "",
         api_key: str = "",
-        timeout_seconds: float = 3.0,
+        timeout_seconds: float = 6.0,
         sentiment_threshold: float = -0.3,
+        fail_policy: str = "open",
+        verify_identity: bool = False,
     ) -> None:
         self.base_url = base_url.rstrip("/")
+        # main.py constructs with verify_identity=True and runs
+        # check_identity() at startup; until the service is verified, every
+        # gate call re-checks it (see is_execution_allowed).
+        self.verify_identity = verify_identity
+        self.identity = IDENTITY_UNCHECKED
+        self.identity_detail = ""
         self.api_key = api_key
         self.timeout_seconds = timeout_seconds
         self.sentiment_threshold = sentiment_threshold
+        if fail_policy not in ("open", "closed"):
+            raise ValueError(
+                f"fail_policy must be 'open' or 'closed', got {fail_policy!r}"
+            )
+        self.fail_policy = fail_policy
 
     async def get_sentiment(
         self,
@@ -160,9 +202,11 @@ class AlphaSignalClient:
 
         Returns:
             Dict with keys:
-                sentiment_score (float): Aggregate score in [-1.0, 1.0].
-                    Defaults to 0.0 (neutral) when AlphaSignal has no
-                    ingested documents for the ticker.
+                sentiment_score (float | None): Aggregate score in
+                    [-1.0, 1.0], or None when AlphaSignal returned no score
+                    (no data, stale, fully degraded). None is never
+                    replaced by 0.0, so missing evidence stays
+                    distinguishable from a genuinely neutral reading.
                 confidence (float): Confidence of the most-recent signal
                     in [0.0, 1.0]. 0.0 when no signals are available.
                 sources (list[str]): Source identifiers of the retrieved
@@ -171,12 +215,11 @@ class AlphaSignalClient:
                 data_available (bool): AlphaSignal's own
                     SentimentResponse.data_available flag - False means
                     AlphaSignal has zero ingested chunks for this ticker/
-                    date range, so sentiment_score's 0.0 is a fallback, not
-                    a genuine neutral reading. Defaults to True if the
+                    date range (sentiment_score is None). Defaults to True if the
                     response omits the field (older/mocked responses),
                     matching the pre-2026-08-15 behaviour for those callers.
                 status (str | None): AlphaSignal's "ok" | "no_data" |
-                    "degraded", or None on a legacy response that omits it.
+                    "stale" | "degraded", or None on a legacy response that omits it.
                 degraded (bool): True if AlphaSignal flags this response as
                     degraded (partial or full extraction failure). False
                     (not just absent) on legacy responses - matches the
@@ -221,21 +264,20 @@ class AlphaSignalClient:
 
         # latest_score is the convenience top-level field on SentimentResponse.
         latest_score: Optional[float] = data.get("latest_score")
-        sentiment_score = latest_score if latest_score is not None else 0.0
 
         signals: list[dict] = data.get("signals", [])
         confidence: float = signals[0]["confidence"] if signals else 0.0
         sources: list[str] = [s["source"] for s in signals]
 
         return {
-            "sentiment_score": sentiment_score,
-            "latest_score": latest_score,  # raw, possibly-None value (sentiment_score
-            # defaults it to 0.0 for backward-compat callers - the degraded-response
-            # branch in is_execution_allowed needs to tell "genuinely null" apart from
-            # "genuinely 0.0", which sentiment_score alone can no longer do)
+            # None when AlphaSignal has no score - never coerced to a neutral
+            # 0.0 (that once made "no evidence" look like "neutral").
+            "sentiment_score": latest_score,
+            "latest_score": latest_score,
             "confidence": confidence,
             "sources": sources,
             "latency_ms": latency_ms,
+            "last_document_date": data.get("last_document_date"),
             "data_available": data.get("data_available", True),
             "status": data.get("status"),
             "degraded": bool(data.get("degraded", False)),
@@ -245,7 +287,88 @@ class AlphaSignalClient:
             "contract_issue": _detect_contract_issue(data, latest_score),
         }
 
+    async def check_identity(self) -> tuple[str, str]:
+        """Classify the configured URL: verified AlphaSignal, a different
+        service (a response that does not identify as AlphaSignal with a
+        supported contract - an HTTP 200 alone proves nothing), or
+        unreachable (connection error, timeout, 5xx: a temporary outage)."""
+        if not self.base_url:
+            self.identity, self.identity_detail = (
+                IDENTITY_WRONG_SERVICE,
+                "ALPHASIGNAL_URL is not set",
+            )
+            return self.identity, self.identity_detail
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout_seconds, follow_redirects=True
+            ) as client:
+                r = await client.get(f"{self.base_url}/health/")
+        except httpx.HTTPError as exc:
+            status, detail = IDENTITY_UNREACHABLE, type(exc).__name__
+        else:
+            if r.status_code >= 500:
+                status, detail = IDENTITY_UNREACHABLE, f"HTTP {r.status_code}"
+            else:
+                try:
+                    body = r.json()
+                except ValueError:
+                    body = None
+                service = body.get("service") if isinstance(body, dict) else None
+                contract = (
+                    str(body.get("sentiment_contract"))
+                    if isinstance(body, dict)
+                    else None
+                )
+                if service != "alphasignal":
+                    status = IDENTITY_WRONG_SERVICE
+                    detail = f"HTTP {r.status_code}, " + (
+                        "not JSON" if body is None else f"service={service!r}"
+                    )
+                elif contract not in SUPPORTED_SENTIMENT_CONTRACTS:
+                    status = IDENTITY_WRONG_SERVICE
+                    detail = (
+                        f"AlphaSignal with unsupported sentiment_contract={contract!r}"
+                    )
+                else:
+                    status = IDENTITY_VERIFIED
+                    detail = f"AlphaSignal {body.get('version')}, contract {contract}"
+        self.identity, self.identity_detail = status, detail
+        return status, detail
+
     async def is_execution_allowed(
+        self,
+        ticker: str,
+        intended_direction: int,
+    ) -> tuple[bool, dict]:
+        """Evaluate the gate, then apply the explicit failure policy to any
+        outcome where sentiment could not be evaluated (see
+        NON_EVALUATING_STATUSES): fail_policy="open" allows, "closed" blocks.
+
+        With verify_identity, an unverified service is re-checked first: a
+        confirmed wrong service blocks (GATE_STATUS_MISCONFIGURED_BLOCK,
+        whatever the policy); an unreachable one goes on to the normal
+        request, whose failure the fail policy decides."""
+        if self.verify_identity and self.identity != IDENTITY_VERIFIED:
+            status, detail = await self.check_identity()
+            if status == IDENTITY_WRONG_SERVICE:
+                logger.critical(
+                    "AlphaSignal URL %s is not AlphaSignal (%s) - blocking %s entry "
+                    "as a configuration error (not an outage; fail policy not applied)",
+                    self.base_url,
+                    detail,
+                    ticker,
+                )
+                return False, {
+                    "gate_status": GATE_STATUS_MISCONFIGURED_BLOCK,
+                    "identity": detail,
+                }
+        allowed, pred = await self._evaluate(ticker, intended_direction)
+        if pred.get("gate_status") in NON_EVALUATING_STATUSES:
+            pred = {**pred, "fail_policy": self.fail_policy}
+            allowed = self.fail_policy == "open"
+        return allowed, pred
+
+    async def _evaluate(
         self,
         ticker: str,
         intended_direction: int,
@@ -345,6 +468,14 @@ class AlphaSignalClient:
             )
             return True, {**sentiment, "gate_status": GATE_STATUS_NO_DATA_BYPASS}
 
+        if sentiment.get("status") == "stale":
+            logger.info(
+                "AlphaSignal evidence for %s is stale (nothing within its freshness "
+                "window) - not evaluated (stale_bypass)",
+                ticker,
+            )
+            return True, {**sentiment, "gate_status": GATE_STATUS_STALE_BYPASS}
+
         if sentiment.get("degraded"):
             reason = sentiment.get("degradation_reason")
             raw_score = sentiment.get("latest_score")
@@ -417,6 +548,16 @@ class AlphaSignalClient:
                 "gate_status": GATE_STATUS_PARTIAL_DEGRADED_BYPASS,
             }
 
+        if sentiment.get("sentiment_score") is None:
+            # A non-degraded response without a score (e.g. a legacy response
+            # that omits status) has no evidence to evaluate. Previously this
+            # was scored as a neutral 0.0 and passed regardless of policy.
+            logger.info(
+                "AlphaSignal returned no score for %s - not evaluated (no_data_bypass)",
+                ticker,
+            )
+            return True, {**sentiment, "gate_status": GATE_STATUS_NO_DATA_BYPASS}
+
         score: float = sentiment["sentiment_score"]
 
         if intended_direction == 2:  # Long - block on strongly negative sentiment.
@@ -460,8 +601,9 @@ async def run_pre_execution_checks(
     for free. The DeepLOB arm that used to live here was removed
     2026-07-10 along with the DeepLOB project.
 
-    On any exception (timeout, network error, etc.) the filter fails
-    open - execution is allowed.
+    On any exception (timeout, network error, etc.) the configured
+    ``fail_policy`` decides: "open" allows the entry, "closed" blocks it.
+    Only BUY entries are sent here; exits never are.
 
     Args:
         alphasignal_client: Initialised ``AlphaSignalClient``, or None
@@ -484,7 +626,15 @@ async def run_pre_execution_checks(
     )
 
     if isinstance(sentiment_result, BaseException):
-        logger.warning("AlphaSignal filter raised (failing open): %s", sentiment_result)
-        return True, {"gate_status": GATE_STATUS_ERROR_BYPASS}
+        policy = getattr(alphasignal_client, "fail_policy", "open")
+        if policy not in ("open", "closed"):
+            policy = "open"
+        logger.warning(
+            "AlphaSignal filter raised (fail policy %s): %s", policy, sentiment_result
+        )
+        return policy == "open", {
+            "gate_status": GATE_STATUS_ERROR_BYPASS,
+            "fail_policy": policy,
+        }
 
     return sentiment_result
