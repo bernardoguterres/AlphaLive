@@ -138,8 +138,13 @@ def test_get_latest_bars_cache_miss_timeframe_mismatch(
     mock_bars.df = sample_bars_data
     mock_alpaca_client.get_stock_bars.return_value = mock_bars
 
-    # Request hourly data - should miss cache
-    result = market_data_fetcher.get_latest_bars("AAPL", "1Hour", lookback_bars=200)
+    # Request hourly data - should miss cache. (The daily sample data is
+    # stale as hourly data, so the fetch itself may legitimately raise;
+    # this test is only about the cache miss.)
+    try:
+        market_data_fetcher.get_latest_bars("AAPL", "1Hour", lookback_bars=200)
+    except DataStaleError:
+        pass
 
     # Client should be called (cache miss)
     mock_alpaca_client.get_stock_bars.assert_called_once()
@@ -210,14 +215,16 @@ def test_get_latest_bars_insufficient_bars(market_data_fetcher, mock_alpaca_clie
     mock_bars.df = df
     mock_alpaca_client.get_stock_bars.return_value = mock_bars
 
-    with pytest.raises(ValueError, match="only 11 bars"):  # 11 days in range
+    # 11 days in range; today's bar is dropped unless the session has closed
+    with pytest.raises(ValueError, match=r"only 1[01] bars"):
         market_data_fetcher.get_latest_bars("AAPL", "1Day", lookback_bars=200)
 
 
 def test_data_stale_error_15min(market_data_fetcher, mock_alpaca_client):
     """Test DataStaleError for 15Min timeframe."""
-    # Create stale data (10 minutes old)
-    stale_time = datetime.now(ET) - timedelta(minutes=10)
+    # Last bar STARTED 60 min ago (ended 45 min ago): more than one full
+    # 15-min interval + 5 min grace past its completion -> stale.
+    stale_time = datetime.now(ET) - timedelta(minutes=60)
     dates = pd.date_range(
         start=stale_time - timedelta(hours=10), end=stale_time, freq="15min"
     )
@@ -241,14 +248,16 @@ def test_data_stale_error_15min(market_data_fetcher, mock_alpaca_client):
     mock_bars.df = df
     mock_alpaca_client.get_stock_bars.return_value = mock_bars
 
-    with pytest.raises(DataStaleError, match="10.*minutes old.*limit: 5 min"):
+    with pytest.raises(
+        DataStaleError, match="past its last completed bar.*limit: 20 min"
+    ):
         market_data_fetcher.get_latest_bars("AAPL", "15Min", lookback_bars=30)
 
 
 def test_data_stale_error_1hour(market_data_fetcher, mock_alpaca_client):
     """Test DataStaleError for 1Hour timeframe."""
-    # Create stale data (20 minutes old)
-    stale_time = datetime.now(ET) - timedelta(minutes=20)
+    # Last bar started 3h ago (ended 2h ago) -> beyond 60 + 15 min.
+    stale_time = datetime.now(ET) - timedelta(hours=3)
     dates = pd.date_range(
         start=stale_time - timedelta(hours=50), end=stale_time, freq="1h"
     )
@@ -272,7 +281,9 @@ def test_data_stale_error_1hour(market_data_fetcher, mock_alpaca_client):
     mock_bars.df = df
     mock_alpaca_client.get_stock_bars.return_value = mock_bars
 
-    with pytest.raises(DataStaleError, match="20.*minutes old.*limit: 15 min"):
+    with pytest.raises(
+        DataStaleError, match="past its last completed bar.*limit: 75 min"
+    ):
         market_data_fetcher.get_latest_bars("AAPL", "1Hour", lookback_bars=30)
 
 
@@ -288,10 +299,11 @@ def test_get_current_price_success(market_data_fetcher, mock_alpaca_client):
     mock_alpaca_client.get_stock_latest_trade.assert_called_once()
 
 
-def test_get_current_price_fallback_to_cache(
+def test_get_current_price_never_falls_back_to_adjusted_cached_close(
     market_data_fetcher, mock_alpaca_client, sample_bars_data
 ):
-    """Test fallback to cached close price when API fails."""
+    """Cached bars are adjusted completed-bar closes, not an executable raw
+    price; a failed latest-trade call must raise rather than return them."""
     # Populate cache
     df = sample_bars_data.copy()
     if isinstance(df.index, pd.MultiIndex):
@@ -307,11 +319,8 @@ def test_get_current_price_fallback_to_cache(
     # Mock API failure
     mock_alpaca_client.get_stock_latest_trade.side_effect = Exception("API timeout")
 
-    price = market_data_fetcher.get_current_price("AAPL")
-
-    # Should use cached close price
-    assert isinstance(price, float)
-    assert price > 0
+    with pytest.raises(Exception, match="latest trade unavailable"):
+        market_data_fetcher.get_current_price("AAPL")
 
 
 def test_get_current_price_no_fallback(market_data_fetcher, mock_alpaca_client):
@@ -486,3 +495,52 @@ def test_map_timeframe_invalid(market_data_fetcher):
     """Test invalid timeframe raises error."""
     with pytest.raises(ValueError, match="Unsupported timeframe"):
         market_data_fetcher._map_timeframe("5Min")
+
+
+# ---------------------------------------------------------------------------
+# Completed-bar / adjustment policy (2026-10 repair)
+# ---------------------------------------------------------------------------
+
+
+def _daily(dates):
+    return pd.DataFrame(
+        {"open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 1.0},
+        index=pd.DatetimeIndex(dates).tz_localize(ET),
+    )
+
+
+def test_partial_daily_bar_dropped_before_close():
+    df = _daily(["2026-10-13", "2026-10-14", "2026-10-15"])
+    now = datetime(2026, 10, 15, 9, 35, tzinfo=ET)
+    out = MarketDataFetcher._drop_incomplete_bars(df, "1Day", now)
+    assert list(out.index.date.astype(str)) == ["2026-10-13", "2026-10-14"]
+
+
+def test_daily_bar_kept_after_session_close():
+    df = _daily(["2026-10-14", "2026-10-15"])
+    now = datetime(2026, 10, 15, 16, 1, tzinfo=ET)
+    out = MarketDataFetcher._drop_incomplete_bars(df, "1Day", now)
+    assert len(out) == 2
+
+
+def test_incomplete_intraday_bar_dropped():
+    idx = pd.DatetimeIndex(
+        ["2026-10-15 09:30", "2026-10-15 09:45", "2026-10-15 10:00"]
+    ).tz_localize(ET)
+    df = pd.DataFrame({"close": [1, 2, 3]}, index=idx)
+    now = datetime(2026, 10, 15, 10, 7, tzinfo=ET)
+    out = MarketDataFetcher._drop_incomplete_bars(df, "15Min", now)
+    assert list(out["close"]) == [1, 2]
+
+
+def test_bars_requested_with_full_adjustment(
+    market_data_fetcher, mock_alpaca_client, sample_bars_data
+):
+    from alpaca.data.enums import Adjustment
+
+    mock_bars = Mock()
+    mock_bars.df = sample_bars_data
+    mock_alpaca_client.get_stock_bars.return_value = mock_bars
+    market_data_fetcher.get_latest_bars("AAPL", "1Day", lookback_bars=50)
+    req = mock_alpaca_client.get_stock_bars.call_args[0][0]
+    assert req.adjustment == Adjustment.ALL
