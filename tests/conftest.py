@@ -5,6 +5,7 @@ Provides reusable test fixtures for AlphaLive tests.
 """
 
 import json
+import socket as _socket
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import Mock
@@ -429,3 +430,40 @@ def sample_app_config_dict():
         "DRY_RUN": "false",
         "TRADING_PAUSED": "false",
     }
+
+
+# ---------------------------------------------------------------------------
+# Network guard (2026-10): no test may reach a real external service
+# (broker, Telegram, OpenAI, SEC, Yahoo). Loopback stays allowed for the
+# local broker simulator and in-process servers. Added after finding that a
+# notifier test's background retry thread outlived its httpx.post patch and
+# sent a real request to api.telegram.org (with a dummy token -> 404).
+# ---------------------------------------------------------------------------
+
+_REAL_CONNECT = _socket.socket.connect
+_REAL_CONNECT_EX = _socket.socket.connect_ex
+
+
+def _is_loopback(address) -> bool:
+    if isinstance(address, tuple) and address:
+        host = str(address[0])
+        return host in ("127.0.0.1", "::1", "localhost") or host.startswith("127.")
+    return True  # unix-domain sockets
+
+
+def _guarded_connect(self, address):
+    if not _is_loopback(address):
+        raise ConnectionRefusedError(f"test network guard: blocked {address}")
+    return _REAL_CONNECT(self, address)
+
+
+def _guarded_connect_ex(self, address):
+    if not _is_loopback(address):
+        return 111  # ECONNREFUSED
+    return _REAL_CONNECT_EX(self, address)
+
+
+# Installed for the whole session and never undone: background threads
+# (notifier retries, listeners) can outlive the test that started them.
+_socket.socket.connect = _guarded_connect
+_socket.socket.connect_ex = _guarded_connect_ex
