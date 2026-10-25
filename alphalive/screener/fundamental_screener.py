@@ -1,20 +1,30 @@
-"""Greenblatt Magic Formula screener for AlphaLive production use.
+"""Greenblatt Magic Formula screener for AlphaLive (informational).
 
-Runs once per calendar month and writes a candidates JSON file.
-AlphaLive's main loop reads this file to decide which tickers to monitor.
+Runs once per calendar month (main.py's _run_monthly_screener) and writes a
+candidates JSON file shown on the dashboard and summarised on Telegram. It
+does NOT choose what the bot trades - each deployed strategy config names
+its own ticker.
 
-Usage (called from main.py's _run_monthly_screener, which tracks the last-run
-month in BotState rather than checking date.today().day == 1 - the latter
-would re-run every 30s all day on the 1st and skip the month entirely if the
-bot was down that day):
-    screener = FundamentalScreener(universe=MY_UNIVERSE, output_path="screener_output.json")
-    candidates = screener.run()
+Formula (aligned with AlphaLab's FundamentalScreener, 2026-10 - this module
+previously ranked 1/trailing-P/E + ROE under the same name, the proxy
+AlphaLab retired as not Greenblatt's method):
+  Earnings Yield    = EBIT / Enterprise Value
+  Return on Capital = EBIT / (Net Working Capital + Net PPE)
+  combined_rank     = EY rank + ROC rank (1 = best each; ties broken by
+                      universe order), lower is better.
+Financial Services / Utilities are excluded; EBIT, invested capital and EV
+must be positive; market-cap and debt/equity filters as AlphaLab.
+Independently implemented (not imported from AlphaLab) and checked against
+hand-computed values in tests/test_fundamental_screener.py.
+
+Limitation (shared with AlphaLab): yfinance gives only current fundamentals.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -26,34 +36,50 @@ import yfinance as yf
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
+EXCLUDED_SECTORS = {"Financial Services", "Financials", "Utilities"}
+EBIT_ROWS = ["EBIT", "Total Operating Income As Reported", "Operating Income"]
+NWC_ROWS = ["Working Capital"]
+CURRENT_ASSET_ROWS = ["Current Assets", "Total Current Assets"]
+CURRENT_LIAB_ROWS = ["Current Liabilities", "Total Current Liabilities"]
+NET_PPE_ROWS = ["Net PPE", "Net Property Plant Equipment"]
+
+
+def latest_value(statement, rows: list[str]):
+    """Most recent (first-column) finite value of the first matching row."""
+    if statement is None or not hasattr(statement, "index"):
+        return None
+    for name in rows:
+        if name not in statement.index:
+            continue
+        try:
+            series = statement.loc[name]
+            value = float(series.iloc[0] if hasattr(series, "iloc") else series)
+        except (TypeError, ValueError, IndexError):
+            continue
+        if math.isfinite(value):
+            return value
+    return None
+
 
 @dataclass
 class ScreenerResult:
     ticker: str
     company_name: str
     sector: str
-    earnings_yield: float
-    return_on_equity: float
-    pe_ratio: float
+    earnings_yield: float  # EBIT / EV
+    return_on_capital: float  # EBIT / (NWC + Net PPE)
+    ebit: float
+    enterprise_value: float
+    invested_capital: float
     market_cap_b: float
     debt_to_equity: float
-    combined_rank: int
+    earnings_yield_rank: int = 0
+    roc_rank: int = 0
+    combined_rank: int = 0
 
 
 class FundamentalScreener:
-    """Monthly Greenblatt screener for AlphaLive.
-
-    Ranks a universe of stocks by earnings yield (1/PE) + ROE, outputs
-    the top N candidates as a JSON file for AlphaLive to monitor.
-
-    Args:
-        universe: Ticker symbols to screen.
-        output_path: Where to write screener_output.json.
-        top_n: How many candidates to select.
-        min_market_cap_b: Minimum market cap in billions.
-        max_debt_to_equity: Maximum D/E ratio.
-        request_delay: Seconds between yfinance calls.
-    """
+    """Monthly Magic Formula screen (see module docstring)."""
 
     def __init__(
         self,
@@ -71,29 +97,21 @@ class FundamentalScreener:
         self.max_debt_to_equity = max_debt_to_equity
         self.request_delay = request_delay
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
     def run(self) -> list[ScreenerResult]:
         """Run the full screen immediately regardless of date."""
         raw = self._fetch_all()
         qualified = self._filter(raw)
         ranked = self._rank(qualified)
         candidates = ranked[: self.top_n]
-
         self._save(candidates)
         logger.info(
-            f"Screener complete: {len(self.universe)} fetched → "
-            f"{len(qualified)} qualified → {len(candidates)} selected"
+            f"Screener complete: {len(self.universe)} fetched -> "
+            f"{len(qualified)} qualified -> {len(candidates)} selected"
         )
         return candidates
 
     def load_candidates(self) -> list[str]:
-        """Load the tickers from the last saved screener output.
-
-        Returns an empty list if no output file exists yet.
-        """
+        """Tickers from the last saved output (empty if none)."""
         if not self.output_path.exists():
             logger.warning(
                 f"No screener output at {self.output_path} - returning empty list"
@@ -105,10 +123,6 @@ class FundamentalScreener:
         except Exception as exc:
             logger.error(f"Failed to load screener output: {exc}")
             return []
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
 
     def _fetch_all(self) -> list[ScreenerResult]:
         results = []
@@ -122,34 +136,49 @@ class FundamentalScreener:
 
     def _fetch_one(self, ticker: str) -> ScreenerResult | None:
         try:
-            info = yf.Ticker(ticker).info
+            t = yf.Ticker(ticker)
+            info = t.info
             if not info or info.get("regularMarketPrice") is None:
                 return None
-
-            pe = info.get("trailingPE")
-            roe = info.get("returnOnEquity")
-            market_cap = info.get("marketCap") or 0
-            # yfinance debtToEquity is a percentage (e.g. 79.5 = 0.795×), normalise to ratio
-            raw_dte = info.get("debtToEquity") or 0.0
-            dte = raw_dte / 100.0
-
-            if pe is None or pe <= 0 or roe is None:
-                return None
-
-            return ScreenerResult(
-                ticker=ticker,
-                company_name=info.get("shortName", ticker),
-                sector=info.get("sector", "Unknown"),
-                earnings_yield=1.0 / pe,
-                return_on_equity=roe,
-                pe_ratio=pe,
-                market_cap_b=market_cap / 1e9,
-                debt_to_equity=dte,
-                combined_rank=0,
-            )
+            return self.evaluate(ticker, info, t.income_stmt, t.balance_sheet)
         except Exception as exc:
             logger.warning(f"{ticker}: fetch failed - {exc}")
             return None
+
+    @staticmethod
+    def evaluate(
+        ticker: str, info: dict, income_stmt, balance_sheet
+    ) -> ScreenerResult | None:
+        """Compute the two factors for one company, or None if unrankable."""
+        sector = info.get("sector", "Unknown")
+        if sector in EXCLUDED_SECTORS:
+            return None
+        ebit = latest_value(income_stmt, EBIT_ROWS)
+        ev = info.get("enterpriseValue")
+        nwc = latest_value(balance_sheet, NWC_ROWS)
+        if nwc is None:
+            ca = latest_value(balance_sheet, CURRENT_ASSET_ROWS)
+            cl = latest_value(balance_sheet, CURRENT_LIAB_ROWS)
+            nwc = ca - cl if ca is not None and cl is not None else None
+        ppe = latest_value(balance_sheet, NET_PPE_ROWS)
+        if None in (ebit, ev, nwc, ppe):
+            return None
+        invested = nwc + ppe
+        if ebit <= 0 or invested <= 0 or ev <= 0:
+            return None
+        return ScreenerResult(
+            ticker=ticker,
+            company_name=info.get("shortName", ticker),
+            sector=sector,
+            earnings_yield=ebit / ev,
+            return_on_capital=ebit / invested,
+            ebit=ebit,
+            enterprise_value=float(ev),
+            invested_capital=invested,
+            market_cap_b=(info.get("marketCap") or 0) / 1e9,
+            # yfinance debtToEquity is a percentage (79.5 = 0.795x)
+            debt_to_equity=(info.get("debtToEquity") or 0.0) / 100.0,
+        )
 
     def _filter(self, results: list[ScreenerResult]) -> list[ScreenerResult]:
         return [
@@ -159,16 +188,20 @@ class FundamentalScreener:
             and r.debt_to_equity <= self.max_debt_to_equity
         ]
 
-    def _rank(self, results: list[ScreenerResult]) -> list[ScreenerResult]:
-        by_ey = sorted(results, key=lambda r: r.earnings_yield, reverse=True)
-        ey_ranks = {r.ticker: i + 1 for i, r in enumerate(by_ey)}
+    @staticmethod
+    def _rank(results: list[ScreenerResult]) -> list[ScreenerResult]:
+        def ranks(key):
+            order = sorted(range(len(results)), key=lambda i: (-key(results[i]), i))
+            out = [0] * len(results)
+            for pos, i in enumerate(order, start=1):
+                out[i] = pos
+            return out
 
-        by_roe = sorted(results, key=lambda r: r.return_on_equity, reverse=True)
-        roe_ranks = {r.ticker: i + 1 for i, r in enumerate(by_roe)}
-
-        for r in results:
-            r.combined_rank = ey_ranks[r.ticker] + roe_ranks[r.ticker]
-
+        ey = ranks(lambda r: r.earnings_yield)
+        roc = ranks(lambda r: r.return_on_capital)
+        for r, a, b in zip(results, ey, roc):
+            r.earnings_yield_rank, r.roc_rank = a, b
+            r.combined_rank = a + b
         return sorted(results, key=lambda r: r.combined_rank)
 
     def _save(self, candidates: list[ScreenerResult]) -> None:
