@@ -821,8 +821,8 @@
               <th scope="col" class="px-4 py-2 text-left label-caps-dim">Company</th>
               <th scope="col" class="px-4 py-2 text-left label-caps-dim">Sector</th>
               <th scope="col" class="px-4 py-2 text-right label-caps-dim">Earn. Yield</th>
-              <th scope="col" class="px-4 py-2 text-right label-caps-dim">ROE</th>
-              <th scope="col" class="px-4 py-2 text-right label-caps-dim">P/E</th>
+              <th scope="col" class="px-4 py-2 text-right label-caps-dim">ROC</th>
+              <th scope="col" class="px-4 py-2 text-right label-caps-dim">Rank</th>
               <th scope="col" class="px-4 py-2 text-right label-caps-dim">Mkt Cap</th>
               <th scope="col" class="px-4 py-2 text-right label-caps-dim">D/E</th>
               <th scope="col" class="px-4 py-2 text-left label-caps-dim">Status</th>
@@ -836,8 +836,8 @@
                 <td class="px-4 py-2 text-xs max-w-[180px] truncate" style="color: var(--text-base);" :title="c.company_name" x-text="c.company_name"></td>
                 <td class="px-4 py-2 text-xs" style="color: var(--text-muted);" x-text="c.sector"></td>
                 <td class="px-4 py-2 text-right font-mono-nums text-emerald-400 font-medium" x-text="fmtPct1(c.earnings_yield)"></td>
-                <td class="px-4 py-2 text-right font-mono-nums text-cyan-400" x-text="fmtPct1(c.return_on_equity)"></td>
-                <td class="px-4 py-2 text-right font-mono-nums" style="color: var(--text-base);" x-text="c.pe_ratio ? c.pe_ratio.toFixed(1) : '-'"></td>
+                <td class="px-4 py-2 text-right font-mono-nums text-cyan-400" x-text="fmtPct1(c.return_on_capital)"></td>
+                <td class="px-4 py-2 text-right font-mono-nums" style="color: var(--text-base);" x-text="c.combined_rank ?? '-'"></td>
                 <td class="px-4 py-2 text-right font-mono-nums text-xs" style="color: var(--text-muted);" x-text="fmtB(c.market_cap_b)"></td>
                 <td class="px-4 py-2 text-right font-mono-nums text-xs" style="color: var(--text-dim);" x-text="c.debt_to_equity ? c.debt_to_equity.toFixed(2) + 'x' : '-'"></td>
                 <td class="px-4 py-2">
