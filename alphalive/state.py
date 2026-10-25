@@ -15,10 +15,12 @@ to prevent position_highs from being reset on redeploy (real money risk).
 import os
 import sys
 import json
+import fcntl
 import logging
 import threading
 import uuid
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from functools import wraps
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
@@ -31,7 +33,7 @@ ET = ZoneInfo("America/New_York")
 
 # Bump when the on-disk state shape changes in a way `_migrate()` needs to
 # handle. Legacy files with no "schema_version" key are treated as version 1.
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 # Submission-intent lifecycle states (order-intent durability, see
 # OrderManager._prepare_intent / _reconcile_intent). "uncertain" is the
@@ -48,6 +50,11 @@ INTENT_CANCELLED = "cancelled"
 INTENT_EXPIRED = "expired"
 INTENT_UNCERTAIN = "uncertain"
 INTENT_RECONCILED = "reconciled"
+# Terminal: the intent never reached the broker (still "prepared" at
+# startup), or stayed unresolvable past the uncertainty grace period with
+# the broker reporting no order for its client_order_id. Its decision
+# context is gone - it is closed out, never resubmitted for a later signal.
+INTENT_ABANDONED = "abandoned"
 
 # Non-terminal statuses: an intent in one of these blocks a new order for
 # the same (ticker, side) decision until it is reconciled. "reconciled" is
@@ -67,7 +74,26 @@ TERMINAL_INTENT_STATUSES = {
     INTENT_CANCELLED,
     INTENT_EXPIRED,
     INTENT_RECONCILED,
+    INTENT_ABANDONED,
 }
+
+# Quantity tolerance shared by the ledger and order reconciliation.
+QTY_EPSILON = Decimal("0.000001")
+
+
+def _dec(value: Any) -> Decimal:
+    """Decimal via str() (never float->Decimal directly); None/garbage -> 0."""
+    if value is None:
+        return Decimal("0")
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return Decimal("0")
+
+
+class StateLockError(RuntimeError):
+    """Raised when another process already owns this state file's
+    exclusive execution lock (see BotState(exclusive=True))."""
 
 
 class StateSchemaError(RuntimeError):
@@ -188,12 +214,21 @@ class BotState:
     - File deletion
     """
 
-    def __init__(self, state_file: Optional[str] = None):
+    def __init__(self, state_file: Optional[str] = None, exclusive: bool = False):
         """
         Initialize BotState.
 
         Args:
             state_file: Path to state file. If None, uses STATE_FILE env var.
+            exclusive: Acquire a non-blocking, process-lifetime exclusive
+                lock on ``{state_file}.lock`` before loading. The trading
+                bot (main.py) always passes True: two bot processes sharing
+                one state file would each keep a private in-memory copy and
+                overwrite each other's submission intents/ledger on save
+                (reproduced in the 2026-10 integrity audit), which is a
+                duplicate-order hazard. A second owner fails fast with
+                StateLockError. Read-only/auxiliary users (the dashboard,
+                tests) keep the default False.
         """
         # Guards every @_synchronized method below against concurrent
         # mutation from the main loop thread and the Telegram listener's
@@ -211,8 +246,49 @@ class BotState:
             os.makedirs(os.path.dirname(self.state_file) or ".", exist_ok=True)
         except Exception as e:
             logger.debug(f"Could not pre-create state directory: {e}")
+        self._lock_fd = None
+        if exclusive:
+            self._acquire_process_lock()
         self.state = self._load()
         logger.info(f"BotState initialized from {self.state_file}")
+
+    def _acquire_process_lock(self) -> None:
+        """Take the process-lifetime exclusive lock (flock, released by the
+        OS when the process exits - including on crash/SIGKILL, so a stale
+        lock can never outlive its owner)."""
+        lock_path = f"{self.state_file}.lock"
+        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(fd)
+            raise StateLockError(
+                f"State file {self.state_file} is already owned by another "
+                f"running AlphaLive process (lock {lock_path} held). Refusing to "
+                f"start a second execution process on the same state - it would "
+                f"overwrite submission intents and position ledger entries."
+            )
+        os.ftruncate(fd, 0)
+        os.write(fd, f"{os.getpid()}\n".encode())
+        self._lock_fd = fd
+        logger.info(f"Exclusive state lock acquired: {lock_path} (pid {os.getpid()})")
+
+    def close(self) -> None:
+        """Release the exclusive process lock (if held). The OS also releases
+        it when the process exits."""
+        if self._lock_fd is not None:
+            try:
+                fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
+                os.close(self._lock_fd)
+            except OSError:
+                pass
+            self._lock_fd = None
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def _load(self) -> dict:
         """
@@ -330,7 +406,13 @@ class BotState:
             "engine_state": {},  # {ticker: {in_position, entry_price, peak_price}} - SignalEngine state
             "submission_intents": {},  # {intent_id: {...}} - order submission-intent lifecycle
             "weekly_eval_keys": {},  # {ticker: "YYYY-Www"} - last evaluated ISO week per 1Week strategy
+            "daily_eval_dates": {},  # {ticker: "YYYY-MM-DD"} - last completed 1Day evaluation
             "telegram_paused": False,  # global Telegram /pause flag, survives restarts
+            # {strategy_key: {date, trades_today, daily_pnl, consecutive_losses,
+            #  circuit_breaker, last_trade_bar_ts: {ticker: iso}}} - RiskManager
+            # counters persisted so a mid-day restart can't silently reset
+            # loss limits / trade counts (schema v3).
+            "risk_counters": {},
             "last_startup": None,
             "version": "1.0",  # legacy informational field, kept for backward compat
             "schema_version": CURRENT_SCHEMA_VERSION,
@@ -534,10 +616,14 @@ class BotState:
         not reset daily, so multi-day holds don't trigger false drift.
         """
         ledger = self.state.setdefault("open_positions", {})
+        prior = ledger.get(ticker) or {}
         ledger[ticker] = {
             "qty": qty,
             "entry_price": entry_price,
-            "opened_at": datetime.now(ET).isoformat(),
+            # Preserved when re-recording an existing position (startup
+            # adoption refresh, corporate-action rescale).
+            "opened_at": prior.get("opened_at") or datetime.now(ET).isoformat(),
+            "realized_pnl": prior.get("realized_pnl", 0.0),
         }
         self.save()
         logger.info(f"Position ledger: opened {ticker} ({qty} @ ${entry_price:.2f})")
@@ -550,6 +636,152 @@ class BotState:
             del ledger[ticker]
             self.save()
             logger.info(f"Position ledger: closed {ticker}")
+
+    @_synchronized
+    def apply_intent_fill_progress(
+        self,
+        intent_id: str,
+        broker_filled_qty: Any,
+        broker_avg_price: Any,
+        commission: float = 0.0,
+    ) -> Optional[Dict[str, Any]]:
+        """Apply the NEW part of a broker-confirmed cumulative fill to the
+        position ledger, exactly once, atomically with the intent update.
+
+        The broker reports cumulative ``filled_qty`` and the cumulative
+        ``filled_avg_price`` for an order. Each intent remembers how much of
+        that it has already applied (``filled_qty_applied`` /
+        ``filled_value_applied``), so:
+          - a repeated report of the same cumulative fill is a no-op
+            (duplicate update),
+          - a report LOWER than what was already applied is ignored
+            (out-of-order/stale update - fills never decrease),
+          - only the delta quantity, at its own incremental price
+            (delta value / delta qty), touches the ledger.
+
+        BUY deltas add to the ledger position (quantity-weighted average
+        entry). SELL/CLOSE deltas reduce it and realise P&L against the
+        ledger's average entry. ``commission`` (flat, per order) is charged
+        once, on the first applied fill of the intent.
+
+        Returns None when nothing new was applied, else a dict with
+        delta_qty, delta_price, realized_pnl, position_qty_after,
+        round_trip_closed and round_trip_pnl.
+        """
+        intents = self.state.setdefault("submission_intents", {})
+        intent = intents.get(intent_id)
+        if intent is None:
+            logger.error(f"apply_intent_fill_progress: unknown intent {intent_id}")
+            return None
+
+        new_qty = _dec(broker_filled_qty)
+        applied_qty = _dec(intent.get("filled_qty_applied"))
+        if new_qty <= applied_qty + QTY_EPSILON:
+            if new_qty + QTY_EPSILON < applied_qty:
+                logger.warning(
+                    f"Intent {intent_id}: broker reported cumulative fill {new_qty} "
+                    f"< already-applied {applied_qty} - stale/out-of-order update "
+                    f"ignored (fills never decrease)."
+                )
+            return None
+
+        avg_price = _dec(broker_avg_price)
+        applied_value = _dec(intent.get("filled_value_applied"))
+        delta_qty = new_qty - applied_qty
+        total_value = new_qty * avg_price
+        delta_value = total_value - applied_value
+        delta_price = delta_value / delta_qty if delta_qty > 0 else avg_price
+        if delta_price <= 0:
+            delta_price = avg_price
+
+        fee = Decimal("0")
+        if not intent.get("commission_applied"):
+            fee = _dec(commission)
+            intent["commission_applied"] = True
+
+        ticker = intent["ticker"]
+        side = intent["side"]
+        ledger = self.state.setdefault("open_positions", {})
+        entry = ledger.get(ticker)
+        realized = -fee
+        round_trip_closed = False
+        round_trip_pnl = None
+        now_iso = datetime.now(ET).isoformat()
+
+        if side == "BUY":
+            if entry is None:
+                entry = {
+                    "qty": 0.0,
+                    "entry_price": 0.0,
+                    "opened_at": now_iso,
+                    "realized_pnl": 0.0,
+                }
+            old_qty = _dec(entry.get("qty"))
+            old_px = _dec(entry.get("entry_price"))
+            qty_after = old_qty + delta_qty
+            entry["entry_price"] = float(
+                (old_qty * old_px + delta_qty * delta_price) / qty_after
+            )
+            entry["qty"] = float(qty_after)
+            entry["realized_pnl"] = float(_dec(entry.get("realized_pnl")) + realized)
+            ledger[ticker] = entry
+            position_after = qty_after
+        else:  # SELL / CLOSE - long-only system, so always a reduction
+            if entry is None:
+                logger.warning(
+                    f"Intent {intent_id}: {side} fill of {delta_qty} {ticker} with no "
+                    f"ledger position - realised P&L unknown (no entry price)."
+                )
+                position_after = Decimal("0")
+            else:
+                old_qty = _dec(entry.get("qty"))
+                entry_px = _dec(entry.get("entry_price"))
+                realized += (delta_price - entry_px) * delta_qty
+                position_after = old_qty - delta_qty
+                cumulative = _dec(entry.get("realized_pnl")) + realized
+                if position_after <= QTY_EPSILON:
+                    del ledger[ticker]
+                    round_trip_closed = True
+                    round_trip_pnl = float(cumulative)
+                    position_after = Decimal("0")
+                else:
+                    entry["qty"] = float(position_after)
+                    entry["realized_pnl"] = float(cumulative)
+
+        intent["filled_qty_applied"] = float(new_qty)
+        intent["filled_value_applied"] = float(total_value)
+        intent["updated_at"] = now_iso
+        self.save()
+        result = {
+            "ticker": ticker,
+            "side": side,
+            "delta_qty": float(delta_qty),
+            "delta_price": float(delta_price),
+            "realized_pnl": float(realized),
+            "position_qty_after": float(position_after),
+            "round_trip_closed": round_trip_closed,
+            "round_trip_pnl": round_trip_pnl,
+        }
+        logger.info(
+            f"Fill applied (intent {intent_id}): {side} {result['delta_qty']} {ticker} "
+            f"@ ${result['delta_price']:.4f} | position now {result['position_qty_after']} "
+            f"| realised ${result['realized_pnl']:.2f}"
+        )
+        return result
+
+    @_synchronized
+    def get_risk_counters(self, key: str, today: str) -> Optional[Dict[str, Any]]:
+        """Return persisted RiskManager counters for `key` if they belong to
+        `today` (ET date string), else None."""
+        entry = self.state.get("risk_counters", {}).get(key)
+        if entry and entry.get("date") == today:
+            return dict(entry)
+        return None
+
+    @_synchronized
+    def set_risk_counters(self, key: str, counters: Dict[str, Any]) -> None:
+        self.state.setdefault("risk_counters", {})[key] = dict(counters)
+        self.save()
 
     @_synchronized
     def get_open_positions(self) -> dict:
@@ -613,9 +845,9 @@ class BotState:
     # ------------------------------------------------------------------
     # Weekly scheduling (objective: 1Week strategies evaluate once per
     # ISO calendar week, 2026-09-11 hardening pass). The in-memory
-    # `morning_checks_done` set main.py already uses for 1Day is lost on
-    # restart, which is fine for a once-per-day gate (a restart later the
-    # same day is a narrow, documented, accepted window - see README). A
+    # `morning_checks_done` set main.py uses as a fast in-process guard is
+    # lost on restart (1Day has its own persisted date, see
+    # get_daily_eval_date below). A
     # once-per-CALENDAR-WEEK gate needs a real restart guarantee: without
     # this, a restart on, say, Wednesday after Monday's weekly evaluation
     # would re-evaluate against a fresh in-memory set. `mark_weekly_eval_done`
@@ -680,6 +912,24 @@ class BotState:
         """Release a claim made by try_begin_weekly_eval(), regardless of
         whether the evaluation completed or failed."""
         self._weekly_eval_in_flight.discard((ticker, week_key))
+
+    # 1Day counterpart: `morning_checks_done` is in memory only, so a restart
+    # inside 09:35-09:59 ET used to re-run a completed daily evaluation (and
+    # could flip a decision the first run had blocked, e.g. a timed-out
+    # sentiment call under fail_policy=closed). Only a completed decision is
+    # recorded - failed attempts stay retryable, as for the weekly key.
+    @_synchronized
+    def get_daily_eval_date(self, ticker: str) -> Optional[str]:
+        """Return the ET date (YYYY-MM-DD) this ticker's daily strategy last
+        completed an evaluation for, or None."""
+        return self.state.get("daily_eval_dates", {}).get(ticker)
+
+    @_synchronized
+    def mark_daily_eval_done(self, ticker: str, today: str) -> bool:
+        """Record a completed daily evaluation; returns save()'s result."""
+        dates = self.state.setdefault("daily_eval_dates", {})
+        dates[ticker] = today
+        return self.save()
 
     def set_dashboard_pause(self, paused: bool):
         """Set the dashboard kill switch.
@@ -748,12 +998,30 @@ class BotState:
     def add_daily_pnl(self, pnl: float):
         """
         Add a realized trade P&L to the running daily total and persist it.
+        The total is keyed by the ET trading date (`daily_pnl_date`): the
+        first fill of a new day starts from zero, and a mid-day restart keeps
+        today's total.
 
         Args:
             pnl: Realized profit/loss in dollars (negative for losses)
         """
+        self._roll_daily_pnl(datetime.now(ET).strftime("%Y-%m-%d"))
         self.state["daily_pnl"] = self.state.get("daily_pnl", 0.0) + pnl
         self.save()
+
+    @_synchronized
+    def roll_daily_pnl(self, today: str) -> None:
+        """Zero the persisted daily P&L if it belongs to an earlier trading
+        day (called at the main loop's new-day boundary)."""
+        if self._roll_daily_pnl(today):
+            self.save()
+
+    def _roll_daily_pnl(self, today: str) -> bool:
+        if self.state.get("daily_pnl_date") == today:
+            return False
+        self.state["daily_pnl"] = 0.0
+        self.state["daily_pnl_date"] = today
+        return True
 
     @_synchronized
     def reset_daily(self, today: str):
@@ -815,6 +1083,7 @@ class BotState:
         qty: float,
         order_type: str,
         strategy_name: Optional[str] = None,
+        **extra: Any,
     ) -> Dict[str, Any]:
         """Create and durably persist a new submission intent BEFORE any
         broker call is made. Returns the intent dict (includes intent_id
@@ -846,6 +1115,11 @@ class BotState:
             "created_at": now,
             "updated_at": now,
             "last_error": None,
+            # Cumulative broker-confirmed fill already applied to the ledger
+            # (see apply_intent_fill_progress) - never the requested qty.
+            "filled_qty_applied": 0.0,
+            "filled_value_applied": 0.0,
+            **extra,
         }
         intents = self.state.setdefault("submission_intents", {})
         intents[intent_id] = intent

@@ -346,7 +346,7 @@ def _build_payload() -> Dict[str, Any]:
 
     # ---- risk ----
     try:
-        daily_pnl = float(state.get("daily_pnl", 0.0))
+        daily_pnl = _todays_daily_pnl(state)
         equity = (out.get("account") or {}).get("equity")
         loss_limit_pct = _max_daily_loss_pct()
         loss_limit_dollars = loss_used_pct = None
@@ -562,11 +562,24 @@ async def api_trades():
     }
 
 
+def _todays_daily_pnl(state: dict) -> float:
+    """The bot's persisted daily P&L, but only if it belongs to today's ET
+    trading date - otherwise yesterday's total would show as today's until
+    the bot's first fill or new-day roll."""
+    from zoneinfo import ZoneInfo
+
+    stamped = state.get("daily_pnl_date")
+    today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+    if stamped is not None and stamped != today:
+        return 0.0
+    return float(state.get("daily_pnl", 0.0))
+
+
 @app.get("/api/risk")
 async def api_risk():
     """Daily P&L, loss limit progress, paused/dry-run status."""
     state = _read_state()
-    daily_pnl = float(state.get("daily_pnl", 0.0))
+    daily_pnl = _todays_daily_pnl(state)
     equity = loss_limit_pct = loss_limit_dollars = loss_used_pct = None
     try:
         a = _require_broker().get_account()

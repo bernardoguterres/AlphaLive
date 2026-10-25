@@ -508,3 +508,28 @@ def test_morning_equity_roundtrip_and_day_scoping(temp_state_file):
     # Survives restart
     reloaded = BotState(temp_state_file)
     assert reloaded.get_morning_equity("2026-07-10") == 100500.0
+
+
+def test_daily_pnl_is_keyed_by_trading_date(tmp_path):
+    """Regression (2026-10): BotState.reset_daily was never called, so the
+    persisted daily_pnl (dashboard Daily P&L / loss gauge) carried
+    yesterday's realised P&L into today. It is now date-keyed: a restart the
+    same day keeps the total, a new day starts from zero."""
+    from datetime import datetime
+    from unittest.mock import patch as _patch
+
+    from alphalive import state as state_mod
+
+    path = str(tmp_path / "pnl.json")
+    s = state_mod.BotState(state_file=path)
+    day1 = datetime(2023, 12, 15, 10, 0, tzinfo=state_mod.ET)
+    with _patch.object(state_mod, "datetime") as dt:
+        dt.now.return_value = day1
+        s.add_daily_pnl(234.55)
+        s.add_daily_pnl(280.71)
+    assert s.state["daily_pnl"] == pytest.approx(515.26)
+    s.roll_daily_pnl("2023-12-15")  # same-day restart: kept
+    assert s.state["daily_pnl"] == pytest.approx(515.26)
+    s.roll_daily_pnl("2023-12-18")  # next trading day
+    assert s.state["daily_pnl"] == 0.0
+    assert state_mod.BotState(state_file=path).state["daily_pnl_date"] == "2023-12-18"

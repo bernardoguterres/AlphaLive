@@ -21,6 +21,11 @@ logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
 
+def pd_timestamp_iso(ts) -> str:
+    """ISO string for a bar timestamp (pandas/datetime/str)."""
+    return ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+
+
 class RiskManager:
     """
     Per-strategy risk management.
@@ -70,8 +75,17 @@ class RiskManager:
         self.max_consecutive_losses = 3
         self.trading_paused_by_circuit_breaker = False
 
-        # Last trade tracking (for cooldown)
+        # Last trade tracking (for cooldown). Legacy integer bar indices
+        # (tests/replay) and, in production, the TIMESTAMP of the completed
+        # bar the last order decision was made on - main.py passes the
+        # fetched bars' DatetimeIndex, whose length is a constant lookback
+        # window and therefore useless as a bar counter.
         self.last_trade_bar: Dict[str, int] = {}  # ticker -> bar_index
+        self.last_trade_bar_ts: Dict[str, str] = {}  # ticker -> ISO bar timestamp
+
+        # Optional persistence (see attach_state)
+        self._bot_state = None
+        self._state_key: Optional[str] = None
 
         # Cost safety limits
         self.max_trades_per_day = safety_limits.max_trades_per_day
@@ -140,13 +154,19 @@ class RiskManager:
             self.trading_paused_by_circuit_breaker = False
             self.trades_today = 0  # NEW: Reset trade counter
             self.last_reset_date = today
+            self._persist()
 
             logger.info(f"[{self.strategy_name}] Daily counters reset for {today}")
         else:
             logger.debug(f"[{self.strategy_name}] Already reset today")
 
     def calculate_position_size(
-        self, ticker: str, signal: str, current_price: float, account_equity: float
+        self,
+        ticker: str,
+        signal: str,
+        current_price: float,
+        account_equity: float,
+        existing_position_value: float = 0.0,
     ) -> float:
         """
         Calculate number of shares to buy/sell.
@@ -183,8 +203,20 @@ class RiskManager:
             logger.warning(f"[{self.strategy_name}] Invalid equity: {account_equity}")
             return 0
 
-        # Calculate max dollars for this position
+        # Calculate max dollars for this position. The cap is CUMULATIVE per
+        # ticker: an add-on BUY may only use the headroom left after the
+        # existing position's market value (previously each order was sized
+        # to the full cap, so repeated BUYs stacked past it).
         max_dollars = account_equity * (self.risk_config.max_position_size_pct / 100.0)
+        if existing_position_value > 0:
+            max_dollars = max(0.0, max_dollars - existing_position_value)
+            if max_dollars < 1.0:
+                logger.info(
+                    f"[{self.strategy_name}] {ticker}: existing position "
+                    f"(${existing_position_value:.2f}) already at/over the "
+                    f"{self.risk_config.max_position_size_pct}% cap - no add-on"
+                )
+                return 0
 
         if self.execution_config.order_type == "market":
             # Floor to 3 decimal places to avoid overallocation
@@ -455,17 +487,135 @@ class RiskManager:
 
         return can_open
 
-    def check_cooldown(self, ticker: str, current_bar: int) -> bool:
+    # ------------------------------------------------------------------
+    # Persistence (2026-10 repair): counters used to live only in memory,
+    # so a restart mid-day silently reset the daily-loss limit, the trade
+    # counter and the circuit breaker.
+    # ------------------------------------------------------------------
+
+    def attach_state(self, bot_state, key: str) -> None:
+        """Persist/restore this manager's daily counters via BotState under
+        `key`. Restores today's (ET) counters if present."""
+        self._bot_state = bot_state
+        self._state_key = key
+        today = datetime.now(ET).date()
+        saved = bot_state.get_risk_counters(key, today.isoformat())
+        if saved:
+            self.trades_today = int(saved.get("trades_today", 0))
+            self.daily_pnl = float(saved.get("daily_pnl", 0.0))
+            self.consecutive_losses = int(saved.get("consecutive_losses", 0))
+            self.trading_paused_by_circuit_breaker = bool(
+                saved.get("circuit_breaker", False)
+            )
+            self.last_trade_bar_ts = dict(saved.get("last_trade_bar_ts", {}))
+            self.last_reset_date = today
+            logger.info(
+                f"[{self.strategy_name}] Risk counters restored for {today}: "
+                f"trades={self.trades_today} daily_pnl=${self.daily_pnl:.2f} "
+                f"consecutive_losses={self.consecutive_losses} "
+                f"breaker={self.trading_paused_by_circuit_breaker}"
+            )
+        else:
+            # Cooldown timestamps are not day-scoped - carry them over.
+            any_saved = bot_state.state.get("risk_counters", {}).get(key) or {}
+            self.last_trade_bar_ts = dict(any_saved.get("last_trade_bar_ts", {}))
+            self.last_reset_date = today
+            self._persist()
+
+    def _persist(self) -> None:
+        if self._bot_state is None or self._state_key is None:
+            return
+        self._bot_state.set_risk_counters(
+            self._state_key,
+            {
+                "date": (self.last_reset_date or datetime.now(ET).date()).isoformat(),
+                "trades_today": self.trades_today,
+                "daily_pnl": self.daily_pnl,
+                "consecutive_losses": self.consecutive_losses,
+                "circuit_breaker": self.trading_paused_by_circuit_breaker,
+                "last_trade_bar_ts": self.last_trade_bar_ts,
+            },
+        )
+
+    def record_order_submitted(self, ticker: str, bar_timestamp=None) -> None:
+        """Count a submitted order (BUY or SELL) against max_trades_per_day
+        and start the cooldown from the decision bar. Called for every order
+        sent to the broker - strategy-driven and risk exits alike."""
+        self.reset_daily()
+        self.trades_today += 1
+        if bar_timestamp is not None:
+            self.last_trade_bar_ts[ticker] = str(pd_timestamp_iso(bar_timestamp))
+        self._persist()
+
+    def record_fill_result(self, fill: Dict) -> None:
+        """Book a broker-confirmed fill delta (BotState.apply_intent_fill_progress
+        result): realised P&L into daily_pnl; a completed round trip updates
+        the consecutive-loss circuit breaker."""
+        self.reset_daily()
+        self.daily_pnl += float(fill.get("realized_pnl", 0.0))
+        if fill.get("round_trip_closed") and fill.get("round_trip_pnl") is not None:
+            rt = float(fill["round_trip_pnl"])
+            if rt < 0:
+                self.consecutive_losses += 1
+            else:
+                self.consecutive_losses = 0
+            if self.consecutive_losses >= self.max_consecutive_losses:
+                if not self.trading_paused_by_circuit_breaker:
+                    logger.critical(
+                        f"[{self.strategy_name}] CIRCUIT BREAKER TRIGGERED | "
+                        f"{self.consecutive_losses} consecutive losing round trips - "
+                        f"new entries paused for the rest of the day"
+                    )
+                    if self.notifier:
+                        self.notifier.send_alert(
+                            f"🚨 Circuit breaker: {self.consecutive_losses} consecutive "
+                            f"losing round trips ({self.strategy_name}). New entries "
+                            f"paused for the day."
+                        )
+                self.trading_paused_by_circuit_breaker = True
+        self.daily_trades.append(
+            {
+                "ticker": fill.get("ticker"),
+                "pnl": float(fill.get("realized_pnl", 0.0)),
+                "timestamp": datetime.now(ET).isoformat(),
+            }
+        )
+        self._persist()
+
+    def check_cooldown(self, ticker: str, current_bar) -> bool:
         """
         Check if enough bars have passed since last trade for this ticker.
 
         Args:
             ticker: Ticker symbol
-            current_bar: Current bar index
+            current_bar: Either the fetched bars' DatetimeIndex (production:
+                bars strictly after the last decision bar are counted), or a
+                legacy integer bar index.
 
         Returns:
             True if cooldown period has passed (can trade)
         """
+        if hasattr(current_bar, "__len__") and not isinstance(current_bar, str):
+            last_ts = self.last_trade_bar_ts.get(ticker)
+            if last_ts is None:
+                return True
+            import pandas as pd
+
+            idx = pd.DatetimeIndex(current_bar)
+            last = pd.Timestamp(last_ts)
+            if idx.tz is not None and last.tz is None:
+                last = last.tz_localize(idx.tz)
+            elif idx.tz is None and last.tz is not None:
+                last = last.tz_localize(None)
+            bars_since = int((idx > last).sum())
+            need = self.execution_config.cooldown_bars
+            if bars_since < need:
+                logger.debug(
+                    f"[{self.strategy_name}] Cooldown active | {ticker} | "
+                    f"{bars_since} completed bars since last order (need {need})"
+                )
+            return bars_since >= need
+
         if ticker not in self.last_trade_bar:
             # Never traded this ticker before
             return True
@@ -545,6 +695,20 @@ class RiskManager:
             (True, "OK") if trade is allowed
             (False, "reason") if trade is blocked
         """
+        # Exit policy (2026-10 repair, see README "Pause, kill-switch and exit
+        # policy"): AlphaLive is long-only, so a strategy SELL can only reduce
+        # or close an existing position. Every check below is an ENTRY
+        # restriction; none of them may block an exit. This replaces the
+        # previous partial exemption, under which the (now actually
+        # functional) trade counter and circuit breaker could trap a losing
+        # position by refusing its exit.
+        if signal == "SELL":
+            logger.info(
+                f"[{self.strategy_name}] Trade approved (SELL, exposure-reducing exit) | "
+                f"{ticker} | Trades today: {self.trades_today}/{self.max_trades_per_day}"
+            )
+            return (True, "OK")
+
         # 1. Check kill switch (TRADING_PAUSED env var) - exempt SELLs (bug 2.6)
         #    Railway restarts the process when env vars change (~15-30s)
         #    Not instant, but reliable
@@ -579,8 +743,8 @@ class RiskManager:
             #     /pause actually global in multi-strategy mode.
             if self.global_risk is not None and self.global_risk.is_manual_paused():
                 reason = (
-                    f"Trading paused globally via Telegram /pause command "
-                    f"({self.global_risk.manual_pause_reason})"
+                    f"New entries paused globally: "
+                    f"{self.global_risk.entries_paused_reason()}"
                 )
                 logger.warning(f"[{self.strategy_name}] {reason}")
                 return (False, reason)
@@ -683,11 +847,10 @@ class RiskManager:
         # 10. Check cooldown period (if current_bar provided)
         if current_bar is not None:
             if not self.check_cooldown(ticker, current_bar):
-                bars_since = current_bar - self.last_trade_bar.get(ticker, 0)
                 reason = (
-                    f"Cooldown active for {ticker}: "
-                    f"{bars_since} bars since last trade "
-                    f"(need {self.execution_config.cooldown_bars})"
+                    f"Cooldown active for {ticker}: fewer than "
+                    f"{self.execution_config.cooldown_bars} completed bars since "
+                    f"the last order decision"
                 )
                 logger.debug(f"[{self.strategy_name}] {reason}")
                 return (False, reason)
@@ -987,7 +1150,33 @@ class GlobalRiskManager:
         logger.info("Global trading manual pause cleared")
 
     def is_manual_paused(self) -> bool:
-        return self.manual_paused
+        """True if ANY operator pause is active: the persisted Telegram
+        /pause flag, or the dashboard kill switch (its single-writer pause
+        file, re-read on every call). Both share the entry-only policy -
+        see entries_paused_reason()."""
+        if self.manual_paused:
+            return True
+        return bool(
+            self.bot_state is not None and self.bot_state.check_dashboard_paused()
+        )
+
+    def entries_paused_reason(self) -> Optional[str]:
+        """Which operator control is pausing new entries, or None.
+
+        Pause policy (all three controls, identical semantics):
+          - no new entries (BUY) are submitted;
+          - entry orders still open at the broker are cancelled
+            (OrderManager.cancel_open_entry_orders), any partial fill kept;
+          - fill sync, strategy exits and SL/TP/trailing exits keep running;
+          - nothing is flattened automatically - /close_all is the separate,
+            explicit "flatten now" action.
+        TRADING_PAUSED (env, restart-scoped) is checked by the caller.
+        """
+        if self.manual_paused:
+            return f"Telegram /pause ({self.manual_pause_reason})"
+        if self.bot_state is not None and self.bot_state.check_dashboard_paused():
+            return "dashboard kill switch"
+        return None
 
     def register_strategy(self, strategy_name: str, risk_manager: RiskManager) -> None:
         """

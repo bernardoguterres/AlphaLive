@@ -23,6 +23,7 @@ from alphalive.execution.order_manager import OrderManager
 from alphalive.broker.base_broker import Order, BrokerError
 from alphalive.state import (
     BotState,
+    INTENT_ABANDONED,
     INTENT_FILLED,
     INTENT_PREPARED,
     INTENT_RECONCILED,
@@ -143,11 +144,10 @@ def test_intent_created_before_broker_call(om, broker, state):
     assert broker.submit_calls == [intents[0]["client_order_id"]]
 
 
-def test_client_order_id_stable_across_same_process_retry(om, broker, state):
-    """Intent durably created but the broker call itself never started (the
-    process crashed between create_submission_intent and the first
-    place_*_order call) - status stays "prepared", and reconciling it must
-    say "reuse" with the SAME client_order_id, not generate a new one."""
+def test_prepared_intent_is_abandoned_not_reused(om, broker, state):
+    """An intent still "prepared" was persisted before "submitting", so it
+    provably never reached the broker. Its decision context is gone: it is
+    abandoned (terminal), never replayed for a later signal."""
     intent = state.create_submission_intent(
         ticker="AAPL",
         side="BUY",
@@ -155,12 +155,12 @@ def test_client_order_id_stable_across_same_process_retry(om, broker, state):
         order_type="market",
         strategy_name="ma_crossover",
     )
-
     reconciliation = om._reconcile_intent(state.get_open_intent("AAPL", "BUY"))
-    assert reconciliation["action"] == "reuse"
-
-    reused = state.get_open_intent("AAPL", "BUY")
-    assert reused["client_order_id"] == intent["client_order_id"]
+    assert reconciliation["action"] == "abandoned"
+    assert (
+        state.get_submission_intent(intent["intent_id"])["status"] == INTENT_ABANDONED
+    )
+    assert broker.submit_calls == []
 
 
 # ---------------------------------------------------------------------------
@@ -169,22 +169,20 @@ def test_client_order_id_stable_across_same_process_retry(om, broker, state):
 # ---------------------------------------------------------------------------
 
 
-def test_restart_after_prepared_reuses_client_order_id_and_submits_once(
+def test_restart_after_prepared_abandons_old_intent_and_submits_new_decision_once(
     om, broker, state
 ):
-    """Intent durably created (status=prepared) but the process "crashed"
-    before ever calling the broker. A fresh execute_signal call (simulating
-    the restarted process) must reuse the same client_order_id and place
-    exactly one order."""
-    intent = state.create_submission_intent(
+    """Crash before the broker call (status=prepared). The restarted
+    process's NEW signal gets a NEW intent; the stale one is abandoned and
+    never sent. Exactly one broker order results."""
+    stale = state.create_submission_intent(
         ticker="AAPL",
         side="BUY",
         qty=10,
         order_type="market",
         strategy_name="ma_crossover",
     )
-    assert intent["status"] == INTENT_PREPARED
-
+    assert stale["status"] == INTENT_PREPARED
     result = om.execute_signal(
         ticker="AAPL",
         signal=BUY_SIGNAL,
@@ -193,10 +191,12 @@ def test_restart_after_prepared_reuses_client_order_id_and_submits_once(
         current_positions_count=0,
         total_portfolio_positions=0,
     )
-
     assert result["status"] == "success"
-    assert broker.submit_calls == [intent["client_order_id"]]
-    assert len(state.list_all_intents()) == 1  # no second intent created
+    assert state.get_submission_intent(stale["intent_id"])["status"] == INTENT_ABANDONED
+    intents = state.list_all_intents()
+    assert len(intents) == 2
+    new = [i for i in intents if i["intent_id"] != stale["intent_id"]][0]
+    assert broker.submit_calls == [new["client_order_id"]]
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +205,11 @@ def test_restart_after_prepared_reuses_client_order_id_and_submits_once(
 # ---------------------------------------------------------------------------
 
 
-def test_restart_finds_accepted_order_recovers_without_resubmitting(om, broker, state):
+def test_restart_finds_accepted_order_blocks_without_resubmitting(om, broker, state):
+    """Broker accepted the order but the process never recorded the result.
+    The order is still live: a new decision must be BLOCKED (order in
+    flight) - never reported as a successful new order, never resubmitted,
+    and no position is booked for an unfilled order."""
     intent = state.create_submission_intent(
         ticker="AAPL",
         side="BUY",
@@ -214,11 +218,9 @@ def test_restart_finds_accepted_order_recovers_without_resubmitting(om, broker, 
         strategy_name="ma_crossover",
     )
     state.update_submission_intent(intent["intent_id"], status=INTENT_SUBMITTING)
-    # Broker DID accept it, but the local process never recorded the result.
     broker.orders_by_client_id[intent["client_order_id"]] = _order(
         intent["client_order_id"], status="new", qty=10
     )
-
     result = om.execute_signal(
         ticker="AAPL",
         signal=BUY_SIGNAL,
@@ -227,13 +229,16 @@ def test_restart_finds_accepted_order_recovers_without_resubmitting(om, broker, 
         current_positions_count=0,
         total_portfolio_positions=0,
     )
-
-    assert result["status"] == "success"
-    assert result.get("recovered") is True
-    assert broker.submit_calls == []  # never placed a second order
+    assert result["status"] == "blocked"
+    assert "in flight" in result["reason"]
+    assert broker.submit_calls == []
+    assert state.get_submission_intent(intent["intent_id"])["status"] == "submitted"
+    assert state.get_open_positions() == {}
 
 
 def test_restart_finds_partially_filled_order(om, broker, state):
+    """The confirmed partial fill is booked (4 shares); the order is still
+    live so the new decision is blocked."""
     intent = state.create_submission_intent(
         ticker="AAPL",
         side="BUY",
@@ -245,7 +250,6 @@ def test_restart_finds_partially_filled_order(om, broker, state):
     broker.orders_by_client_id[intent["client_order_id"]] = _order(
         intent["client_order_id"], status="partially_filled", qty=10, filled_qty=4.0
     )
-
     result = om.execute_signal(
         ticker="AAPL",
         signal=BUY_SIGNAL,
@@ -254,13 +258,18 @@ def test_restart_finds_partially_filled_order(om, broker, state):
         current_positions_count=0,
         total_portfolio_positions=0,
     )
-
-    assert result["status"] == "success"
-    assert result["filled_qty"] == 4.0
+    assert result["status"] == "blocked"
     assert broker.submit_calls == []
+    assert state.get_open_positions()["AAPL"]["qty"] == 4.0
 
 
-def test_restart_finds_filled_order(om, broker, state):
+def test_restart_finds_filled_order_books_it_then_treats_signal_as_new(
+    om, broker, state
+):
+    """A fill that happened while the process was down is booked exactly
+    once through its own intent; the old intent becomes terminal and does
+    NOT stand in for the new decision (pre-repair it was returned as a
+    "recovered" success, swallowing the new order)."""
     intent = state.create_submission_intent(
         ticker="AAPL",
         side="BUY",
@@ -272,7 +281,6 @@ def test_restart_finds_filled_order(om, broker, state):
     broker.orders_by_client_id[intent["client_order_id"]] = _order(
         intent["client_order_id"], status="filled", qty=10
     )
-
     result = om.execute_signal(
         ticker="AAPL",
         signal=BUY_SIGNAL,
@@ -281,13 +289,18 @@ def test_restart_finds_filled_order(om, broker, state):
         current_positions_count=0,
         total_portfolio_positions=0,
     )
-
+    old = state.get_submission_intent(intent["intent_id"])
+    assert old["status"] == INTENT_FILLED
+    assert old["filled_qty_applied"] == 10.0  # booked once, via its own intent
     assert result["status"] == "success"
-    assert result["filled_qty"] == 10.0
-    assert broker.submit_calls == []
+    # The FakeBroker fills the new order (66 from the mocked sizer) instantly:
+    # ledger = 10 (recovered fill) + 66 (new decision), nothing double-counted.
+    assert state.get_open_positions()["AAPL"]["qty"] == 76.0
+    assert result.get("recovered") is None
+    assert len(broker.submit_calls) == 1  # the new decision's own order
 
 
-def test_restart_finds_rejected_order_reconciles_and_blocks(om, broker, state):
+def test_restart_finds_rejected_order_closes_it_without_booking(om, broker, state):
     intent = state.create_submission_intent(
         ticker="AAPL",
         side="BUY",
@@ -299,7 +312,6 @@ def test_restart_finds_rejected_order_reconciles_and_blocks(om, broker, state):
     broker.orders_by_client_id[intent["client_order_id"]] = _order(
         intent["client_order_id"], status="rejected", qty=10
     )
-
     result = om.execute_signal(
         ticker="AAPL",
         signal=BUY_SIGNAL,
@@ -308,16 +320,19 @@ def test_restart_finds_rejected_order_reconciles_and_blocks(om, broker, state):
         current_positions_count=0,
         total_portfolio_positions=0,
     )
-
-    assert result["status"] == "blocked"
-    assert broker.submit_calls == []
     saved = state.get_submission_intent(intent["intent_id"])
-    assert saved["status"] == INTENT_RECONCILED
-    # No longer "open" - a fresh signal next cycle would get a new intent.
-    assert state.get_open_intent("AAPL", "BUY") is None
+    assert saved["status"] == INTENT_REJECTED
+    assert saved["filled_qty_applied"] == 0.0
+    # Only the new decision's (instantly-filled) order is in the ledger.
+    assert state.get_open_positions()["AAPL"]["qty"] == 66.0
+    # The rejected order belonged to an earlier decision; this signal is a
+    # new decision with its own intent.
+    assert result["status"] == "success"
+    assert len(broker.submit_calls) == 1
+    assert broker.submit_calls[0] != intent["client_order_id"]
 
 
-def test_restart_finds_cancelled_order_reconciles_and_blocks(om, broker, state):
+def test_restart_finds_cancelled_order_closes_it_without_booking(om, broker, state):
     intent = state.create_submission_intent(
         ticker="AAPL",
         side="BUY",
@@ -329,8 +344,7 @@ def test_restart_finds_cancelled_order_reconciles_and_blocks(om, broker, state):
     broker.orders_by_client_id[intent["client_order_id"]] = _order(
         intent["client_order_id"], status="canceled", qty=10
     )
-
-    result = om.execute_signal(
+    om.execute_signal(
         ticker="AAPL",
         signal=BUY_SIGNAL,
         current_price=100.0,
@@ -338,12 +352,9 @@ def test_restart_finds_cancelled_order_reconciles_and_blocks(om, broker, state):
         current_positions_count=0,
         total_portfolio_positions=0,
     )
-
-    assert result["status"] == "blocked"
-    assert broker.submit_calls == []
-    assert (
-        state.get_submission_intent(intent["intent_id"])["status"] == INTENT_RECONCILED
-    )
+    assert state.get_submission_intent(intent["intent_id"])["status"] == "cancelled"
+    assert state.get_open_positions()["AAPL"]["qty"] == 66.0
+    assert len(broker.submit_calls) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -505,26 +516,21 @@ def test_two_legitimate_signals_get_distinct_intents(om, broker, state):
 
 
 def test_one_intent_never_creates_two_accepted_broker_orders(om, broker, state):
-    """Simulate the classic idempotency scenario: the first submit attempt
-    actually reaches the broker and is accepted, but the client-side call
-    raises (response lost). A naive retry with a fresh client_order_id
-    would create a second order; the intent mechanism must not do that."""
+    """First submit reaches the broker and is accepted, but the client-side
+    call raises (response lost). The intent is quarantined; the next cycle
+    finds the live order by client_order_id and BLOCKS (order in flight)
+    instead of submitting a second order."""
     call_count = {"n": 0}
 
     def _flaky_submit(client_order_id):
         call_count["n"] += 1
         if call_count["n"] == 1:
-            # Broker accepts it "for real" on the very first attempt, even
-            # though the client raises locally (response lost). Subsequent
-            # in-process retries (still inside this one execute_signal call)
-            # keep failing locally too - the broker was never asked again.
             broker.orders_by_client_id[client_order_id] = _order(
                 client_order_id, status="new", qty=10
             )
         raise ConnectionError("response lost after broker accepted")
 
     broker.submit_side_effect = _flaky_submit
-
     result1 = om.execute_signal(
         ticker="AAPL",
         signal=BUY_SIGNAL,
@@ -537,11 +543,9 @@ def test_one_intent_never_creates_two_accepted_broker_orders(om, broker, state):
     intent = state.list_all_intents()[0]
     assert intent["status"] == INTENT_UNCERTAIN
     calls_in_first_attempt = call_count["n"]
-    assert calls_in_first_attempt >= 1
 
-    # Next cycle (a fresh top-level execute_signal call): reconciliation
-    # now finds the broker DOES have the order from the very first submit.
     broker.submit_side_effect = None
+    om._recent_order_index.clear()
     result2 = om.execute_signal(
         ticker="AAPL",
         signal=BUY_SIGNAL,
@@ -550,15 +554,21 @@ def test_one_intent_never_creates_two_accepted_broker_orders(om, broker, state):
         current_positions_count=0,
         total_portfolio_positions=0,
     )
-    assert result2["status"] == "success"
-    assert result2.get("recovered") is True
-    assert call_count["n"] == calls_in_first_attempt  # no new broker submit call
-    assert len(state.list_all_intents()) == 1  # one logical intent throughout
+    assert result2["status"] == "blocked"
+    assert call_count["n"] == calls_in_first_attempt
+    assert len(state.list_all_intents()) == 1
+    assert state.get_submission_intent(intent["intent_id"])["status"] == "submitted"
+
+    # Broker fills it later: the next sync books exactly 10 shares.
+    broker.orders_by_client_id[intent["client_order_id"]] = _order(
+        intent["client_order_id"], status="filled", qty=10
+    )
+    om.sync_open_intents()
+    assert state.get_open_positions()["AAPL"]["qty"] == 10.0
 
 
 def test_reconciliation_does_not_double_apply_a_fill(om, broker, state):
-    """Reconciling an already-filled intent repeatedly must keep returning
-    the same recovered outcome, never re-submit, never mutate qty."""
+    """Reconciling an already-filled order repeatedly books it once."""
     intent = state.create_submission_intent(
         ticker="AAPL",
         side="BUY",
@@ -571,26 +581,18 @@ def test_reconciliation_does_not_double_apply_a_fill(om, broker, state):
         intent["client_order_id"], status="filled", qty=10
     )
 
-    open_intent = state.get_open_intent("AAPL", "BUY")
-    r1 = om._reconcile_intent(open_intent)
-    assert r1["action"] == "success"
-    assert r1["order"].filled_qty == 10.0
-
-    # It's now terminal (filled) - get_open_intent should no longer surface
-    # it as "open" for a NEW decision, but re-reconciling the same dict is
-    # still safe/idempotent if called again directly.
+    r1 = om._reconcile_intent(state.get_open_intent("AAPL", "BUY"))
+    assert r1["action"] == "filled"
     assert state.get_open_intent("AAPL", "BUY") is None
     r2 = om._reconcile_intent(state.get_submission_intent(intent["intent_id"]))
-    assert r2["action"] == "success"
-    assert r2["order"].filled_qty == 10.0
+    assert r2["action"] == "filled"
+    assert state.get_open_positions()["AAPL"]["qty"] == 10.0
     assert broker.submit_calls == []
 
 
 def test_partial_fill_progressing_to_full_fill_does_not_double_count(om, broker, state):
-    """A partial fill, later found fully filled on reconciliation, must
-    report the ABSOLUTE current filled_qty each time - never additive -
-    so a caller recording it into a position ledger (a dict assignment,
-    not an increment) never double-counts shares."""
+    """Cumulative broker fills 4 -> 4 (duplicate) -> 2 (stale/out-of-order)
+    -> 10 book exactly 10 shares in total."""
     intent = state.create_submission_intent(
         ticker="AAPL",
         side="BUY",
@@ -604,20 +606,22 @@ def test_partial_fill_progressing_to_full_fill_does_not_double_count(om, broker,
     )
 
     r1 = om._reconcile_intent(state.get_open_intent("AAPL", "BUY"))
-    assert r1["action"] == "success"
-    assert r1["order"].filled_qty == 4.0
-    assert (
-        state.get_submission_intent(intent["intent_id"])["status"] == "partially_filled"
+    assert r1["action"] == "in_flight"
+    assert state.get_open_positions()["AAPL"]["qty"] == 4.0
+    om._reconcile_intent(state.get_open_intent("AAPL", "BUY"))  # duplicate report
+    assert state.get_open_positions()["AAPL"]["qty"] == 4.0
+    broker.orders_by_client_id[intent["client_order_id"]] = _order(
+        intent["client_order_id"], status="partially_filled", qty=10, filled_qty=2.0
     )
-
-    # Broker later reports the same order fully filled.
+    om._reconcile_intent(state.get_open_intent("AAPL", "BUY"))  # stale report
+    assert state.get_open_positions()["AAPL"]["qty"] == 4.0
     broker.orders_by_client_id[intent["client_order_id"]] = _order(
         intent["client_order_id"], status="filled", qty=10, filled_qty=10.0
     )
     r2 = om._reconcile_intent(state.get_open_intent("AAPL", "BUY"))
-    assert r2["action"] == "success"
-    assert r2["order"].filled_qty == 10.0  # absolute, not 4 + 10
-    assert broker.submit_calls == []  # never resubmitted
+    assert r2["action"] == "filled"
+    assert state.get_open_positions()["AAPL"]["qty"] == 10.0
+    assert broker.submit_calls == []
 
 
 def test_position_drift_with_uncertain_intent_never_triggers_corrective_order(

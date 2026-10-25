@@ -19,10 +19,12 @@ from zoneinfo import ZoneInfo
 from alpaca.common.exceptions import APIError as AlpacaAPIError
 
 from alphalive.broker.base_broker import BaseBroker, OrderError
+from alphalive.broker.transport import BrokerMutationBlocked
 from alphalive.execution.risk_manager import RiskManager
 from alphalive.strategy_schema import StrategySchema
 from alphalive.utils.retry import RetryDecision, RetryOutcome, retry_with_backoff
 from alphalive.state import (
+    INTENT_ABANDONED,
     INTENT_CANCELLED,
     INTENT_EXPIRED,
     INTENT_FILLED,
@@ -96,6 +98,18 @@ def _qty_equal(a: Any, b: Any, tolerance: Decimal = QTY_TOLERANCE) -> bool:
 ET = ZoneInfo("America/New_York")
 
 
+def _unknown_order_grace_seconds() -> float:
+    """How long an intent that MAY have reached the broker (timeout,
+    lost response) may stay unresolved while the broker reports no order
+    for its client_order_id before it is abandoned. Default 15 minutes -
+    far longer than any acknowledgement delay; override with
+    ALPHALIVE_UNKNOWN_ORDER_GRACE_SECONDS (used by the simulator scenarios)."""
+    try:
+        return float(os.environ.get("ALPHALIVE_UNKNOWN_ORDER_GRACE_SECONDS", "900"))
+    except ValueError:
+        return 900.0
+
+
 class OrderManager:
     """
     Manages order lifecycle and execution.
@@ -140,6 +154,8 @@ class OrderManager:
         self.state = state
 
         # Order tracking
+        # Broker-confirmed fill deltas booked by this manager (for logs/tests).
+        self.fill_events: List[Dict[str, Any]] = []
         self.order_history: List[Dict[str, Any]] = []  # All orders placed today
         self.pending_orders: Dict[str, str] = {}  # {ticker: order_id}
         # O(1) duplicate-check index: (ticker, side) → most recent order record
@@ -208,7 +224,7 @@ class OrderManager:
             logger.info(f"Signal BLOCKED for {ticker}: {reason}")
             return {"status": "blocked", "reason": reason}
 
-        # 2. DUPLICATE ORDER CHECK
+        # 2. DUPLICATE ORDER CHECK (same-process, same-decision burst guard)
         recent_order = self._check_recent_order(ticker, signal_action)
         if recent_order:
             logger.warning(
@@ -221,21 +237,42 @@ class OrderManager:
                 "reason": f"Duplicate prevention: order placed {recent_order['age_seconds']:.0f}s ago",
             }
 
-        # 3. POSITION SIZE CALCULATION
-        # BUY: size from equity and max_position_size_pct.
-        # SELL: sell exactly what we hold - never the computed entry size.
-        #       Sizing a SELL from equity can exceed the held quantity and
-        #       open a naked short on Alpaca (margin account by default).
+        # 3. IN-FLIGHT CHECK. Bring every open intent for this ticker up to
+        # date with the broker first (applying any fills that happened since
+        # the last sync). An intent still open afterwards is a genuinely
+        # live or unresolved order - never a reason to report a NEW decision
+        # as "already done" (the pre-2026-10 behaviour, which silently
+        # swallowed a later legitimate BUY by returning an old filled
+        # order as a "recovered" success).
+        if self.state is not None and not self.dry_run:
+            self.sync_open_intents()
+            still_open = [
+                i for i in self.state.list_open_intents() if i["ticker"] == ticker
+            ]
+            if still_open:
+                desc = ", ".join(
+                    f"{i['side']} {i['intent_id'][:8]} ({i['status']})"
+                    for i in still_open
+                )
+                reason = (
+                    f"Order in flight/unresolved for {ticker}: {desc} - no new "
+                    f"{signal_action} until it resolves"
+                )
+                logger.warning(reason)
+                return {"status": "blocked", "reason": reason}
+
+        # 4. POSITION + SIZE. SELL sells exactly the broker-confirmed held
+        # quantity (never a computed size - that could open a short). BUY is
+        # sized against the CUMULATIVE cap: existing position value counts.
+        try:
+            position = self.broker.get_position(ticker)
+        except Exception as e:
+            logger.error(f"Could not fetch position for {signal_action} {ticker}: {e}")
+            return {"status": "error", "reason": f"Position lookup failed: {e}"}
+        held_qty = float(position.qty) if position is not None else 0.0
+
         if signal_action == "SELL":
-            try:
-                position = self.broker.get_position(ticker)
-            except Exception as e:
-                logger.error(f"Could not fetch position for SELL {ticker}: {e}")
-                return {
-                    "status": "error",
-                    "reason": f"Position lookup failed for SELL: {e}",
-                }
-            if position is None or position.qty <= 0:
+            if held_qty <= 0:
                 logger.info(
                     f"SELL signal for {ticker} with no open position - skipping "
                     f"(would open a short)"
@@ -244,24 +281,31 @@ class OrderManager:
                     "status": "blocked",
                     "reason": "SELL signal with no open position",
                 }
-            qty = position.qty
+            qty = held_qty
         else:
             qty = self.risk.calculate_position_size(
                 ticker=ticker,
                 signal=signal_action,
                 current_price=current_price,
                 account_equity=account_equity,
+                existing_position_value=max(held_qty, 0.0) * current_price,
             )
 
         if qty == 0:
             return {
                 "status": "blocked",
-                "reason": "Position size = 0 (below min or exceeds limit)",
+                "reason": "Position size = 0 (below min or cumulative cap reached)",
             }
 
-        # 4. DRY RUN CHECK
-        # No broker call, no durable intent needed - the throwaway key here
-        # only feeds the DRY_RUN_ order_id string for log/UI readability.
+        bar_ts = None
+        if (
+            current_bar is not None
+            and hasattr(current_bar, "__len__")
+            and len(current_bar)
+        ):
+            bar_ts = current_bar[-1]
+
+        # 5. DRY RUN CHECK - no broker call, no intent, no ledger change.
         if self.dry_run:
             dry_run_key = self._generate_idempotency_key(
                 ticker, signal_action.lower(), datetime.now(ET)
@@ -272,110 +316,51 @@ class OrderManager:
             )
             return {
                 "status": "success",
+                "order_status": "dry_run",
                 "order_id": f"DRY_RUN_{dry_run_key}",
+                "requested_qty": qty,
                 "filled_qty": qty,
                 "filled_price": current_price,
                 "slippage_pct": 0.0,
             }
 
-        # 5. SUBMISSION INTENT: durably recorded BEFORE any broker call.
-        #
-        # If a non-terminal intent already exists for this (ticker, side) -
-        # a prior attempt this process didn't finish, or a prior process
-        # that crashed mid-placement - reconcile it against the broker
-        # first rather than blindly generating a new client_order_id. This
-        # is what closes the restart-duplicate-order window: a fresh
-        # process reuses the exact same client_order_id a crashed process
-        # was using, so Alpaca's own idempotency on that field prevents a
-        # second order for the same logical decision even if we genuinely
-        # don't know whether the first attempt reached the broker.
+        # 6. SUBMISSION INTENT: durably recorded BEFORE any broker call, then
+        # moved to "submitting" (also persisted) immediately before sending.
+        # "prepared" on disk therefore proves the order was never sent.
         intent = None
         if self.state is not None:
-            existing = self.state.get_open_intent(ticker, signal_action)
-            if existing is not None:
-                reconciliation = self._reconcile_intent(existing)
-                action = reconciliation["action"]
-
-                if action == "quarantine":
-                    reason = (
-                        f"Submission intent {existing['intent_id']} for {ticker} "
-                        f"{signal_action} is uncertain ({reconciliation['detail']}) "
-                        f"- quarantined until reconciliation succeeds or an "
-                        f"operator resolves it. No new order will be placed."
-                    )
-                    logger.warning(reason)
-                    return {"status": "blocked", "reason": reason}
-
-                if action == "success":
-                    order = reconciliation["order"]
-                    filled_qty = float(order.filled_qty) if order.filled_qty else 0.0
-                    filled_price = (
-                        float(order.filled_avg_price)
-                        if order.filled_avg_price
-                        else current_price
-                    )
-                    logger.info(
-                        f"Recovered existing order for intent "
-                        f"{existing['intent_id']} ({ticker} {signal_action}): "
-                        f"broker status={reconciliation['detail']}"
-                    )
-                    return {
-                        "status": "success",
-                        "order_id": order.id,
-                        "filled_qty": filled_qty,
-                        "filled_price": filled_price,
-                        "slippage_pct": 0.0,
-                        "recovered": True,
-                    }
-
-                if action == "terminal":
-                    # Rejected/cancelled/expired - this logical decision is
-                    # over. Reconcile it so it stops blocking future
-                    # decisions, but do NOT silently place a new order this
-                    # cycle for the same signal; if the strategy still
-                    # wants in, it will fire again next check and get a
-                    # genuinely new intent.
-                    self.state.update_submission_intent(
-                        existing["intent_id"], status=INTENT_RECONCILED
-                    )
-                    reason = (
-                        f"Prior submission intent for {ticker} {signal_action} "
-                        f"ended {reconciliation['detail']} - reconciled, not "
-                        f"retried automatically this cycle."
-                    )
-                    logger.warning(reason)
-                    return {"status": "blocked", "reason": reason}
-
-                # action == "reuse": prior attempt never reached the broker
-                # (crashed before/mid first submit) - safe to (re)submit
-                # with the same client_order_id.
-                intent = existing
-
-            if intent is None:
-                intent = self.state.create_submission_intent(
-                    ticker=ticker,
-                    side=signal_action,
-                    qty=qty,
-                    order_type=self.config.execution.order_type,
-                    strategy_name=self.config.strategy.name,
-                )
+            intent = self.state.create_submission_intent(
+                ticker=ticker,
+                side=signal_action,
+                qty=qty,
+                order_type=self.config.execution.order_type,
+                strategy_name=self.config.strategy.name,
+                decision_price=current_price,
+                decision_bar_ts=(str(bar_ts) if bar_ts is not None else None),
+                signal_reason=signal.get("reason"),
+            )
             client_order_id = intent["client_order_id"]
             self.state.update_submission_intent(
                 intent["intent_id"], status=INTENT_SUBMITTING
             )
         else:
             # No durable state wired (tests, replay mode) - best-effort
-            # timestamp-based key only. No restart-time duplicate
-            # protection is possible without persisted state; see
-            # _generate_idempotency_key's docstring.
+            # timestamp-based key only; no restart recovery possible.
             client_order_id = self._generate_idempotency_key(
                 ticker, signal_action.lower(), datetime.now(ET)
             )
 
+        # Counts toward max_trades_per_day and starts the cooldown - for
+        # every order actually attempted, BUY or SELL.
+        self.risk.record_order_submitted(ticker, bar_ts)
         logger.info(f"Using client_order_id: {client_order_id}")
 
-        # 6. ORDER TYPE SELECTION & PLACEMENT WITH RETRY
+        # 7. ORDER TYPE SELECTION & PLACEMENT WITH RETRY
         order_type = self.config.execution.order_type
+        # Set once the broker has returned the order. An exception after this
+        # point is a local bookkeeping/notification failure, never a broker
+        # rejection: the order is live and must stay open for reconciliation.
+        accepted_order_id = None
 
         try:
             if order_type == "market":
@@ -407,94 +392,114 @@ class OrderManager:
                     client_order_id=client_order_id,
                 )
 
+            accepted_order_id = result.id
             self.risk.record_api_call(f"place_{order_type}_order")
 
-            # Extract order details
             order_id = result.id
-            filled_qty = float(result.filled_qty) if result.filled_qty else qty
-            filled_price = (
-                float(result.filled_avg_price)
-                if result.filled_avg_price
-                else current_price
-            )
+            raw_status = getattr(result, "status", None)
+            mapped = _map_broker_order_status(raw_status)
 
-            # The intent's terminal status is derived from the broker's own
-            # status string, not assumed "filled" - a market order can come
-            # back "new"/"accepted" if the broker hasn't matched it yet.
+            # Fill state comes ONLY from the broker: cumulative filled_qty and
+            # filled_avg_price as reported. An "accepted"/"new" response has
+            # filled_qty 0 and creates no position.
             if self.state is not None and intent is not None:
-                mapped = _map_broker_order_status(getattr(result, "status", None))
+                self._apply_order_progress(intent, result)
                 if mapped is None:
-                    # Broker order exists but its status string doesn't map
-                    # to anything we recognize - don't guess "filled".
                     self.state.update_submission_intent(
                         intent["intent_id"],
                         status=INTENT_UNCERTAIN,
                         broker_order_id=order_id,
-                        last_error=f"unrecognized broker status: {getattr(result, 'status', None)}",
+                        last_error=f"unrecognized broker status: {raw_status}",
                     )
                 else:
                     self.state.update_submission_intent(
-                        intent["intent_id"],
-                        status=mapped,
-                        broker_order_id=order_id,
+                        intent["intent_id"], status=mapped, broker_order_id=order_id
                     )
 
-            # 7. SLIPPAGE CHECK
-            expected_cost = current_price * qty
-            actual_cost = filled_price * filled_qty
-            slippage_pct = abs(actual_cost - expected_cost) / expected_cost * 100
+            confirmed_qty = float(result.filled_qty) if result.filled_qty else 0.0
+            confirmed_price = (
+                float(result.filled_avg_price) if result.filled_avg_price else None
+            )
 
-            if slippage_pct > 1.0:  # More than 1% slippage
+            slippage_pct = None
+            if confirmed_qty > 0 and confirmed_price:
+                slippage_pct = (
+                    abs(confirmed_price - current_price) / current_price * 100
+                )
+                if slippage_pct > 1.0:
+                    logger.warning(
+                        f"HIGH SLIPPAGE on {ticker}: decision ${current_price:.2f}, "
+                        f"fill ${confirmed_price:.2f} ({slippage_pct:.2f}%)"
+                    )
+                    if self.notifier:
+                        self.notifier.send_alert(
+                            f"⚠️ High slippage: {ticker} {signal_action} "
+                            f"({slippage_pct:.1f}% slippage)"
+                        )
+
+            if mapped == INTENT_PARTIALLY_FILLED or (0 < confirmed_qty < qty):
                 logger.warning(
-                    f"HIGH SLIPPAGE on {ticker}: expected ${expected_cost:.2f}, "
-                    f"actual ${actual_cost:.2f} ({slippage_pct:.2f}%)"
+                    f"PARTIAL FILL: {ticker} {signal_action} - requested {qty}, "
+                    f"broker-confirmed {confirmed_qty} so far"
                 )
                 if self.notifier:
                     self.notifier.send_alert(
-                        f"⚠️ High slippage: {ticker} {signal_action} "
-                        f"({slippage_pct:.1f}% slippage)"
+                        f"📊 Partial fill: {ticker} {confirmed_qty}/{qty} shares filled"
                     )
 
-            # 8. PARTIAL FILL HANDLING
-            if filled_qty < qty:
-                logger.warning(
-                    f"PARTIAL FILL: {ticker} {signal_action} - "
-                    f"requested {qty}, filled {filled_qty}"
-                )
-                if self.notifier:
-                    self.notifier.send_alert(
-                        f"📊 Partial fill: {ticker} {filled_qty}/{qty} shares filled"
-                    )
-
-            # 9. RECORD ORDER
             _order_record = {
                 "ticker": ticker,
                 "side": signal_action,
-                "qty": filled_qty,
-                "price": filled_price,
+                "qty": qty,
+                "filled_qty": confirmed_qty,
+                "price": confirmed_price,
                 "order_id": order_id,
                 "timestamp": datetime.now(ET),
                 "signal_reason": signal.get("reason", "N/A"),
-                "bar": current_bar,
-                "status": "filled",
+                "bar": str(bar_ts) if bar_ts is not None else None,
+                "status": mapped or "uncertain",
             }
             self.order_history.append(_order_record)
             self._recent_order_index[(ticker, signal_action)] = _order_record
 
             logger.info(
-                f"ORDER PLACED: {signal_action} {filled_qty} {ticker} "
-                f"@ ${filled_price:.2f} (order_id: {order_id})"
+                f"ORDER SUBMITTED: {signal_action} {qty} {ticker} (order_id: {order_id}) "
+                f"| broker status={raw_status} | confirmed filled {confirmed_qty}"
             )
 
             return {
                 "status": "success",
+                "order_status": mapped or "uncertain",
                 "order_id": order_id,
-                "filled_qty": filled_qty,
-                "filled_price": filled_price,
+                "requested_qty": qty,
+                "filled_qty": confirmed_qty,
+                "filled_price": confirmed_price,
                 "slippage_pct": slippage_pct,
             }
 
         except Exception as e:
+            if (
+                accepted_order_id is not None
+                and self.state is not None
+                and intent is not None
+            ):
+                current = self.state.get_submission_intent(intent["intent_id"]) or {}
+                fields = {"broker_order_id": accepted_order_id, "last_error": str(e)}
+                if current.get("status") in (INTENT_PREPARED, INTENT_SUBMITTING):
+                    fields["status"] = INTENT_SUBMITTED
+                self.state.update_submission_intent(intent["intent_id"], **fields)
+                logger.error(
+                    f"Post-submission error for {ticker} {signal_action} (order "
+                    f"{accepted_order_id} is live; left open for reconciliation): {e}",
+                    exc_info=True,
+                )
+                return {
+                    "status": "success",
+                    "order_status": fields.get("status", current.get("status")),
+                    "order_id": accepted_order_id,
+                    "requested_qty": qty,
+                    "reason": f"post-submission error: {e}",
+                }
             if self.state is not None and intent is not None:
                 if self._is_definite_rejection(e):
                     self.state.update_submission_intent(
@@ -506,12 +511,12 @@ class OrderManager:
                         f"ORDER FAILED (rejected): {ticker} {signal_action} - {e}"
                     )
                 else:
-                    # Retries exhausted on a 5xx/429/network error, or a 409
-                    # whose original order couldn't be recovered - Alpaca's
-                    # true state for this client_order_id is unknown. Never
-                    # convert this into a definite failure: quarantine so
-                    # the next cycle reconciles instead of submitting a
-                    # fresh, possibly-duplicate order.
+                    # Retries exhausted on a timeout/5xx/429/network error, or a
+                    # 409 whose original order couldn't be recovered - the
+                    # broker's true state for this client_order_id is unknown.
+                    # Quarantine; sync_open_intents() resolves it from the
+                    # broker (or abandons it after the grace period if the
+                    # broker never shows the order).
                     self.state.update_submission_intent(
                         intent["intent_id"],
                         status=INTENT_UNCERTAIN,
@@ -531,6 +536,165 @@ class OrderManager:
                     f"❌ Order failed: {ticker} {signal_action} - {str(e)}"
                 )
             return {"status": "error", "reason": str(e)}
+
+    # ------------------------------------------------------------------
+    # Broker-confirmed fill lifecycle (2026-10 repair)
+    # ------------------------------------------------------------------
+
+    def _apply_order_progress(self, intent: Dict[str, Any], order) -> Optional[Dict]:
+        """Apply any NEW broker-confirmed fill on `order` to the ledger and
+        risk counters exactly once (see BotState.apply_intent_fill_progress).
+        Every path that observes a broker order - submit response, periodic
+        sync, startup reconciliation, close reconciliation - goes through
+        here, so a fill is booked once no matter how often it is seen."""
+        if self.state is None or order is None:
+            return None
+        filled = getattr(order, "filled_qty", None)
+        price = getattr(order, "filled_avg_price", None)
+        if not filled or not price:
+            return None
+        fill = self.state.apply_intent_fill_progress(
+            intent["intent_id"],
+            filled,
+            price,
+            commission=float(self.config.risk.commission_per_trade or 0.0),
+        )
+        if fill is None:
+            return None
+        self.risk.record_fill_result(fill)
+        self.state.add_daily_pnl(fill["realized_pnl"])
+        # Global stats count completed round trips, not individual fill reports.
+        if self.risk.global_risk is not None and fill.get("round_trip_closed"):
+            self.risk.global_risk.record_trade(
+                strategy_name=self.config.strategy.name,
+                pnl=fill.get("round_trip_pnl") or 0.0,
+            )
+        ticker = fill["ticker"]
+        if fill["side"] == "BUY":
+            if ticker not in self.state.state.get("entry_timestamps", {}):
+                self.state.record_entry(ticker)
+        elif fill["round_trip_closed"]:
+            self.state.clear_position_high(ticker)
+            self.state.clear_entry_timestamp(ticker)
+        self.fill_events.append(fill)
+        if self.notifier:
+            try:
+                self.notifier.send_trade_notification(
+                    ticker=ticker,
+                    side=fill["side"] if fill["side"] != "CLOSE" else "SELL",
+                    qty=fill["delta_qty"],
+                    price=fill["delta_price"],
+                    reason=f"broker-confirmed fill (intent {intent['intent_id'][:8]})",
+                )
+            except Exception as e:  # notifications must never break booking
+                logger.warning(f"Fill notification failed: {e}")
+        return fill
+
+    def _settle_working_orders_before_close(
+        self, ticker: str, reason: str
+    ) -> Optional[Dict[str, Any]]:
+        """A protective close must not race a strategy order that is still
+        working at the broker. A working SELL already reduces the position,
+        so no second sell is sent. A working entry BUY is cancelled first
+        (its partial fill is kept and booked); closing while it can still
+        fill would leave the CLOSE "filled but not flat" and quarantine the
+        ticker. Returns a "pending" result to retry at the next exit check,
+        or None when the close may proceed. Quarantined (uncertain) intents
+        have no confirmed live order and do not hold the close back."""
+        live = (INTENT_SUBMITTED, INTENT_PARTIALLY_FILLED)
+
+        def working(side: str) -> Optional[Dict[str, Any]]:
+            intent = self.state.get_open_intent(ticker, side)
+            if intent is None or intent["status"] not in live:
+                return None
+            self._reconcile_intent(intent)
+            intent = self.state.get_open_intent(ticker, side)
+            return intent if intent and intent["status"] in live else None
+
+        sell = working("SELL")
+        if sell is not None:
+            logger.info(
+                f"Close for {ticker} deferred: strategy SELL "
+                f"{sell.get('broker_order_id')} is still working ({reason})"
+            )
+            return {
+                "status": "pending",
+                "order_id": sell.get("broker_order_id"),
+                "reason": f"{reason} (strategy SELL already working)",
+                "filled_price": None,
+                "filled_qty": None,
+                "fill_status": sell["status"],
+            }
+        if working("BUY") is not None:
+            self.cancel_open_entry_orders(f"protective close: {reason}")
+            buy = working("BUY")
+            if buy is not None:
+                logger.warning(
+                    f"Close for {ticker} deferred until entry order "
+                    f"{buy.get('broker_order_id')} is cancelled ({reason})"
+                )
+                return {
+                    "status": "pending",
+                    "order_id": buy.get("broker_order_id"),
+                    "reason": f"{reason} (waiting for entry order to cancel)",
+                    "filled_price": None,
+                    "filled_qty": None,
+                    "fill_status": buy["status"],
+                }
+        return None
+
+    def cancel_open_entry_orders(self, reason: str) -> int:
+        """Cancel BUY orders still working at the broker (pause policy: a
+        paused bot takes on no new exposure). Exit/close orders are never
+        cancelled here. Any partial fill already executed is kept and
+        booked by the following reconciliation. Returns orders cancelled."""
+        if self.state is None or self.dry_run:
+            return 0
+        n = 0
+        for intent in self.state.list_open_intents():
+            if intent["ticker"] != self.config.ticker or intent["side"] != "BUY":
+                continue
+            if intent["status"] not in (INTENT_SUBMITTED, INTENT_PARTIALLY_FILLED):
+                continue
+            order_id = intent.get("broker_order_id")
+            if not order_id:
+                continue
+            try:
+                self.broker.cancel_order(str(order_id))
+                n += 1
+                logger.warning(
+                    f"Cancelled open entry order {order_id} for {intent['ticker']} "
+                    f"({reason})"
+                )
+            except Exception as e:
+                logger.error(f"Could not cancel entry order {order_id}: {e}")
+            self._reconcile_intent(
+                self.state.get_submission_intent(intent["intent_id"])
+            )
+        return n
+
+    def sync_open_intents(self) -> List[Dict[str, Any]]:
+        """Reconcile every open intent for this manager's ticker against the
+        broker: book new fills, move finished orders to their terminal
+        status, abandon never-sent/never-seen ones. Called every main-loop
+        iteration, at startup, and before any new order decision. Returns
+        the per-intent reconciliation results (for logs/tests)."""
+        if self.state is None or self.dry_run:
+            return []
+        results = []
+        for intent in self.state.list_open_intents():
+            if intent["ticker"] != self.config.ticker:
+                continue
+            try:
+                if intent["side"] == "CLOSE":
+                    res = self._reconcile_open_close_intent(intent)
+                else:
+                    res = self._reconcile_intent(intent)
+            except Exception as e:
+                logger.error(f"Intent sync failed for {intent['intent_id']}: {e}")
+                continue
+            results.append({"intent_id": intent["intent_id"], **res})
+        return results
 
     def _is_definite_rejection(self, e: Exception) -> bool:
         """True if `e` represents a definite pre-acceptance rejection (Alpaca
@@ -554,25 +718,26 @@ class OrderManager:
         return False
 
     def _reconcile_intent(self, intent: Dict[str, Any]) -> Dict[str, Any]:
-        """Reconcile a previously-recorded, non-terminal submission intent
-        against the broker before deciding whether a new/repeat submission
-        is safe this cycle.
+        """Reconcile one non-terminal submission intent against the broker.
+
+        Books any new broker-confirmed fill (once - see
+        _apply_order_progress) BEFORE updating the intent's status, so a
+        terminal status can never be recorded without its fills.
 
         Returns a dict with an "action" key:
-            "reuse"      - never reached the broker; safe to (re)submit
-                           with the same client_order_id.
-            "success"    - broker has a live/filled order; treat as done,
-                           don't submit again. "order" holds the Order.
-            "terminal"   - broker definitively rejected/cancelled/expired
-                           it; this decision is over. "order" holds the Order.
-            "quarantine" - broker outcome is still unknown (lookup failed,
-                           no record found for a non-prepared intent, or an
-                           unrecognized status string). Never submit a new
-                           order while quarantined.
-
-        Never converts an unknown/unverifiable broker outcome into a
-        definite success or failure - that is the entire point of the
-        "uncertain" state.
+            "filled"     - broker reports the order fully filled (terminal).
+            "in_flight"  - order live at the broker (new/accepted/partially
+                           filled); "order" holds it.
+            "terminal"   - rejected/cancelled/expired (any partial fill
+                           before that has been booked); "order" holds it.
+            "abandoned"  - the order never reached the broker ("prepared"
+                           at reconciliation time), or the broker still has
+                           no record of it after the uncertainty grace
+                           period. Closed out - never resubmitted, because
+                           its decision context no longer exists.
+            "quarantine" - outcome unknown (lookup failed, not-found within
+                           the grace period, unrecognized status). No new
+                           order for this ticker while quarantined.
         """
         intent_id = intent["intent_id"]
         client_order_id = intent["client_order_id"]
@@ -585,25 +750,54 @@ class OrderManager:
                 f"({client_order_id}): {e}. Quarantining - not safe to retry "
                 f"or treat as failed."
             )
-            self.state.update_submission_intent(
-                intent_id, status=INTENT_UNCERTAIN, last_error=str(e)
-            )
+            if intent["status"] != INTENT_UNCERTAIN:
+                self.state.update_submission_intent(
+                    intent_id, status=INTENT_UNCERTAIN, last_error=str(e)
+                )
             return {"action": "quarantine", "detail": f"broker lookup unavailable: {e}"}
 
         if broker_order is None:
             if intent["status"] == INTENT_PREPARED:
-                # Durably recorded but the broker call itself never
-                # happened (or never left the process) - nothing to
-                # recover, safe to submit for the first time.
-                return {"action": "reuse", "detail": "prepared, never submitted"}
+                # Persisted before "submitting" was written, so it was never
+                # sent. Abandon - a stale decision must not be replayed.
+                self.state.update_submission_intent(
+                    intent_id,
+                    status=INTENT_ABANDONED,
+                    last_error="never submitted (prepared at reconciliation)",
+                )
+                return {"action": "abandoned", "detail": "prepared, never submitted"}
+
+            now = datetime.now(ET)
+            first_missing = intent.get("not_found_since")
+            if first_missing is None:
+                self.state.update_submission_intent(
+                    intent_id, status=INTENT_UNCERTAIN, not_found_since=now.isoformat()
+                )
+                first_missing = now.isoformat()
+            age = (now - datetime.fromisoformat(first_missing)).total_seconds()
+            grace = _unknown_order_grace_seconds()
+            if age >= grace:
+                msg = (
+                    f"Intent {intent_id} ({intent['ticker']} {intent['side']}): broker "
+                    f"has had no order for client_order_id {client_order_id} for "
+                    f"{age:.0f}s (grace {grace:.0f}s) - abandoning. Nothing was "
+                    f"booked for it."
+                )
+                logger.warning(msg)
+                self.state.update_submission_intent(
+                    intent_id, status=INTENT_ABANDONED, last_error=msg
+                )
+                if self.notifier:
+                    self.notifier.send_alert(f"⚠️ {msg}")
+                return {"action": "abandoned", "detail": "not found after grace period"}
             logger.warning(
-                f"Reconciliation: intent {intent_id} status={intent['status']} "
-                f"but broker has no order for {client_order_id}. Quarantining."
+                f"Reconciliation: intent {intent_id} status={intent['status']} but "
+                f"broker has no order for {client_order_id} yet ({age:.0f}s of "
+                f"{grace:.0f}s grace). Quarantined."
             )
-            self.state.update_submission_intent(intent_id, status=INTENT_UNCERTAIN)
             return {
                 "action": "quarantine",
-                "detail": "broker has no record of a submitted order",
+                "detail": "broker has no record of a submitted order (within grace)",
             }
 
         mapped = _map_broker_order_status(getattr(broker_order, "status", None))
@@ -612,18 +806,24 @@ class OrderManager:
                 f"Reconciliation: intent {intent_id} has unrecognized broker "
                 f"status '{broker_order.status}'. Quarantining."
             )
-            self.state.update_submission_intent(intent_id, status=INTENT_UNCERTAIN)
+            self._apply_order_progress(intent, broker_order)
+            self.state.update_submission_intent(
+                intent_id, status=INTENT_UNCERTAIN, broker_order_id=broker_order.id
+            )
             return {
                 "action": "quarantine",
                 "detail": f"unrecognized broker status: {broker_order.status}",
             }
 
+        self._apply_order_progress(intent, broker_order)
         self.state.update_submission_intent(
             intent_id, status=mapped, broker_order_id=broker_order.id
         )
 
-        if mapped in (INTENT_FILLED, INTENT_PARTIALLY_FILLED, INTENT_SUBMITTED):
-            return {"action": "success", "order": broker_order, "detail": mapped}
+        if mapped == INTENT_FILLED:
+            return {"action": "filled", "order": broker_order, "detail": mapped}
+        if mapped in (INTENT_PARTIALLY_FILLED, INTENT_SUBMITTED):
+            return {"action": "in_flight", "order": broker_order, "detail": mapped}
         return {"action": "terminal", "order": broker_order, "detail": mapped}
 
     def _place_with_retry(
@@ -676,6 +876,10 @@ class OrderManager:
             attempt_state["n"] += 1
             attempt = attempt_state["n"]
             is_last = attempt >= max_retries
+
+            # Refused by the read-only transport: definitely never sent.
+            if isinstance(e, BrokerMutationBlocked):
+                return RetryOutcome(RetryDecision.FATAL)
 
             if isinstance(e, (AlpacaAPIError, OrderError)):
                 status = e.status_code
@@ -1025,8 +1229,11 @@ class OrderManager:
         if action == "quarantine":
             return {"outcome": "quarantine", "detail": reconciliation["detail"]}
 
-        if action == "reuse":
-            return {"outcome": "reuse"}
+        if action == "abandoned":
+            # Never sent (or never seen by the broker past the grace
+            # period): nothing to reconcile - size a fresh close from a
+            # fresh position read.
+            return {"outcome": "fresh"}
 
         order = reconciliation.get("order")
         requested_qty = _to_decimal(existing.get("qty"))
@@ -1037,7 +1244,7 @@ class OrderManager:
             else None
         )
 
-        if action == "success":
+        if action in ("filled", "in_flight"):
             mapped = _map_broker_order_status(getattr(order, "status", None))
             if mapped != INTENT_FILLED:
                 # Still open (submitted/partially_filled) - report
@@ -1251,6 +1458,9 @@ class OrderManager:
         preconfirmed_qty: Optional[Decimal] = None
 
         if self.state is not None:
+            waiting = self._settle_working_orders_before_close(ticker, reason)
+            if waiting is not None:
+                return waiting
             existing = self.state.get_open_intent(ticker, "CLOSE")
             if existing is not None:
                 recon = self._reconcile_open_close_intent(existing)
@@ -1286,6 +1496,10 @@ class OrderManager:
 
                 if outcome == "in_flight":
                     mapped = recon["mapped"]
+                    logger.info(
+                        f"Close for {ticker} already in flight (order "
+                        f"{recon['order'].id}, {mapped}) - not resubmitting"
+                    )
                     return {
                         "status": (
                             "partial"
@@ -1310,10 +1524,9 @@ class OrderManager:
                         "fill_status": "filled",
                     }
 
-                if outcome == "reuse":
-                    intent = existing
-                elif outcome == "proceed":
+                if outcome == "proceed":
                     preconfirmed_qty = recon["qty"]
+                # outcome == "fresh": fall through to a fresh position read.
 
         if intent is None:
             if preconfirmed_qty is not None:
@@ -1362,14 +1575,8 @@ class OrderManager:
                 client_order_id = self._generate_idempotency_key(
                     ticker, "close", datetime.now(ET)
                 )
-        else:
-            # outcome == "reuse": never reached the broker last time -
-            # resubmit the SAME decision (same qty, same client_order_id).
-            qty = float(_to_decimal(intent.get("qty")))
-            client_order_id = intent["client_order_id"]
-            self.state.update_submission_intent(
-                intent["intent_id"], status=INTENT_SUBMITTING
-            )
+
+        self.risk.record_order_submitted(ticker)
 
         try:
             result = self._place_with_retry(
@@ -1393,6 +1600,7 @@ class OrderManager:
             mapped = _map_broker_order_status(getattr(result, "status", None))
 
             if self.state is not None and intent is not None:
+                self._apply_order_progress(intent, result)
                 self.state.update_submission_intent(
                     intent["intent_id"],
                     status=mapped or INTENT_UNCERTAIN,
