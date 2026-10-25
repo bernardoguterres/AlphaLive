@@ -3,19 +3,39 @@ Market Data Fetcher
 
 Fetches historical and real-time market data from Alpaca using alpaca-py.
 Includes caching, data validation, and rate limit handling.
+
+Signal-data policy (2026-10 repair):
+- COMPLETED BARS ONLY. A daily bar is used only after its session closed
+  (16:00 ET); an intraday bar only after its interval ended. The previous
+  fetch included today's in-progress daily bar at 9:35 ET (5 minutes of
+  trading as its "close"/volume) - a different decision basis from
+  AlphaLab, which decides on completed closes and fills at the next open.
+  The 9:35 ET evaluation therefore decides on the prior completed session
+  and its order executes near today's open - the live analogue of the
+  backtest's "signal at close N, fill at open N+1".
+- ADJUSTED SIGNAL HISTORY. Bars are requested with adjustment=all (split +
+  dividend), matching AlphaLab's yfinance auto_adjust=True, so a split
+  inside the lookback window cannot fabricate a crash in the indicators.
+- RAW EXECUTABLE PRICES. Order sizing, decision prices, slippage and
+  SL/TP checks use get_current_price() (latest raw trade) and the broker's
+  own raw position/fill prices. Adjusted bar prices are never sent as, or
+  compared with, executable prices.
 """
 
 import logging
+import os
 from datetime import datetime, time as _time, timedelta
 from typing import Optional, Callable, Any
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 from alpaca.data import StockHistoricalDataClient
+from alpaca.data.enums import Adjustment
 from alpaca.data.requests import StockBarsRequest, StockLatestTradeRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.common.exceptions import APIError as AlpacaAPIError
 
+from alphalive.broker.transport import install_request_timeout
 from alphalive.utils.retry import RetryDecision, RetryOutcome, retry_with_backoff
 
 logger = logging.getLogger(__name__)
@@ -27,6 +47,11 @@ ET = ZoneInfo("America/New_York")
 # week's own Friday (see that method's docstring). Ordinary session close
 # only; no early-close-calendar awareness exists in this codebase.
 _MARKET_CLOSE_TIME = _time(16, 0)
+
+
+def fetch_tf_name(timeframe: str) -> str:
+    """1Week strategies fetch daily bars (resampled later)."""
+    return "1Day" if timeframe == "1Week" else timeframe
 
 
 class DataStaleError(Exception):
@@ -54,7 +79,15 @@ class MarketDataFetcher:
             api_key: Alpaca API key
             secret_key: Alpaca secret key
         """
-        self.client = StockHistoricalDataClient(api_key, secret_key)
+        self.client = StockHistoricalDataClient(
+            api_key,
+            secret_key,
+            url_override=os.environ.get("ALPACA_DATA_URL") or None,
+        )
+        install_request_timeout(self.client)
+        # IEX is the free-tier feed (a small share of consolidated volume);
+        # set ALPACA_DATA_FEED=sip on a subscription that includes it.
+        self.feed = os.environ.get("ALPACA_DATA_FEED", "iex")
         self.cache = (
             {}
         )  # {ticker: {"bars": df, "timestamp": datetime, "timeframe": str}}
@@ -120,7 +153,8 @@ class MarketDataFetcher:
                 timeframe=fetch_tf,
                 start=start_date,
                 end=end_date,
-                feed="iex",
+                feed=self.feed,
+                adjustment=Adjustment.ALL,
             )
 
             # Fetch with retry logic
@@ -143,6 +177,11 @@ class MarketDataFetcher:
                 df.index = df.index.tz_localize("UTC").tz_convert(ET)
             elif str(df.index.tz) != "America/New_York":
                 df.index = df.index.tz_convert(ET)
+
+            # Completed bars only (see module docstring).
+            df = self._drop_incomplete_bars(df, fetch_tf_name(timeframe), datetime.now(ET))
+            if df.empty:
+                raise ValueError(f"No completed bars returned for {ticker}")
 
             # Resample daily → weekly (week ending Friday) for 1Week strategies.
             # `as_of` makes the wall-clock read explicit here at the call
@@ -203,20 +242,14 @@ class MarketDataFetcher:
 
         except Exception as e:
             logger.warning(f"Failed to get current price for {ticker}: {e}")
-
-            # Fallback: use last close from cached bars
-            cached = self.cache.get(ticker)
-            if cached:
-                fallback_price = float(cached["bars"]["close"].iloc[-1])
-                logger.info(
-                    f"Using cached close price for {ticker}: ${fallback_price:.2f}"
-                )
-                return fallback_price
-
-            # No fallback available
+            # No fallback to cached bars: those are split/dividend-ADJUSTED,
+            # completed-bar closes (yesterday's close at 9:35), not an
+            # executable raw price for sizing or SL/TP. Callers handle the
+            # failure: an entry check is a retryable failed attempt; the exit
+            # check falls back to the broker's own raw position mark.
             raise Exception(
-                f"Unable to get current price for {ticker}: API failed and no cached data"
-            )
+                f"Unable to get current price for {ticker}: latest trade unavailable"
+            ) from e
 
     def _get_from_cache(self, ticker: str, timeframe: str) -> Optional[pd.DataFrame]:
         """
@@ -291,31 +324,47 @@ class MarketDataFetcher:
         now = datetime.now(ET)
         age_minutes = (now - last_bar_time).total_seconds() / 60
 
-        # Check staleness thresholds
-        if timeframe == "15Min" and age_minutes > 5:
+        # Check staleness thresholds. Intraday bars are labelled at interval
+        # START and only completed bars reach here, so measure from the bar's
+        # END: one full interval may legitimately have elapsed since (the
+        # current one is still forming), plus a feed-delay grace.
+        if timeframe in ("15Min", "1Hour"):
+            step = 15 if timeframe == "15Min" else 60
+            grace = 5 if timeframe == "15Min" else 15
+            since_end = age_minutes - step
+            if since_end > step + grace:
+                raise DataStaleError(
+                    f"{ticker} data is {since_end:.1f} minutes past its last completed "
+                    f"bar (limit: {step + grace} min for {timeframe} timeframe). "
+                    f"Last bar: {last_bar_time.strftime('%Y-%m-%d %H:%M:%S %Z')}. "
+                    f"Market may be closed or data feed delayed."
+                )
+        elif timeframe == "1Week" and age_minutes > 8 * 1440:
+            # Completed weeks only: the last bar is labelled with the Friday
+            # of the last completed week, so up to ~7.4 days old at a Friday
+            # 9:35 evaluation is normal.
             raise DataStaleError(
-                f"{ticker} data is {age_minutes:.1f} minutes old (limit: 5 min for 15Min timeframe). "
-                f"Last bar: {last_bar_time.strftime('%Y-%m-%d %H:%M:%S %Z')}. "
-                f"Market may be closed or data feed delayed."
-            )
-        elif timeframe == "1Hour" and age_minutes > 15:
-            raise DataStaleError(
-                f"{ticker} data is {age_minutes:.1f} minutes old (limit: 15 min for 1Hour timeframe). "
-                f"Last bar: {last_bar_time.strftime('%Y-%m-%d %H:%M:%S %Z')}. "
-                f"Market may be closed or data feed delayed."
-            )
-        elif timeframe == "1Week" and age_minutes > 10080:  # More than 7 days old
-            raise DataStaleError(
-                f"{ticker} weekly data is {age_minutes / 1440:.1f} days old (limit: 7 days). "
+                f"{ticker} weekly data is {age_minutes / 1440:.1f} days old (limit: 8 days). "
                 f"Last bar: {last_bar_time.strftime('%Y-%m-%d %H:%M:%S %Z')}."
             )
-        elif timeframe == "1Day" and age_minutes > 1440:  # More than 1 day old
-            # For daily data, check if we're in market hours and the data is from yesterday
-            # Market hours: 9:30 AM - 4:00 PM ET
-            if 9 <= now.hour < 16 and now.weekday() < 5:  # Weekday during market hours
+        elif timeframe == "1Day":
+            # Completed sessions only: the newest bar should be the most
+            # recent completed weekday session. Allow one extra missing
+            # weekday for an exchange holiday (no holiday calendar here).
+            import numpy as np
+
+            today = now.date()
+            session_closed = now.time() >= _MARKET_CLOSE_TIME
+            expected_last = today if (session_closed and today.weekday() < 5) else None
+            if expected_last is None:
+                expected_last = pd.Timestamp(today) - pd.offsets.BDay(1)
+                expected_last = expected_last.date()
+            missing = int(np.busday_count(last_bar_time.date(), expected_last))
+            if missing > 1:
                 raise DataStaleError(
-                    f"{ticker} daily data is from {last_bar_time.date()}, but market is open today. "
-                    f"Expected today's data. Last bar: {last_bar_time.strftime('%Y-%m-%d %H:%M:%S %Z')}"
+                    f"{ticker} daily data ends {last_bar_time.date()}, but the last "
+                    f"completed session should be {expected_last} ({missing} weekday "
+                    f"sessions missing)."
                 )
 
         # Check minimum bars
@@ -350,6 +399,38 @@ class MarketDataFetcher:
                 f"{ticker} has {zero_volume_bars} bars with zero volume. "
                 f"This may indicate data quality issues or a thinly traded stock."
             )
+
+    @staticmethod
+    def _drop_incomplete_bars(df: pd.DataFrame, timeframe: str, now: datetime) -> pd.DataFrame:
+        """Drop bars whose session/interval has not finished at `now` (ET).
+
+        Daily bars (Alpaca labels them at the session date's midnight ET):
+        a bar dated today is complete only from 16:00 ET; anything dated
+        after today is dropped. Intraday bars (labelled at interval start):
+        complete once start + interval <= now. Regular-session close only -
+        no early-close calendar exists in this codebase.
+        """
+        if df.empty:
+            return df
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=ET)
+        idx = df.index
+        if timeframe in ("1Day", "1Week"):
+            dates = idx.tz_convert(ET).date if idx.tz is not None else idx.date
+            today = now.astimezone(ET).date()
+            closed_today = now.astimezone(ET).time() >= _MARKET_CLOSE_TIME
+            keep = [(d < today) or (d == today and closed_today) for d in dates]
+        else:
+            step = pd.Timedelta(minutes=15) if timeframe == "15Min" else pd.Timedelta(hours=1)
+            now_ts = pd.Timestamp(now)
+            keep = [(ts + step) <= now_ts for ts in idx]
+        dropped = len(df) - sum(keep)
+        if dropped:
+            logger.info(
+                f"Dropped {dropped} incomplete bar(s) (latest {idx[-1]}) - "
+                f"signals use completed bars only"
+            )
+        return df[keep]
 
     def _map_timeframe(self, timeframe: str) -> TimeFrame:
         """

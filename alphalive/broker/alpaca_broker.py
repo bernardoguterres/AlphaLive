@@ -7,6 +7,7 @@ error handling and retry logic.
 """
 
 import logging
+import os
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
@@ -29,6 +30,7 @@ from alphalive.broker.base_broker import (
     RateLimitError,
     OrderError,
 )
+from alphalive.broker.transport import BrokerMutationBlocked, install_request_timeout
 from alphalive.utils.retry import RetryDecision, RetryOutcome, retry_with_backoff
 
 logger = logging.getLogger(__name__)
@@ -113,14 +115,25 @@ class AlpacaBroker(BaseBroker):
             logger.info("Connecting to Alpaca...")
 
             # Initialize trading client
+            # url_override: base_url is the configured ALPACA_BASE_URL, or the
+            # standard paper/live endpoint for the paper flag (config.py) - it
+            # was previously stored but never passed to the client.
             self.trading_client = TradingClient(
-                api_key=self.api_key, secret_key=self.secret_key, paper=self.paper
+                api_key=self.api_key,
+                secret_key=self.secret_key,
+                paper=self.paper,
+                url_override=self.base_url,
             )
 
-            # Initialize market data client
+            # Initialize market data client (ALPACA_DATA_URL overrides the
+            # standard data endpoint, e.g. for the local broker simulator)
             self.data_client = StockHistoricalDataClient(
-                api_key=self.api_key, secret_key=self.secret_key
+                api_key=self.api_key,
+                secret_key=self.secret_key,
+                url_override=os.environ.get("ALPACA_DATA_URL") or None,
             )
+            install_request_timeout(self.trading_client)
+            install_request_timeout(self.data_client)
 
             # Verify credentials by fetching account
             account = self._retry_with_backoff(self.trading_client.get_account)
@@ -661,6 +674,8 @@ class AlpacaBroker(BaseBroker):
             # code once the real APIError is hidden behind error_cls.
             raise error_cls(f"{error_context}: {e}", status_code=e.status_code) from e
 
+        except BrokerMutationBlocked:
+            raise  # refused locally; never reached the broker
         except Exception as e:
             logger.error(f"{error_context}: {e}", exc_info=True)
             raise error_cls(f"{error_context}: {e}") from e
@@ -677,6 +692,8 @@ class AlpacaBroker(BaseBroker):
         distinguish "fatal on first sight" from "fatal after exhausting
         retries" while raising the same translated type either way.
         """
+        if isinstance(e, BrokerMutationBlocked):
+            return RetryOutcome(RetryDecision.FATAL)
         if isinstance(e, APIError):
             if e.status_code in (401, 403):
                 # Fatal - raising here (instead of returning FATAL) skips
@@ -766,7 +783,7 @@ class AlpacaBroker(BaseBroker):
         ) as e:
             logger.error(f"Connection error after {self.MAX_RETRIES} retries: {e}")
             raise BrokerError(f"Connection to Alpaca failed: {e}")
-        except (AuthenticationError, BrokerError):
+        except (AuthenticationError, BrokerError, BrokerMutationBlocked):
             raise
         except Exception as e:
             raise BrokerError(f"Unexpected error: {e}")
@@ -788,7 +805,9 @@ class AlpacaBroker(BaseBroker):
     def _convert_order(self, alpaca_order) -> Order:
         """Convert Alpaca order to our Order dataclass."""
         return Order(
-            id=alpaca_order.id,
+            # alpaca-py returns uuid.UUID; Order.id is a str and is persisted
+            # in JSON state (submission intents), so coerce at the boundary.
+            id=str(alpaca_order.id),
             symbol=alpaca_order.symbol,
             qty=float(alpaca_order.qty),
             side=alpaca_order.side.value,
