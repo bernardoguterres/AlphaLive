@@ -287,27 +287,22 @@ def test_ma_crossover_cooldown_actually_suppresses_a_real_signal(sample_strategy
     buy_at_8 = engine_cooldown.generate_signal(df.iloc[:9])
     assert buy_at_8["signal"] == "BUY", f"Fixture sanity check failed: {buy_at_8}"
 
-    suppressed = engine_cooldown.generate_signal(df.iloc[:12])
-    assert suppressed["signal"] == "HOLD", (
-        f"Death cross 3 bars after the prior signal must be suppressed by "
-        f"cooldown_days=3, got {suppressed}"
-    )
+    # Entry-only cooldown (2026-10, both repos): the death cross 3 bars after
+    # the BUY is an EXIT and must never be suppressed (suppressing it left
+    # the backtest engine long with no exit coming).
+    exit_signal = engine_cooldown.generate_signal(df.iloc[:12])
+    assert exit_signal["signal"] == "SELL", exit_signal
 
-    # Bar 13's golden cross is 5 bars after bar 8's signal - outside the
-    # cooldown=3 window - must still fire (cooldown isn't over-blocking).
-    fires_again = engine_cooldown.generate_signal(df.iloc[:14])
-    assert fires_again["signal"] == "BUY", (
-        f"A crossover outside the cooldown window must still fire, "
-        f"got {fires_again}"
-    )
+    # Bar 13's golden cross is 2 bars after the bar-11 exit: an ENTRY inside
+    # the cooldown window -> suppressed.
+    suppressed = engine_cooldown.generate_signal(df.iloc[:14])
+    assert suppressed["signal"] == "HOLD", suppressed
 
-    # Same data, cooldown disabled: bar 11's death cross must now fire.
+    # Same data, cooldown disabled: bar 13's golden cross fires.
     sample_strategy_dict["strategy"]["parameters"] = {**base_params, "cooldown_days": 0}
     engine_no_cooldown = SignalEngine(StrategySchema(**sample_strategy_dict))
-    unblocked = engine_no_cooldown.generate_signal(df.iloc[:12])
-    assert unblocked["signal"] == "SELL", (
-        f"The identical death cross must fire once cooldown_days=0, " f"got {unblocked}"
-    )
+    unblocked = engine_no_cooldown.generate_signal(df.iloc[:14])
+    assert unblocked["signal"] == "BUY", unblocked
 
 
 def test_rsi_mean_reversion_buy_when_oversold(sample_strategy_dict, rsi_oversold_bars):
@@ -1006,6 +1001,7 @@ def test_get_state_defaults_flat(sample_strategy_dict):
         "in_position": False,
         "entry_price": 0.0,
         "peak_price": 0.0,
+        "peak_bar_ts": None,
         "vwap_position": 0,
         "vwap_bars_since_signal": 10**9,
     }
@@ -1169,3 +1165,72 @@ def test_greenblatt_trailing_stop_bypasses_min_hold(sample_strategy_dict):
 
     assert signal["signal"] == "SELL"
     assert "Trailing stop" in signal["reason"]
+
+
+# ---------------------------------------------------------------------------
+# Bear-market filter is an ENTRY filter only (2026-10 repair)
+# ---------------------------------------------------------------------------
+
+
+def _declining_df(n=320):
+    import numpy as np
+
+    idx = pd.bdate_range("2024-01-01", periods=n, tz="America/New_York")
+    trend = np.concatenate(
+        [np.linspace(100, 160, n // 2), np.linspace(160, 80, n - n // 2)]
+    )
+    close = trend * (1 + 0.03 * np.sin(np.arange(n) / 4))
+    return pd.DataFrame(
+        {
+            "open": close,
+            "high": close * 1.005,
+            "low": close * 0.995,
+            "close": close,
+            "volume": 1e6,
+        },
+        index=idx,
+    )
+
+
+def test_bear_filter_never_replaces_a_strategy_sell(sample_strategy_dict, monkeypatch):
+    """Pre-repair the filter ran BEFORE the strategy whenever the engine
+    looked flat - and rsi_mean_reversion never sets _in_position - so its
+    exits were replaced by 'BUY blocked' HOLDs in downtrends (held through
+    -37% in the 2026-10 audit simulation)."""
+    monkeypatch.setenv("ENABLE_BEAR_MARKET_FILTER", "true")
+    params = {"period": 14, "oversold": 30, "overbought": 70}
+    on = _make_engine(sample_strategy_dict, "rsi_mean_reversion", dict(params))
+    off = _make_engine(sample_strategy_dict, "rsi_mean_reversion", dict(params))
+    df = _declining_df()
+    sells_off = sells_on = 0
+    for t in range(250, len(df)):
+        w = df.iloc[t - 249 : t + 1]
+        monkeypatch.setenv("ENABLE_BEAR_MARKET_FILTER", "false")
+        s_off = off.generate_signal(w)["signal"]
+        monkeypatch.setenv("ENABLE_BEAR_MARKET_FILTER", "true")
+        s_on = on.generate_signal(w)["signal"]
+        sells_off += s_off == "SELL"
+        sells_on += s_on == "SELL"
+        if s_off == "SELL":
+            assert s_on == "SELL"
+        if s_on == "BUY":
+            assert s_off == "BUY"  # filter can only remove BUYs, never add
+    assert sells_off > 0 and sells_on == sells_off
+
+
+def test_bear_filter_suppressed_buy_does_not_leave_engine_long(
+    sample_strategy_dict, monkeypatch
+):
+    monkeypatch.setenv("ENABLE_BEAR_MARKET_FILTER", "true")
+    eng = _make_engine(sample_strategy_dict, "greenblatt_weekly", {})
+    eng._is_bear_market = lambda df: True
+    eng._dispatch["greenblatt_weekly"] = lambda df: (
+        setattr(eng, "_in_position", True)
+        or {"signal": "BUY", "confidence": 1.0, "reason": "x"}
+    )
+    df = _declining_df(60)
+    df["sma_200"] = df["close"]
+    df["sma_50"] = df["close"]
+    r = eng.generate_signal(df)
+    assert r["signal"] == "HOLD" and r["filtered_signal"] == "BUY"
+    assert eng.get_state()["in_position"] is False

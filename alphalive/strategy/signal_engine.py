@@ -49,6 +49,11 @@ class SignalEngine:
         self._in_position = False
         self._entry_price: float = 0.0
         self._peak_price: float = 0.0  # for greenblatt_weekly trailing stop
+        # Bar timestamp the peak was observed on. Signal bars are adjusted
+        # history, whose scale changes after a split/dividend - the peak is
+        # re-read from the CURRENT history at this timestamp each check so a
+        # re-basing can't fake a trailing-stop breach.
+        self._peak_bar_ts: Optional[str] = None
 
         # vwap_reversion state machine (mirrors AlphaLab's position/cooldown
         # bookkeeping exactly; rewritten 2026-07-10 - was stateless, which
@@ -90,6 +95,33 @@ class SignalEngine:
             f"Params: {self.params}"
         )
 
+    def sync_position(
+        self, has_position: bool, entry_price: float = 0.0, peak_price: float = 0.0
+    ) -> None:
+        """Align the engine's long/flat flag with the broker-confirmed
+        position ledger during normal operation (not only at restart).
+
+        A BUY the engine emitted may never fill (blocked by risk, sentiment,
+        rejection); a position may be closed by a risk exit. Ledger wins.
+        Deterministic-replay strategies don't read these fields, so this is
+        a no-op for their decisions."""
+        if has_position and not self._in_position:
+            self._in_position = True
+            self._entry_price = float(entry_price or 0.0)
+            self._peak_price = max(float(peak_price or 0.0), self._entry_price)
+            if self.strategy_name == "vwap_reversion":
+                self._vwap_position = 1
+            logger.info(
+                f"Engine position synced to ledger: LONG (entry ${self._entry_price:.2f})"
+            )
+        elif not has_position and self._in_position:
+            self._in_position = False
+            self._entry_price = 0.0
+            self._peak_price = 0.0
+            if self.strategy_name == "vwap_reversion" and self._vwap_position == 1:
+                self._vwap_position = 0
+            logger.info("Engine position synced to ledger: FLAT")
+
     def get_state(self) -> Dict[str, Any]:
         """Snapshot the stateful-strategy fields for persistence.
 
@@ -102,6 +134,7 @@ class SignalEngine:
             "in_position": self._in_position,
             "entry_price": self._entry_price,
             "peak_price": self._peak_price,
+            "peak_bar_ts": self._peak_bar_ts,
             "vwap_position": self._vwap_position,
             "vwap_bars_since_signal": self._vwap_bars_since_signal,
         }
@@ -113,6 +146,7 @@ class SignalEngine:
         self._in_position = bool(state.get("in_position", False))
         self._entry_price = float(state.get("entry_price", 0.0) or 0.0)
         self._peak_price = float(state.get("peak_price", 0.0) or 0.0)
+        self._peak_bar_ts = state.get("peak_bar_ts")
         self._vwap_position = int(state.get("vwap_position", 0) or 0)
         self._vwap_bars_since_signal = int(
             state.get("vwap_bars_since_signal", 10**9) or 10**9
@@ -184,27 +218,9 @@ class SignalEngine:
             self._cached_last_ts = last_ts
             self._cached_df_len = len(df)
 
-        # Bear market filter: block BUY signals when not in a position and price is
-        # below a declining SMA_200. Allows SELL/exits to proceed normally.
-        if not self._in_position and self._is_bear_market(df):
-            result = {
-                "signal": "HOLD",
-                "confidence": 0.0,
-                "reason": (
-                    f"Bear market filter: price below declining SMA_200 "
-                    f"({df['close'].iloc[-1]:.2f} < {df['sma_200'].iloc[-1]:.2f}) - BUY blocked"
-                ),
-                "indicators": {
-                    "price": df["close"].iloc[-1],
-                    "sma_200": df["sma_200"].iloc[-1],
-                },
-                "warmup_complete": True,
-                "generation_time_ms": int((time.time() - start_time) * 1000),
-            }
-            logger.debug(f"Bear market filter triggered: {result['reason']}")
-            return result
-
-        # Route to strategy-specific logic
+        # Route to strategy-specific logic. The strategy ALWAYS runs first,
+        # so its exits are never pre-empted by a live-only entry filter.
+        position_snapshot = self.get_state()
         try:
             handler = self._dispatch.get(self.strategy_name)
             if handler is None:
@@ -217,6 +233,40 @@ class SignalEngine:
         except Exception as e:
             logger.error(f"Signal generation failed: {e}", exc_info=True)
             return self._no_signal(f"Signal generation error: {e}", start_time)
+
+        # Bear market filter (AlphaLive-only ENTRY filter, default on): a BUY
+        # while price is below a declining trend SMA is converted to HOLD.
+        # It never touches SELL/HOLD. Previously this check ran BEFORE the
+        # strategy whenever the engine believed it was flat - and the four
+        # strategies that never track _in_position always looked flat, so
+        # their exit signals were replaced by "BUY blocked" HOLDs during
+        # downtrends (2026-10 audit: rsi_mean_reversion held through -37%).
+        if result.get("signal") == "BUY" and self._is_bear_market(df):
+            # Undo only the position fields the strategy set for this BUY;
+            # its own signal bookkeeping (e.g. cooldown counters) keeps the
+            # fact that the strategy DID signal - the trade was filtered.
+            self._in_position = bool(position_snapshot.get("in_position", False))
+            self._entry_price = float(position_snapshot.get("entry_price", 0.0) or 0.0)
+            self._peak_price = float(position_snapshot.get("peak_price", 0.0) or 0.0)
+            self._vwap_position = int(position_snapshot.get("vwap_position", 0) or 0)
+            trend_col = (
+                f"sma_{self.params.get('slow_sma', 50)}"
+                if self.strategy_name == "greenblatt_weekly"
+                else "sma_200"
+            )
+            result = {
+                "signal": "HOLD",
+                "confidence": 0.0,
+                "reason": (
+                    f"Bear market filter: strategy BUY suppressed - price "
+                    f"{df['close'].iloc[-1]:.2f} below declining {trend_col.upper()} "
+                    f"(strategy reason: {result.get('reason', '')})"
+                ),
+                "indicators": result.get("indicators", {}),
+                "warmup_complete": True,
+                "filtered_signal": "BUY",
+            }
+            logger.debug(f"Bear market filter triggered: {result['reason']}")
 
         # Add generation time
         elapsed = time.time() - start_time
@@ -263,15 +313,18 @@ class SignalEngine:
         """
         if cooldown <= 0:
             return raw_signal
+        # Entry-only cooldown (2026-10, both repos): a BUY within `cooldown`
+        # bars of the previous emitted signal is suppressed; exits never are.
         values = raw_signal.to_numpy()
         out = values.copy()
         last_signal_idx = -cooldown - 1
         for i in range(len(values)):
-            if values[i] != 0:
-                if i - last_signal_idx <= cooldown:
-                    out[i] = 0
-                else:
-                    last_signal_idx = i
+            if values[i] == 0:
+                continue
+            if values[i] > 0 and i - last_signal_idx <= cooldown:
+                out[i] = 0
+                continue
+            last_signal_idx = i
         return pd.Series(out, index=raw_signal.index)
 
     def _ma_crossover_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -547,185 +600,190 @@ class SignalEngine:
 
     def _momentum_breakout_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
-        Momentum Breakout Strategy.
+        Momentum Breakout - full AlphaLab state machine (2026-10 port).
 
-        BUY: Close > rolling high of lookback AND volume > avg * surge_pct
-        SELL: Trailing stop hit (3x ATR below recent high)
-        Confidence: Based on volume surge magnitude
+        Entry (flat, outside cooldown): close > previous bar's N-day high,
+        volume > volume average x surge_pct, RSI(14, EWM) > rsi_min.
+        Exit (long): close <= hard stop (entry - stop_loss_atr_mult x ATR),
+        close <= trailing stop (peak - trailing_stop_atr_mult x ATR, ratcheted
+        on new peaks), or close < previous bar's N-day low.
 
-        AlphaLab Parity: Rolling high calculation and volume surge must match.
+        Reconstructed deterministically by replaying AlphaLab's loop over the
+        supplied window and returning the last bar's outcome (same pattern
+        as rsi_mean_reversion). Previously AlphaLive had a stateless
+        breakout check with no RSI filter, no exits, no cooldown, and
+        ignored rsi_min / stop_loss_atr_mult / trailing_stop_atr_mult /
+        cooldown_days from the export (25-50% decision agreement in the
+        2026-10 audit).
         """
-        lookback = self.params.get("lookback", 20)
-        surge_pct = self.params.get("surge_pct", 1.5)
-        atr_period = self.params.get("atr_period", 14)
-        volume_ma_period = self.params.get("volume_ma_period", 20)
+        p = self.params
+        lookback = p.get("lookback", 20)
+        surge = p.get("surge_pct", 1.5)
+        vmp = p.get("volume_ma_period", 20)
+        rsi_min = p.get("rsi_min", 50)
+        sl_mult = p.get("stop_loss_atr_mult", 2.0)
+        ts_mult = p.get("trailing_stop_atr_mult", 3.0)
+        cooldown = p.get("cooldown_days", 3)
 
-        # Check warmup
-        rolling_high = df["rolling_high"].iloc[-1]
-        volume_ma = df[f"volume_ma_{volume_ma_period}"].iloc[-1]
-        atr = df[f"atr_{atr_period}"].iloc[-1]
-
-        if pd.isna(rolling_high) or pd.isna(volume_ma) or pd.isna(atr):
+        n = len(df)
+        if n <= lookback:
             return self._no_signal(
-                f"Warmup incomplete (need {max(lookback, volume_ma_period, atr_period)} bars)",
+                f"Warmup incomplete (need > {lookback} bars)",
                 time.time(),
                 warmup_complete=False,
             )
+        close = df["close"].to_numpy()
+        volume = df["volume"].to_numpy()
+        atr = df["atr_ewm_14"].to_numpy()
+        rsi = df["rsi_ewm_14"].to_numpy()
+        hi = df["rolling_high"].to_numpy()
+        lo = df["rolling_low"].to_numpy()
+        vavg = df[f"volume_ma_{vmp}"].to_numpy()
 
-        current_price = df["close"].iloc[-1]
-        current_volume = df["volume"].iloc[-1]
+        in_pos = False
+        entry = stop = trail = peak = 0.0
+        last_sig = -cooldown - 1
+        outcome, reason = 0, "No breakout"
+        for i in range(lookback, n):
+            c = close[i]
+            outcome, reason = 0, "No signal"
+            if in_pos:
+                if c > peak:
+                    peak = c
+                    a = atr[i] if not np.isnan(atr[i]) else peak * 0.02
+                    trail = peak - ts_mult * a
+                if c <= stop:
+                    outcome, reason = (
+                        -1,
+                        f"Stop-loss hit ({(c / entry - 1) * 100:.1f}%)",
+                    )
+                elif c <= trail:
+                    outcome, reason = (
+                        -1,
+                        f"Trailing stop ({(c / entry - 1) * 100:+.1f}%)",
+                    )
+                elif not np.isnan(lo[i]) and c < lo[i]:
+                    outcome, reason = -1, (
+                        f"Breakdown below {lookback}-day low ({(c / entry - 1) * 100:+.1f}%)"
+                    )
+                if outcome == -1:
+                    in_pos = False
+                    last_sig = i
+            else:
+                if i - last_sig <= cooldown:
+                    continue
+                if np.isnan(hi[i]) or c <= hi[i]:
+                    continue
+                if np.isnan(vavg[i]) or vavg[i] <= 0 or volume[i] <= vavg[i] * surge:
+                    continue
+                if np.isnan(rsi[i]) or rsi[i] <= rsi_min:
+                    continue
+                a = atr[i] if not np.isnan(atr[i]) else c * 0.02
+                entry, peak = c, c
+                stop = entry - sl_mult * a
+                trail = entry - ts_mult * a
+                in_pos = True
+                last_sig = i
+                outcome, reason = 1, (
+                    f"Breakout above {lookback}-day high with volume surge "
+                    f"{volume[i] / vavg[i]:.2f}x and RSI {rsi[i]:.1f}"
+                )
 
         indicators = {
-            "price": current_price,
-            "rolling_high": rolling_high,
-            "volume": current_volume,
-            f"volume_ma_{volume_ma_period}": volume_ma,
-            f"atr_{atr_period}": atr,
+            "price": float(close[-1]),
+            "rolling_high": float(hi[-1]),
+            "rolling_low": float(lo[-1]),
+            "atr_14": float(atr[-1]),
+            "rsi_14": float(rsi[-1]),
         }
-
-        # Check breakout conditions
-        volume_surge = current_volume / volume_ma if volume_ma > 0 else 0
-
-        if current_price > rolling_high and volume_surge > surge_pct:
-            # Breakout with volume confirmation
-            breakout_pct = ((current_price - rolling_high) / rolling_high) * 100
-            confidence = min(1.0, (volume_surge - surge_pct) / surge_pct)
-
-            return {
-                "signal": "BUY",
-                "confidence": confidence,
-                "reason": (
-                    f"Momentum breakout: Price {current_price:.2f} > "
-                    f"High({lookback})={rolling_high:.2f} (+{breakout_pct:.2f}%), "
-                    f"Volume surge {volume_surge:.2f}x (>{surge_pct}x)"
-                ),
-                "indicators": indicators,
-                "warmup_complete": True,
-            }
-
-        else:
-            # No breakout or insufficient volume
-            return {
-                "signal": "HOLD",
-                "confidence": 0.0,
-                "reason": (
-                    f"No breakout: Price={current_price:.2f}, High={rolling_high:.2f}, "
-                    f"Vol surge={volume_surge:.2f}x (need >{surge_pct}x)"
-                ),
-                "indicators": indicators,
-                "warmup_complete": True,
-            }
+        signal = {1: "BUY", -1: "SELL"}.get(outcome, "HOLD")
+        return {
+            "signal": signal,
+            "confidence": 0.5 if outcome else 0.0,
+            "reason": reason,
+            "indicators": indicators,
+            "warmup_complete": True,
+        }
 
     def _bollinger_breakout_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
-        Bollinger Band Breakout Strategy.
+        Long-only Bollinger breakout - AlphaLab's state machine (2026-10).
 
-        BUY: Close > upper BB for confirmation_bars AND volume > 1.5x avg
-        SELL: Close < lower BB for confirmation_bars
-        Confidence: Based on distance from band
+        Entry (flat, outside cooldown): `confirmation_bars` consecutive closes
+        above the upper band (sample std) and, if volume_filter, volume >=
+        20-bar average x volume_threshold. Exit (long): close <= middle x 1.01.
+        Replayed deterministically over the supplied window.
 
-        AlphaLab Parity: confirmation_bars logic must match exactly.
-        This is a critical parity test case.
-
-        IMPORTANT: Parameter key is "confirmation_bars" (not "confirm_bars")
+        Previously: stateless; the volume threshold was hard-coded at 1.5
+        (volume_filter/volume_threshold/cooldown_days from the export were
+        ignored); a lower-band breakdown was emitted as SELL whatever the
+        position; bands used population std (ddof=0).
         """
-        period = self.params.get("period", 20)
-        confirmation_bars = self.params.get("confirmation_bars", 2)
-        volume_ma_period = self.params.get("volume_ma_period", 20)
+        p = self.params
+        confirmation = p.get("confirmation_bars", 2)
+        volume_filter = p.get("volume_filter", True)
+        threshold = p.get("volume_threshold", 1.5)
+        cooldown = p.get("cooldown_days", 3)
 
-        # Check warmup
-        bb_upper = df["bb_upper"].iloc[-1]
-        bb_lower = df["bb_lower"].iloc[-1]
-        bb_middle = df["bb_middle"].iloc[-1]
-        volume_ma = df[f"volume_ma_{volume_ma_period}"].iloc[-1]
-
-        if pd.isna(bb_upper) or pd.isna(bb_lower) or pd.isna(volume_ma):
+        close = df["close"]
+        upper = df["bb_upper"]
+        middle = df["bb_middle"]
+        if pd.isna(upper.iloc[-1]):
             return self._no_signal(
-                f"Warmup incomplete (need {max(period, volume_ma_period)} bars)",
+                "Warmup incomplete (Bollinger bands)",
                 time.time(),
                 warmup_complete=False,
             )
+        above = (close > upper).astype(int)
+        consec = (above.rolling(confirmation).sum() >= confirmation).to_numpy()
+        exit_zone = (close <= middle * 1.01).to_numpy()
+        if volume_filter:
+            vol_ok = (df["volume"] >= df["volume_ma_20"] * threshold).to_numpy()
+        else:
+            vol_ok = np.ones(len(df), dtype=bool)
 
-        # Need enough rows for confirmation check
-        if len(df) < confirmation_bars:
-            return self._no_signal(
-                f"Need {confirmation_bars} bars for confirmation",
-                time.time(),
-                warmup_complete=False,
-            )
-
-        current_price = df["close"].iloc[-1]
-        current_volume = df["volume"].iloc[-1]
+        in_pos = False
+        last_sig = -cooldown - 1
+        outcome = 0
+        for i in range(len(df)):
+            outcome = 0
+            if not in_pos:
+                if i - last_sig <= cooldown:
+                    continue
+                if consec[i] and vol_ok[i]:
+                    outcome, in_pos, last_sig = 1, True, i
+            elif exit_zone[i]:
+                outcome, in_pos, last_sig = -1, False, i
 
         indicators = {
-            "price": current_price,
-            "bb_upper": bb_upper,
-            "bb_middle": bb_middle,
-            "bb_lower": bb_lower,
-            "volume": current_volume,
-            f"volume_ma_{volume_ma_period}": volume_ma,
+            "price": float(close.iloc[-1]),
+            "bb_upper": float(upper.iloc[-1]),
+            "bb_middle": float(middle.iloc[-1]),
+            "bb_lower": float(df["bb_lower"].iloc[-1]),
         }
-
-        # Check confirmation bars for upper breakout
-        upper_confirmed = all(
-            df["close"].iloc[-i] > df["bb_upper"].iloc[-i]
-            for i in range(1, confirmation_bars + 1)
-        )
-
-        # Check confirmation bars for lower breakdown
-        lower_confirmed = all(
-            df["close"].iloc[-i] < df["bb_lower"].iloc[-i]
-            for i in range(1, confirmation_bars + 1)
-        )
-
-        volume_surge = current_volume / volume_ma if volume_ma > 0 else 0
-
-        # Upper breakout
-        if upper_confirmed and volume_surge > 1.5:
-            distance_pct = ((current_price - bb_upper) / bb_upper) * 100
-            confidence = min(1.0, abs(distance_pct) / 2.0)
-
+        if outcome == 1:
             return {
                 "signal": "BUY",
-                "confidence": confidence,
-                "reason": (
-                    f"Bollinger upper breakout: Price {current_price:.2f} > "
-                    f"BB_upper={bb_upper:.2f} for {confirmation_bars} bars, "
-                    f"Volume surge {volume_surge:.2f}x"
-                ),
+                "confidence": 0.5,
+                "reason": f"{confirmation} closes above upper BB",
                 "indicators": indicators,
                 "warmup_complete": True,
             }
-
-        # Lower breakdown
-        elif lower_confirmed:
-            distance_pct = ((bb_lower - current_price) / bb_lower) * 100
-            confidence = min(1.0, abs(distance_pct) / 2.0)
-
+        if outcome == -1:
             return {
                 "signal": "SELL",
-                "confidence": confidence,
-                "reason": (
-                    f"Bollinger lower breakdown: Price {current_price:.2f} < "
-                    f"BB_lower={bb_lower:.2f} for {confirmation_bars} bars"
-                ),
+                "confidence": 0.5,
+                "reason": "Price returned to middle band",
                 "indicators": indicators,
                 "warmup_complete": True,
             }
-
-        else:
-            # No breakout
-            return {
-                "signal": "HOLD",
-                "confidence": 0.0,
-                "reason": (
-                    f"No breakout: Price={current_price:.2f}, "
-                    f"BB range=[{bb_lower:.2f}, {bb_upper:.2f}], "
-                    f"Vol surge={volume_surge:.2f}x"
-                ),
-                "indicators": indicators,
-                "warmup_complete": True,
-            }
+        return {
+            "signal": "HOLD",
+            "confidence": 0.0,
+            "reason": "No Bollinger breakout entry/exit",
+            "indicators": indicators,
+            "warmup_complete": True,
+        }
 
     def _vwap_reversion_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
@@ -1130,9 +1188,22 @@ class SignalEngine:
             "rsi": rsi_now,
         }
 
-        # Update peak price while in position
+        # Re-anchor the peak to the current adjustment basis (see
+        # _peak_bar_ts), then update it with this bar.
+        if self._in_position and self._peak_bar_ts is not None:
+            try:
+                ts = pd.Timestamp(self._peak_bar_ts)
+                if df.index.tz is not None and ts.tz is None:
+                    ts = ts.tz_localize(df.index.tz)
+                since = df.loc[df.index >= ts, "close"]
+                if len(since):
+                    self._peak_price = float(since.max())
+                    self._peak_bar_ts = str(since.idxmax())
+            except Exception as e:  # never let bookkeeping break exits
+                logger.debug(f"Peak re-anchor skipped: {e}")
         if self._in_position and price_now > self._peak_price:
             self._peak_price = price_now
+            self._peak_bar_ts = str(df.index[-1])
 
         # --- EXIT logic ---
         if self._in_position:
@@ -1206,6 +1277,7 @@ class SignalEngine:
             self._in_position = True
             self._entry_price = price_now
             self._peak_price = price_now
+            self._peak_bar_ts = str(df.index[-1])
             return {
                 "signal": "BUY",
                 "confidence": confidence,

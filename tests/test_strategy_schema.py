@@ -175,3 +175,32 @@ def test_unregistered_strategy_name_raises(sample_strategy_dict):
 
     with pytest.raises(ValidationError):
         StrategySchema(**config)
+
+
+def test_drawdown_halt_enabled_export_is_refused(sample_strategy_dict):
+    """AlphaLab's portfolio drawdown halt has no AlphaLive equivalent."""
+    d = copy.deepcopy(sample_strategy_dict)
+    d["risk"]["drawdown_halt_enabled"] = True
+    with pytest.raises(ValidationError, match="drawdown halt"):
+        StrategySchema(**d)
+
+
+def test_halt_free_export_loads_without_legacy_warning(sample_strategy_dict, caplog):
+    d = copy.deepcopy(sample_strategy_dict)
+    d["risk"]["drawdown_halt_enabled"] = False
+    with caplog.at_level("WARNING", logger="alphalive.strategy_schema"):
+        s = StrategySchema(**d)
+    assert s.risk.drawdown_halt_enabled is False
+    assert "predates risk.drawdown_halt_enabled" not in caplog.text
+
+
+def test_legacy_export_without_halt_field_loads_with_warning(
+    sample_strategy_dict, caplog
+):
+    d = copy.deepcopy(sample_strategy_dict)
+    d["risk"].pop("drawdown_halt_enabled", None)
+    with caplog.at_level("WARNING", logger="alphalive.strategy_schema"):
+        s = StrategySchema(**d)
+    assert s.risk.drawdown_halt_enabled is None
+    assert "predates risk.drawdown_halt_enabled" in caplog.text
+    assert "does not enforce" in caplog.text
