@@ -100,7 +100,7 @@ def test_add_all_for_momentum_breakout(sample_ohlcv_data):
     params = {"lookback": 20, "atr_period": 14, "volume_ma_period": 20}
     df = add_all_for_strategy(sample_ohlcv_data, "momentum_breakout", params)
 
-    assert "atr_14" in df.columns
+    assert "atr_ewm_14" in df.columns and "rsi_ewm_14" in df.columns
     assert "rolling_high" in df.columns
     assert "volume_ma_20" in df.columns
 

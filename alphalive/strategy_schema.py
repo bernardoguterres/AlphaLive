@@ -88,6 +88,9 @@ class RSIMeanReversionStrategyParams(BaseModel):
     strategy_type: Literal["rsi_mean_reversion"] = "rsi_mean_reversion"
     period: int = Field(default=14, ge=2, le=100)
     rsi_period: Optional[int] = Field(default=None, ge=2, le=100)
+    # AlphaLab's RSIMeanReversion cooldown (signal_engine reads it); added to
+    # the export contract 2026-10 - previously dropped in transit.
+    cooldown_days: int = Field(default=3, ge=0, le=100)
     oversold: int = Field(default=30, ge=1, le=49)
     overbought: int = Field(default=70, ge=51, le=99)
     use_bb_confirmation: bool = Field(default=False)
@@ -286,6 +289,14 @@ class Risk(BaseModel):
     commission_per_trade: float = Field(
         default=0.0, description="Commission per trade (USD)", ge=0.0, le=50.0
     )
+    drawdown_halt_enabled: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Whether the AlphaLab backtest simulated its portfolio drawdown "
+            "halt. AlphaLive has no equivalent, so True is refused; None means "
+            "an export made before this field existed (warned at load)."
+        ),
+    )
 
     @field_validator("stop_loss_pct")
     @classmethod
@@ -322,6 +333,33 @@ class Risk(BaseModel):
             raise ValueError(
                 f"portfolio_max_positions ({self.portfolio_max_positions}) must be >= "
                 f"max_open_positions ({self.max_open_positions})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_drawdown_halt(self) -> "Risk":
+        """Refuse a backtest whose drawdown halt AlphaLive cannot enforce.
+
+        AlphaLab's halt blocks entries for the rest of the run once the
+        strategy's own simulated equity falls a set percentage from its
+        peak. AlphaLive's daily-loss limits reset every trading day and act
+        on a shared account, so they are not a substitute.
+        """
+        if self.drawdown_halt_enabled:
+            raise ValueError(
+                "risk.drawdown_halt_enabled=true: the backtest simulated "
+                "AlphaLab's portfolio drawdown halt, which AlphaLive does not "
+                "implement. Re-run the backtest with the halt disabled and "
+                "re-export."
+            )
+        if self.drawdown_halt_enabled is None:
+            logger.warning(
+                "Strategy export predates risk.drawdown_halt_enabled: its "
+                "AlphaLab backtest simulated a portfolio drawdown halt (10% of "
+                "peak unless overridden) that AlphaLive does not enforce, so "
+                "live behaviour after such a drawdown can differ from the "
+                "backtest. Re-export from a halt-free backtest to remove this "
+                "difference."
             )
         return self
 

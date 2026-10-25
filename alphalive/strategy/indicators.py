@@ -20,6 +20,58 @@ from ta.volatility import BollingerBands, AverageTrueRange
 logger = logging.getLogger(__name__)
 
 
+def rsi_ewm(close: pd.Series, period: int = 14) -> pd.Series:
+    """RSI with exponential (alpha = 1/period, adjust=False) smoothing of
+    gains/losses from the first bar, no SMA seed - the convention AlphaLab's
+    FeatureEngineer uses for its shared "RSI" feature and its parameterised
+    strategy helper. Independently implemented here; avg_loss == 0 gives
+    100 (gains only) or 50 (no movement), as in AlphaLab. Distinct from
+    rsi_wilder(), which rsi_mean_reversion uses in both repos."""
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1 / period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / period, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    rsi = 100 - (100 / (1 + rs))
+    # avg_loss == 0: RSI is 100 if there were gains, 50 if no movement at
+    # all (previously NaN - an undefined RSI that blocked signals forever on
+    # a series with no down-moves). Same convention as rsi_wilder().
+    rsi = rsi.mask((avg_loss == 0) & (avg_gain > 0), 100.0)
+    rsi = rsi.mask((avg_loss == 0) & (avg_gain == 0), 50.0)
+    return rsi.clip(0, 100)
+
+
+def atr_ewm(
+    high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14
+) -> pd.Series:
+    """Average True Range with exponential (alpha = 1/period, adjust=False)
+    smoothing from the first bar - AlphaLab FeatureEngineer's "ATR"
+    convention (first true range = high - low). Replaces the `ta` library's
+    AverageTrueRange for the strategies whose AlphaLab counterparts read
+    that feature (rsi_mean_reversion, momentum_breakout): the two
+    definitions differ in seeding, which shifted ATR-stop exits by a bar
+    (the documented rsi_mean_reversion/MSFT residual)."""
+    prev_close = close.shift(1)
+    tr = pd.concat(
+        [high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1
+    ).max(axis=1)
+    return tr.ewm(alpha=1 / period, adjust=False).mean()
+
+
+def add_bollinger_sample(
+    df: pd.DataFrame, period: int = 20, std_dev: float = 2.0
+) -> pd.DataFrame:
+    """bb_upper/bb_middle/bb_lower with SAMPLE std (ddof=1) - AlphaLab's
+    definition. The `ta` BollingerBands (add_bollinger) uses ddof=0."""
+    mid = df["close"].rolling(period, min_periods=period).mean()
+    sd = df["close"].rolling(period, min_periods=period).std(ddof=1)
+    df["bb_middle"] = mid
+    df["bb_upper"] = mid + std_dev * sd
+    df["bb_lower"] = mid - std_dev * sd
+    return df
+
+
 def rsi_wilder(close: pd.Series, period: int) -> pd.Series:
     """Canonical RSI (Wilder, 1978), the single agreed-upon definition for
     deployable Alpha strategies (Prompt 2.5 remediation, 2026-08-15 - see
@@ -321,11 +373,11 @@ def _indicators_rsi_mean_reversion(
     # parity gap: AlphaLive re-fired BUY every time RSI dipped below
     # oversold with no position/cooldown/exit tracking at all - see
     # FINAL_ENGINEERING_AUDIT.md / END_TO_END_VALIDATION.md).
-    df = add_atr(df, 14)
+    df["atr_14"] = atr_ewm(df["high"], df["low"], df["close"], 14)
     if params.get("use_bb_confirmation"):
         bb_period = params.get("bb_period", 20)
         bb_std = params.get("bb_std", 2.0)
-        df = add_bollinger(df, bb_period, bb_std)
+        df = add_bollinger_sample(df, bb_period, bb_std)
     if params.get("use_adx_filter"):
         df = add_adx(df, 14)
 
@@ -339,18 +391,26 @@ def _indicators_rsi_mean_reversion(
 def _indicators_momentum_breakout(
     df: pd.DataFrame, params: Dict[str, Any]
 ) -> pd.DataFrame:
-    atr_period = params.get("atr_period", 14)
-    df = add_atr(df, atr_period)
-    # Shifted: use PREVIOUS bar's max to match AlphaLab's high_n.iloc[i-1] logic
+    """Inputs for the AlphaLab-equivalent momentum state machine: previous
+    bar's N-day high/low, volume average, and AlphaLab's EWM-convention RSI
+    and ATR (both period 14, as AlphaLab's FeatureEngineer computes them)."""
+    df = df.copy()
     lookback = params.get("lookback", 20)
-    df["rolling_high"] = df["high"].rolling(window=lookback).max().shift(1)
     volume_ma_period = params.get("volume_ma_period", 20)
+    df["rolling_high"] = (
+        df["high"].rolling(window=lookback, min_periods=lookback).max().shift(1)
+    )
+    df["rolling_low"] = (
+        df["low"].rolling(window=lookback, min_periods=lookback).min().shift(1)
+    )
     df[f"volume_ma_{volume_ma_period}"] = (
         df["volume"].rolling(window=volume_ma_period).mean()
     )
+    df["atr_ewm_14"] = atr_ewm(df["high"], df["low"], df["close"], 14)
+    df["rsi_ewm_14"] = rsi_ewm(df["close"], 14)
     logger.debug(
-        f"Added indicators for momentum_breakout: "
-        f"ATR_{atr_period}, rolling_high_{lookback}, volume_ma_{volume_ma_period}"
+        f"Added indicators for momentum_breakout: high/low_{lookback} (prev bar), "
+        f"volume_ma_{volume_ma_period}, ATR_14/RSI_14 (EWM)"
     )
     return df
 
@@ -359,15 +419,20 @@ def _indicators_momentum_breakout(
 def _indicators_bollinger_breakout(
     df: pd.DataFrame, params: Dict[str, Any]
 ) -> pd.DataFrame:
+    """Bollinger bands with SAMPLE standard deviation (ddof=1, AlphaLab's
+    pandas default) - the `ta` library's BollingerBands uses ddof=0, which
+    put the band ~2.6% (sqrt(20/19)) closer to the mean and moved entries."""
+    df = df.copy()
     period = params.get("period", 20)
     std_dev = params.get("std_dev", 2.0)
-    df = add_bollinger(df, period, std_dev)
-    volume_ma_period = params.get("volume_ma_period", 20)
-    df[f"volume_ma_{volume_ma_period}"] = (
-        df["volume"].rolling(window=volume_ma_period).mean()
-    )
+    mid = df["close"].rolling(period, min_periods=period).mean()
+    sd = df["close"].rolling(period, min_periods=period).std(ddof=1)
+    df["bb_middle"] = mid
+    df["bb_upper"] = mid + std_dev * sd
+    df["bb_lower"] = mid - std_dev * sd
+    df["volume_ma_20"] = df["volume"].rolling(window=20).mean()
     logger.debug(
-        f"Added indicators for bollinger_breakout: BB({period},{std_dev}), volume_ma_{volume_ma_period}"
+        f"Added indicators for bollinger_breakout: BB({period},{std_dev}, ddof=1)"
     )
     return df
 
@@ -382,8 +447,12 @@ def _indicators_vwap_reversion(
     vwap_period = params.get("vwap_period", 20)
     df = add_vwap(df, period=vwap_period)
     rsi_period = params.get("rsi_period", 14)
-    df = add_rsi(df, rsi_period)
-    vwap_std_period = params.get("vwap_std_period", vwap_period)
+    df = df.copy()
+    df[f"rsi_{rsi_period}"] = rsi_ewm(df["close"], rsi_period)
+    # `or`, not a .get default: a schema-validated config carries
+    # vwap_std_period=None when unset, which crashed rolling() and left the
+    # strategy emitting HOLD forever (found by the 2026-10 oracle parity run).
+    vwap_std_period = params.get("vwap_std_period") or vwap_period
     df["vwap_std"] = (df["close"] - df["vwap"]).rolling(window=vwap_std_period).std()
     logger.debug(
         f"Added indicators for vwap_reversion: VWAP, RSI_{rsi_period}, vwap_std_{vwap_std_period}"
@@ -397,9 +466,10 @@ def _indicators_bollinger_rsi_combo(
 ) -> pd.DataFrame:
     bb_period = params.get("bb_period", 20)
     bb_std = params.get("bb_std", 2.0)
-    df = add_bollinger(df, bb_period, bb_std)
+    df = add_bollinger_sample(df, bb_period, bb_std)
     rsi_period = params.get("rsi_period", 14)
-    df = add_rsi(df, rsi_period)
+    df = df.copy()
+    df[f"rsi_{rsi_period}"] = rsi_ewm(df["close"], rsi_period)
     logger.debug(
         f"Added indicators for bollinger_rsi_combo: BB({bb_period},{bb_std}), RSI_{rsi_period}"
     )
@@ -413,7 +483,8 @@ def _indicators_trend_adaptive_rsi(
     trend_sma = params.get("trend_sma", 50)
     df = add_sma(df, trend_sma)
     rsi_period = params.get("rsi_period", 14)
-    df = add_rsi(df, rsi_period)
+    df = df.copy()
+    df[f"rsi_{rsi_period}"] = rsi_ewm(df["close"], rsi_period)
     logger.debug(
         f"Added indicators for trend_adaptive_rsi: SMA_{trend_sma}, RSI_{rsi_period}"
     )
@@ -431,7 +502,8 @@ def _indicators_greenblatt_weekly(
     df = add_sma(df, fast_sma)
     df = add_sma(df, slow_sma)
     rsi_period = params.get("rsi_period", 14)
-    df = add_rsi(df, rsi_period)
+    df = df.copy()
+    df[f"rsi_{rsi_period}"] = rsi_ewm(df["close"], rsi_period)
     logger.debug(
         f"Added indicators for greenblatt_weekly: SMA_{fast_sma}, SMA_{slow_sma}, RSI_{rsi_period}"
     )

@@ -245,7 +245,9 @@ def test_add_all_for_strategy_adds_correct_columns():
     df = add_all_for_strategy(
         df, "momentum_breakout", {"atr_period": 14, "lookback": 20}
     )
-    assert "atr_14" in df.columns
+    # AlphaLab-convention (EWM) ATR/RSI feed the ported state machine
+    for col in ("atr_ewm_14", "rsi_ewm_14", "rolling_high", "rolling_low"):
+        assert col in df.columns
 
     # Test Bollinger breakout
     df = pd.DataFrame(data.copy())
@@ -279,3 +281,25 @@ def test_empty_dataframe_doesnt_crash():
         assert True
     except Exception as e:
         pytest.fail(f"add_rsi crashed on empty DataFrame: {e}")
+
+
+def test_rsi_ewm_and_atr_ewm_match_independent_hand_computation():
+    """Golden values computed by hand from the recursive definitions
+    (alpha = 1/period, adjust=False, seeded at the first observation)."""
+    import numpy as np
+    from alphalive.strategy.indicators import atr_ewm, rsi_ewm
+
+    close = pd.Series([10.0, 11.0, 10.0, 12.0])
+    # gains: [nan,1,0,2] losses: [nan,0,1,0]; ewm(alpha=1/2) from bar 1:
+    # avg_gain: 1, 0.5, 1.25 ; avg_loss: 0, 0.5, 0.25
+    r = rsi_ewm(close, 2)
+    assert np.isnan(r[0])
+    assert r[1] == 100.0  # gains only
+    assert r[2] == pytest.approx(50.0)
+    assert r[3] == pytest.approx(100 - 100 / (1 + 1.25 / 0.25))
+
+    high = pd.Series([11.0, 12.0, 11.0])
+    low = pd.Series([9.0, 10.0, 8.0])
+    c = pd.Series([10.0, 11.0, 9.0])
+    # TR: [2, max(2,2,0)=2, max(3,0,3)=3]; ewm(alpha=1/2): 2, 2, 2.5
+    assert list(atr_ewm(high, low, c, 2)) == pytest.approx([2.0, 2.0, 2.5])

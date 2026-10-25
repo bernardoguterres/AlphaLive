@@ -1,0 +1,163 @@
+{
+  "generated_by": "AlphaLab scripts/generate_signal_parity_fixtures.py",
+  "alphalab_commit": "01e9962 (+ uncommitted working tree)",
+  "signal_convention": "decision at bar close; fills at next open are not compared",
+  "strategies": {
+    "ma_crossover": {
+      "alphalab_params": {
+        "short_window": 20,
+        "long_window": 50,
+        "volume_confirmation": true,
+        "volume_avg_period": 20,
+        "min_separation_pct": 0.0,
+        "cooldown_days": 5
+      },
+      "alphalive_params": {
+        "strategy_type": "ma_crossover",
+        "fast_period": 20,
+        "slow_period": 50,
+        "volume_confirmation": true,
+        "volume_avg_period": 20,
+        "min_separation_pct": 0.0,
+        "cooldown_days": 5
+      },
+      "exportable_daily": true
+    },
+    "rsi_mean_reversion": {
+      "alphalab_params": {
+        "rsi_period": 14,
+        "oversold": 30,
+        "overbought": 70,
+        "use_bb_confirmation": true,
+        "use_adx_filter": false,
+        "adx_threshold": 25,
+        "cooldown_days": 3,
+        "stop_loss_atr_mult": 2.5,
+        "max_holding_days": 40
+      },
+      "alphalive_params": {
+        "strategy_type": "rsi_mean_reversion",
+        "rsi_period": 14,
+        "oversold": 30,
+        "overbought": 70,
+        "use_bb_confirmation": true,
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "use_adx_filter": false,
+        "adx_threshold": 25,
+        "stop_loss_atr_mult": 2.5,
+        "max_holding_days": 40,
+        "cooldown_days": 3
+      },
+      "exportable_daily": true
+    },
+    "momentum_breakout": {
+      "alphalab_params": {
+        "lookback": 20,
+        "volume_surge_pct": 130,
+        "rsi_min": 55,
+        "stop_loss_atr_mult": 2.0,
+        "trailing_stop_atr_mult": 2.5,
+        "cooldown_days": 3,
+        "volume_avg_period": 20
+      },
+      "alphalive_params": {
+        "strategy_type": "momentum_breakout",
+        "lookback": 20,
+        "surge_pct": 1.3,
+        "volume_ma_period": 20,
+        "rsi_min": 55,
+        "stop_loss_atr_mult": 2.0,
+        "trailing_stop_atr_mult": 2.5,
+        "cooldown_days": 3
+      },
+      "exportable_daily": true
+    },
+    "bollinger_breakout": {
+      "alphalab_params": {
+        "bb_period": 20,
+        "bb_std_dev": 2.0,
+        "confirmation_bars": 1,
+        "volume_filter": true,
+        "volume_threshold": 1.2,
+        "cooldown_days": 2
+      },
+      "alphalive_params": {
+        "strategy_type": "bollinger_breakout",
+        "period": 20,
+        "std_dev": 2.0,
+        "confirmation_bars": 1,
+        "volume_filter": true,
+        "volume_threshold": 1.2,
+        "cooldown_days": 2
+      },
+      "exportable_daily": true
+    },
+    "bollinger_rsi_combo": {
+      "alphalab_params": {
+        "bb_period": 18,
+        "bb_std": 2.2,
+        "rsi_period": 10,
+        "rsi_oversold": 40,
+        "rsi_overbought": 60,
+        "exit_at_middle": true
+      },
+      "alphalive_params": {
+        "strategy_type": "bollinger_rsi_combo",
+        "bb_period": 18,
+        "bb_std": 2.2,
+        "rsi_period": 10,
+        "rsi_oversold": 40,
+        "rsi_overbought": 60,
+        "exit_at_middle": true
+      },
+      "exportable_daily": true
+    },
+    "trend_adaptive_rsi": {
+      "alphalab_params": {
+        "rsi_period": 10,
+        "trend_sma": 20,
+        "trend_lookback": 3,
+        "uptrend_buy": 45,
+        "uptrend_sell": 65,
+        "downtrend_buy": 35,
+        "downtrend_sell": 55,
+        "range_buy": 35,
+        "range_sell": 65
+      },
+      "alphalive_params": {
+        "strategy_type": "trend_adaptive_rsi",
+        "rsi_period": 10,
+        "trend_sma": 20,
+        "trend_lookback": 3,
+        "uptrend_buy": 45,
+        "uptrend_sell": 65,
+        "downtrend_buy": 35,
+        "downtrend_sell": 55,
+        "range_buy": 35,
+        "range_sell": 65
+      },
+      "exportable_daily": true
+    },
+    "vwap_reversion": {
+      "alphalab_params": {
+        "vwap_period": 15,
+        "deviation_threshold": 1.8,
+        "rsi_period": 10,
+        "cooldown_days": 2,
+        "oversold": 30,
+        "overbought": 70
+      },
+      "alphalive_params": {
+        "vwap_period": 15,
+        "deviation_threshold": 1.8,
+        "rsi_period": 10,
+        "cooldown_days": 2,
+        "oversold": 30,
+        "overbought": 70,
+        "strategy_type": "vwap_reversion"
+      },
+      "exportable_daily": false
+    }
+  }
+}
