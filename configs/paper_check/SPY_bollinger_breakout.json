@@ -1,0 +1,61 @@
+{
+  "schema_version": "1.0",
+  "strategy": {
+    "name": "bollinger_breakout",
+    "parameters": {
+      "strategy_type": "bollinger_breakout",
+      "period": 20,
+      "std_dev": 2.0,
+      "confirmation_bars": 2,
+      "volume_filter": true,
+      "volume_threshold": 1.5,
+      "cooldown_days": 3
+    },
+    "description": "Bollinger Breakout strategy for SPY"
+  },
+  "ticker": "SPY",
+  "timeframe": "1Day",
+  "risk": {
+    "stop_loss_pct": 2.0,
+    "take_profit_pct": 5.0,
+    "max_position_size_pct": 10.0,
+    "max_daily_loss_pct": 3.0,
+    "max_open_positions": 5,
+    "portfolio_max_positions": 10,
+    "trailing_stop_enabled": false,
+    "trailing_stop_pct": 3.0,
+    "commission_per_trade": 0.0,
+    "drawdown_halt_enabled": false
+  },
+  "execution": {
+    "order_type": "market",
+    "limit_offset_pct": 0.1,
+    "cooldown_bars": 3
+  },
+  "safety_limits": {
+    "max_trades_per_day": 20,
+    "max_api_calls_per_hour": 500,
+    "signal_generation_timeout_seconds": 5.0,
+    "broker_degraded_mode_threshold_failures": 3
+  },
+  "metadata": {
+    "exported_from": "AlphaLab",
+    "exported_at": "2026-10-19T13:50:52.586595Z",
+    "alphalab_version": "0.1.0",
+    "backtest_id": "747db524",
+    "backtest_period": {
+      "start": "2020-01-01",
+      "end": "2024-12-31"
+    },
+    "performance": {
+      "sharpe_ratio": -42.25,
+      "sortino_ratio": -15.06,
+      "total_return_pct": -0.03,
+      "max_drawdown_pct": -0.18,
+      "win_rate_pct": 0.0,
+      "profit_factor": 0.0,
+      "total_trades": 1,
+      "calmar_ratio": -0.06
+    }
+  }
+}
