@@ -76,6 +76,10 @@ SELL = {"signal": "SELL", "reason": "sim"}
 
 @pytest.fixture
 def sim(monkeypatch):
+    # These tests submit orders to the simulator on purpose. Without this,
+    # DRY_RUN=true (as CI sets it) arms the read-only transport and every
+    # submission is refused before it reaches the simulator.
+    monkeypatch.setenv("ALPHALIVE_BROKER_READ_ONLY", "false")
     monkeypatch.setenv("ALPACA_HTTP_TIMEOUT_SECONDS", "1")
     monkeypatch.setenv("TRADING_PAUSED", "false")
     with AlpacaSim() as s:
