@@ -3,1311 +3,636 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AlphaLive Execution Monitor</title>
+  <title>AlphaLive</title>
   <link rel="icon" type="image/png" href="/logo.png" />
 
-  <!-- Apply saved theme before any rendering to prevent flash -->
+  <!-- Apply the saved theme before first paint so there is no flash. -->
   <script>if (localStorage.getItem('alphalive-theme') === 'light') document.documentElement.classList.add('light');</script>
 
-  <!-- Tailwind CSS CDN (JIT - supports arbitrary values) -->
-  <script src="https://cdn.tailwindcss.com"></script>
-
-  <!-- Chart.js - must load before Alpine initializes -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <!-- Chart.js must load before Alpine initialises the component that uses it. -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-
-  <!-- Alpine.js (deferred - initializes after DOM + Chart.js are ready) -->
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
 
   <style>
-    /* ── Colour tokens ─────────────────────────────────────────────── */
+    /* Same palette and type as AlphaLab: neutral surfaces, colour only for
+       meaning (gain, loss, warning) and one amber signal for focus. */
     :root {
       color-scheme: dark;
-      /* Shared Alpha design system base tones (same as AlphaLab) */
-      --bg-page:      #070b16;
-      --bg-card:      #111827;
-      --bg-card-soft: #172033;
-      --bdr-card:     rgba(120,145,180,0.18);
-      --bdr-row:      rgba(120,145,180,0.10);
-      --hover-row:    rgba(120,145,180,0.06);
-      --text-base:    #cbd5e1;
-      --text-strong:  #f8fafc;
-      --text-muted:   #8b98ac;
-      --text-dim:     #5f6d82;
-      --scrollbar-bg: #070b16;
-      --scrollbar-th: #334155;
-      --bar-track:    #1e293b;
-      /* AlphaLive accent: emerald (execution/runtime, distinct from AlphaLab's blue) */
-      --live-primary:   #10b981;
-      --live-secondary: #14f195;
-      --live-cyan:      #22d3ee;
-      --glow:           rgba(16,185,129,0.28);
-      --violet:         #a78bfa;
+      --bg: hsl(0 0% 7%);
+      --surface: hsl(0 0% 10%);
+      --muted: hsl(0 0% 12%);
+      --border: hsl(0 0% 18%);
+      --border-soft: hsl(0 0% 14%);
+      --text: hsl(40 8% 90%);
+      --text-muted: hsl(40 4% 58%);
+      --primary-text: hsl(0 0% 7%);
+      --signal: hsl(38 62% 58%);
+      --gain: hsl(148 42% 52%);
+      --loss: hsl(4 68% 62%);
+      --warning: hsl(38 80% 58%);
+      --sans: "IBM Plex Sans", system-ui, sans-serif;
+      --mono: "IBM Plex Mono", ui-monospace, monospace;
     }
     html.light {
       color-scheme: light;
-      --bg-page:      #f1f5f9;
-      --bg-card:      #ffffff;
-      --bg-card-soft: #f8fafc;
-      --bdr-card:     rgba(0,0,0,0.09);
-      --bdr-row:      rgba(0,0,0,0.06);
-      --hover-row:    rgba(0,0,0,0.03);
-      --text-base:    #1e293b;
-      --text-strong:  #0f172a;
-      --text-muted:   #64748b;
-      --text-dim:     #94a3b8;
-      --scrollbar-bg: #f1f5f9;
-      --scrollbar-th: #cbd5e1;
-      --bar-track:    #e2e8f0;
+      --bg: hsl(40 20% 97%);
+      --surface: hsl(0 0% 100%);
+      --muted: hsl(40 12% 93%);
+      --border: hsl(40 8% 82%);
+      --border-soft: hsl(40 10% 89%);
+      --text: hsl(30 8% 12%);
+      --text-muted: hsl(30 4% 40%);
+      --primary-text: hsl(40 20% 97%);
+      --signal: hsl(30 70% 42%);
+      --gain: hsl(148 55% 30%);
+      --loss: hsl(4 65% 45%);
+      --warning: hsl(32 85% 38%);
     }
 
-    /* ── Base ──────────────────────────────────────────────────────── */
-    body { background-color: var(--bg-page); transition: background-color 0.2s; }
-
-    .font-mono-nums { font-variant-numeric: tabular-nums; }
-    .label-caps { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
-    .label-caps-dim { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); }
-    .section-label { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; color: var(--text-base); }
-    .section-caption { font-size: 11.5px; color: var(--text-muted); }
-    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-
-    /* Cards: override Tailwind's bg-[#161b2d] via !important so CSS vars win */
-    .card {
-      background-color: var(--bg-card) !important;
-      transition: box-shadow 0.2s ease, background-color 0.2s;
-      box-shadow: 0 1px 0 rgba(248,250,252,0.03) inset, 0 1px 2px rgba(0,0,0,0.35);
-    }
-    /* Secondary tier: operational/status cards - flatter, quieter, recede behind primary panels */
-    .card-soft {
-      background-color: var(--bg-card-soft) !important;
-      border: 1px solid var(--bdr-row);
-    }
-    /* Tertiary tier: lower-priority insights modules (screener) - muted, minimal depth */
-    .card-muted {
-      background-color: rgba(23,32,51,0.5) !important;
-      border: 1px dashed var(--bdr-row);
-    }
-    html.light .card-muted { background-color: rgba(248,250,252,0.6) !important; }
-
-    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--bdr-card); flex-wrap: wrap; }
-    .icon-chip { display: flex; align-items: center; justify-content: center; border-radius: 8px; color: #04140e; flex-shrink: 0; }
-
-    /* Stat cells: thin top accent, no lift/glow theatrics */
-    .stat-card { position: relative; overflow: hidden; }
-    .stat-card::before {
-      content: ''; position: absolute; inset: 0 0 auto 0; height: 2px;
-      background: var(--accent, var(--live-primary)); opacity: 0.7;
-    }
-
-    .chart-grid-bg {
-      background-image:
-        linear-gradient(rgba(248,250,252,0.05) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(248,250,252,0.035) 1px, transparent 1px);
-      background-size: 100% 20%, 10% 100%;
-    }
-    html.light .chart-grid-bg { background-image: none; }
-
-    .divider-fade { height: 1px; background: linear-gradient(90deg, transparent, var(--bdr-card), transparent); }
-
-    /* ── Light-mode targeted overrides ────────────────────────────── */
-    html.light .border-white\/\[0\.06\] { border-color: var(--bdr-card) !important; }
-    html.light .border-white\/\[0\.04\] { border-color: var(--bdr-row) !important; }
-    html.light .hover\:bg-white\/\[0\.025\]:hover,
-    html.light .hover\:bg-white\/\[0\.03\]:hover { background-color: var(--hover-row) !important; }
-    html.light .bg-slate-800 { background-color: var(--bar-track) !important; }
-    html.light .text-white   { color: var(--text-strong) !important; }
-    html.light .text-slate-200 { color: #1e293b !important; }
-    html.light .text-slate-300 { color: #334155 !important; }
-
-    /* ── Scrollbar ─────────────────────────────────────────────────── */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: var(--scrollbar-bg); }
-    ::-webkit-scrollbar-thumb { background: var(--scrollbar-th); border-radius: 3px; }
-
-    /* ── Animations (disabled under prefers-reduced-motion) ──────────── */
-    @keyframes pulse-green { 0%, 100% { opacity: 1; } 50% { opacity: 0.65; } }
-    .badge-live { animation: pulse-green 2s ease-in-out infinite; }
-
-    @keyframes ws-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.85); } }
-    .ws-dot-connected    { background: #10b981; animation: ws-pulse 2.5s ease-in-out infinite; }
-    .ws-dot-connecting   { background: #6b7280; animation: ws-pulse 1s ease-in-out infinite; }
-    .ws-dot-disconnected { background: #ef4444; }
-
-    .loss-bar-safe   { background: linear-gradient(90deg, #10b981, #34d399); }
-    .loss-bar-warn   { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
-    .loss-bar-danger { background: linear-gradient(90deg, #ef4444, #f87171); }
-
-    @keyframes pnl-changed { 0% { transform: scale(1.04); opacity: 0.75; } 100% { transform: scale(1); opacity: 1; } }
-    .pnl-flash { animation: pnl-changed 0.3s ease-out; }
-
-    @keyframes row-flash-green { 0% { background-color: rgba(16,185,129,0.20); } 100% { background-color: transparent; } }
-    @keyframes row-flash-red   { 0% { background-color: rgba(239,68,68,0.20);  } 100% { background-color: transparent; } }
-    .row-flash-green { animation: row-flash-green 0.7s ease-out; }
-    .row-flash-red   { animation: row-flash-red   0.7s ease-out; }
-
-    @keyframes toast-in { 0% { opacity: 0; transform: translateX(2rem); } 100% { opacity: 1; transform: translateX(0); } }
-    .toast-enter { animation: toast-in 0.25s ease-out; }
-
-    @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after {
-        animation-duration: 0.01ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 0.01ms !important;
-      }
-    }
-
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans); -webkit-font-smoothing: antialiased; }
+    h1, h2, h3, p, dl, dd { margin: 0; }
+    button { font: inherit; color: inherit; }
+    :focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
     [x-cloak] { display: none !important; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-    /* Keyboard focus - visible on every actionable control */
-    button:focus-visible, a:focus-visible {
-      outline: 2px solid var(--live-primary);
-      outline-offset: 2px;
-      border-radius: 6px;
+    .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+    .muted { color: var(--text-muted); }
+    .small { font-size: 11px; line-height: 16px; }
+    .gain { color: var(--gain); }
+    .loss { color: var(--loss); }
+    .warning { color: var(--warning); }
+    .faint { color: var(--border); }
+
+    /* Shell */
+    .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; padding: 12px 32px; border-bottom: 1px solid var(--border); }
+    .brand { font-size: 15px; font-weight: 500; letter-spacing: -0.01em; }
+    .status { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--text-muted); }
+    .status .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: currentColor; }
+    .actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+    .page { max-width: 1400px; margin: 0 auto; padding: 24px 32px 64px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; }
+
+    /* Controls */
+    .btn { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 4px; border: 1px solid var(--border); background: none; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+    .btn:hover:not(:disabled) { background: var(--muted); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn--primary { background: var(--text); color: var(--primary-text); border-color: var(--text); }
+    .btn--primary:hover:not(:disabled) { background: var(--text); opacity: 0.85; }
+    .btn--danger { color: var(--loss); border-color: var(--loss); }
+    .link { background: none; border: 0; padding: 0; font-size: 13px; text-decoration: underline; text-decoration-color: var(--text-muted); text-underline-offset: 4px; cursor: pointer; }
+    .link:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Headline figures */
+    .stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px 32px; }
+    .stat dt { font-size: 11px; color: var(--text-muted); }
+    .stat dd:first-of-type { margin-top: 4px; font: 400 18px/1.25 var(--mono); white-space: nowrap; }
+    .stat dd + dd { margin-top: 2px; font-size: 11px; color: var(--text-muted); }
+
+    /* Sections are separated by a rule, not boxed. */
+    .section { border-top: 1px solid var(--border); padding-top: 12px; min-width: 0; }
+    .section-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; min-height: 32px; margin-bottom: 12px; }
+    .section-head h2 { font-size: 13px; font-weight: 500; }
+    .section-head .aside { display: flex; align-items: center; gap: 12px; font-size: 11px; color: var(--text-muted); }
+    .grid-main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 40px; }
+    .grid-split { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 40px; }
+    .stack { display: grid; gap: 32px; align-content: start; }
+    .empty { padding: 24px 0; font-size: 13px; }
+    .empty p + p { margin-top: 4px; color: var(--text-muted); }
+
+    /* Key/value lists */
+    .kv > div { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 6px 0; font-size: 13px; border-top: 1px solid var(--border-soft); }
+    .kv > div:first-child { border-top: 0; }
+    .kv dt { color: var(--text-muted); }
+    .kv dd { text-align: right; }
+
+    /* Tables */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { padding: 8px 16px 8px 0; border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 400; color: var(--text-muted); text-align: left; white-space: nowrap; }
+    td { padding: 8px 16px 8px 0; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
+    th:last-child, td:last-child { padding-right: 0; }
+    .r { text-align: right; }
+    tfoot td { border-bottom: 0; color: var(--text-muted); }
+    tr.flash-up td { animation: flash-up 0.8s ease-out; }
+    tr.flash-down td { animation: flash-down 0.8s ease-out; }
+    @keyframes flash-up { from { background: color-mix(in srgb, var(--gain) 18%, transparent); } }
+    @keyframes flash-down { from { background: color-mix(in srgb, var(--loss) 18%, transparent); } }
+    .spark { width: 64px; height: 18px; vertical-align: middle; margin-left: 10px; }
+    .spark polyline { fill: none; stroke-width: 1.25; vector-effect: non-scaling-stroke; }
+
+    /* Meters */
+    .meter { height: 4px; background: var(--muted); overflow: hidden; }
+    .meter > span { display: block; height: 100%; background: currentColor; transition: width 0.6s; }
+    .alloc li { display: grid; grid-template-columns: 56px 1fr 52px; align-items: center; gap: 12px; padding: 5px 0; font-size: 13px; }
+    .alloc ul { list-style: none; margin: 0; padding: 0; }
+
+    .chart { position: relative; height: 240px; }
+
+    footer { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 11px; color: var(--text-muted); }
+
+    #toasts { position: fixed; right: 16px; bottom: 16px; display: grid; gap: 8px; z-index: 50; }
+    .toast { padding: 10px 14px; border: 1px solid var(--border); border-left-width: 2px; border-radius: 4px; background: var(--surface); font-size: 13px; transition: opacity 0.3s; }
+    .toast--gain { border-left-color: var(--gain); }
+    .toast--loss { border-left-color: var(--loss); }
+
+    @media (max-width: 1100px) {
+      .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .grid-main, .grid-split { grid-template-columns: minmax(0, 1fr); }
+    }
+    @media (max-width: 640px) {
+      .bar, .page { padding-left: 16px; padding-right: 16px; }
+      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .actions { margin-left: 0; width: 100%; }
+      .actions .btn--danger { margin-left: auto; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
     }
   </style>
 </head>
 
-<body class="text-slate-200 min-h-screen font-sans antialiased">
+<body>
+<div x-data="dashboard" x-cloak>
 
-<!-- ====================================================================
-     TOAST CONTAINER (fixed bottom-right)
-     ==================================================================== -->
-<div class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"
-     x-data
-     x-ref="toastHost">
-</div>
+  <!-- One status line: each fact appears once, coloured only when it needs attention. -->
+  <header class="bar">
+    <span class="brand">AlphaLive</span>
 
-<!-- ====================================================================
-     MAIN APP
-     ==================================================================== -->
-<div
-  x-data="dashboard"
-  x-cloak
-  class="max-w-[1680px] mx-auto px-3 sm:px-5 py-3 pb-8 space-y-3"
->
+    <p class="status" role="status">
+      <span :class="mode().tone" x-text="mode().label"></span>
+      <span :class="risk?.trading_paused ? 'warning' : ''" x-text="!risk ? 'Trading -' : risk.trading_paused ? 'Trading paused' : 'Trading enabled'"></span>
+      <span x-text="!health ? 'Market -' : health.market?.is_open ? 'Market open' : 'Market closed'"></span>
+      <span :class="health && !health.broker_connected ? 'loss' : ''"
+            :title="health?.broker_error ?? ''"
+            x-text="!health ? 'Broker -' : health.broker_connected ? 'Broker connected' : 'Broker disconnected'"></span>
+      <span :class="feed(nowTick).tone"><span class="dot" :class="feed(nowTick).tone || 'gain'" aria-hidden="true"></span><span x-text="feed(nowTick).label"></span></span>
+    </p>
 
-  <!-- ==================================================================
-       TOP COMMAND BAR - the single source of truth for mode / trading /
-       market / broker / WS state. Nothing below repeats these badges.
-       ================================================================== -->
-  <header class="sticky top-2 z-30 card rounded-xl border border-white/[0.07] px-3 sm:px-4 py-2.5
-                 flex flex-wrap items-center gap-x-3 gap-y-2 backdrop-blur-xl">
-
-    <!-- Brand -->
-    <div class="flex items-center gap-2 shrink-0">
-      <img src="/logo.png" alt="AlphaLive" class="h-8 w-8 rounded-lg object-cover ring-1 ring-white/[0.12]" />
-      <div class="flex flex-col leading-none">
-        <span class="font-bold text-[15px] tracking-tight" style="color: var(--text-strong);">AlphaLive</span>
-        <span class="hidden sm:block text-[9px] font-semibold uppercase tracking-widest mt-0.5" style="color: var(--live-primary);">Execution Monitor</span>
-      </div>
-    </div>
-
-    <!-- Status pills: mode / trading / market / broker / WS - real fields only -->
-    <div class="flex items-center gap-1.5 flex-wrap order-3 sm:order-2 w-full sm:w-auto sm:flex-1 sm:justify-center">
-      <!-- Mode: paper / live / dry-run. Live-money mode gets an unmistakable red treatment. -->
-      <span
-        class="px-2.5 py-1 rounded-md text-[10.5px] font-bold tracking-wide uppercase border"
-        :class="risk?.dry_run
-          ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
-          : (account?.paper ?? true)
-            ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
-            : 'bg-red-600/20 text-red-300 border-red-500/50'"
-        x-text="modeLabel()"
-        role="status"
-      >CONNECTING</span>
-
-      <!-- Trading active / paused -->
-      <span
-        class="px-2.5 py-1 rounded-md text-[10.5px] font-bold tracking-wide uppercase border"
-        :class="risk?.trading_paused
-          ? 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30'
-          : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'"
-        x-text="risk ? (risk.trading_paused ? 'Trading Paused' : 'Trading Enabled') : 'Trading -'"
-        role="status"
-      ></span>
-
-      <!-- Market open / closed -->
-      <span
-        class="px-2.5 py-1 rounded-md text-[10.5px] font-medium border"
-        :class="health?.market?.is_open
-          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-          : 'bg-slate-700/30 text-slate-400 border-slate-600/25'"
-        x-text="health ? (health.market?.is_open ? 'Market Open' : 'Market Closed') : 'Market -'"
-        role="status"
-      ></span>
-
-      <!-- Broker connected -->
-      <span
-        class="px-2.5 py-1 rounded-md text-[10.5px] font-medium border"
-        :class="!health
-          ? 'bg-slate-700/30 text-slate-400 border-slate-600/25'
-          : health.broker_connected
-            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-            : 'bg-red-500/15 text-red-400 border-red-500/30'"
-        x-text="!health ? 'Broker -' : (health.broker_connected ? 'Broker Connected' : 'Broker Disconnected')"
-        role="status"
-      ></span>
-
-      <!-- WS / dashboard connection -->
-      <span
-        class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10.5px] font-medium border"
-        :class="{
-          'bg-emerald-500/10 text-emerald-400 border-emerald-500/20': wsStatus === 'connected',
-          'bg-slate-700/30 text-slate-400 border-slate-600/25':       wsStatus === 'connecting',
-          'bg-red-500/15 text-red-400 border-red-500/30':             wsStatus === 'disconnected',
-        }"
-        role="status"
-      >
-        <span class="inline-block w-1.5 h-1.5 rounded-full shrink-0"
-              :class="{ 'ws-dot-connected': wsStatus === 'connected', 'ws-dot-connecting': wsStatus === 'connecting', 'ws-dot-disconnected': wsStatus === 'disconnected' }"></span>
-        <span x-text="wsStatus === 'connected' ? 'Feed Live' : wsStatus === 'connecting' ? 'Reconnecting' : 'Disconnected'"></span>
-      </span>
-    </div>
-
-    <!-- Controls: data age, theme, redeploy, pause/resume -->
-    <div class="flex items-center gap-2 ml-auto order-2 sm:order-3 shrink-0">
-
-      <!-- Last update / data age -->
-      <span class="hidden md:inline-flex items-center text-xs font-mono-nums pr-1"
-            :class="dataAgeStale(nowTick) ? 'text-amber-400' : ''"
-            :style="!dataAgeStale(nowTick) ? 'color: var(--text-muted)' : ''"
-            x-text="lastUpdated ? dataAgeLabel(nowTick) : 'Connecting…'"
-            title="Time since the last successful WebSocket update"
-      ></span>
-
-      <!-- Theme toggle -->
-      <button
-        @click="toggleTheme()"
-        class="p-1.5 rounded-lg border transition-colors"
-        :class="darkMode
-          ? 'border-slate-700/60 text-slate-400 hover:text-slate-200 hover:border-slate-500'
-          : 'border-slate-300 text-slate-500 hover:text-slate-800 hover:border-slate-400'"
-        :title="darkMode ? 'Switch to light mode' : 'Switch to dark mode'"
-        :aria-label="darkMode ? 'Switch to light mode' : 'Switch to dark mode'"
-      >
-        <template x-if="darkMode">
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round"
-                  d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M18.364 18.364l-.707-.707M6.343 6.343l-.707-.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
-          </svg>
-        </template>
-        <template x-if="!darkMode">
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round"
-                  d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
-          </svg>
-        </template>
-      </button>
-
-      <!-- Redeploy (desktop) -->
-      <button
-        @click="triggerDeploy()"
-        :disabled="deployPending || !health?.railway_configured"
-        :title="health?.railway_configured ? 'Trigger a Railway redeploy' : 'Set RAILWAY_API_TOKEN, RAILWAY_SERVICE_ID, RAILWAY_ENVIRONMENT_ID to enable'"
-        :aria-label="deployPending ? 'Redeploy in progress' : 'Trigger Railway redeploy'"
-        class="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold
-               border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-        :class="health?.railway_configured
-          ? 'bg-indigo-900/40 text-indigo-300 border-indigo-700/40 hover:bg-indigo-800/50'
-          : 'bg-slate-800/40 text-slate-600 border-slate-700/30'"
-      >
-        <svg class="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-          <path stroke-linecap="round" stroke-linejoin="round"
-                d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.63 2v5.52m5.96 6.85H3.42a14.98 14.98 0 0012.13 6.38"/>
-        </svg>
-        <span x-text="deployPending ? 'Deploying…' : 'Redeploy'"></span>
-      </button>
-      <!-- Redeploy (mobile, icon-only) -->
-      <button
-        @click="triggerDeploy()"
-        :disabled="deployPending || !health?.railway_configured"
-        :title="health?.railway_configured ? 'Redeploy on Railway' : 'Railway not configured'"
-        :aria-label="health?.railway_configured ? 'Redeploy on Railway' : 'Railway not configured'"
-        class="sm:hidden p-1.5 rounded-lg border transition-colors disabled:opacity-40"
-        :class="health?.railway_configured
-          ? 'bg-indigo-900/40 text-indigo-300 border-indigo-700/40'
-          : 'bg-slate-800/40 text-slate-600 border-slate-700/30'"
-      >
-        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-          <path stroke-linecap="round" stroke-linejoin="round"
-                d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.63 2v5.52m5.96 6.85H3.42a14.98 14.98 0 0012.13 6.38"/>
-        </svg>
-      </button>
-
-      <!-- Pause / Resume - the single, prominent instance. Same endpoint,
-           confirm dialog, and disabled-state semantics as before. -->
-      <button
-        @click="togglePause()"
-        :disabled="killSwitchPending"
-        :aria-label="killSwitchPending ? 'Pause request in progress' : (risk?.trading_paused_dashboard ? 'Resume trading' : 'Pause trading')"
-        class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12.5px] font-bold transition-colors disabled:opacity-50"
-        :class="risk?.trading_paused_dashboard
-          ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
-          : 'bg-red-600 hover:bg-red-500 text-white'"
-        x-text="killSwitchPending ? 'Working…' : (risk?.trading_paused_dashboard ? '▶ Resume Trading' : '⏸ Pause Trading')"
-      ></button>
+    <div class="actions">
+      <button class="btn" @click="toggleTheme()" :aria-label="darkMode ? 'Switch to light theme' : 'Switch to dark theme'" x-text="darkMode ? 'Light' : 'Dark'"></button>
+      <button class="btn" @click="triggerDeploy()"
+              :disabled="deployPending || !health?.railway_configured"
+              :title="health?.railway_configured ? 'Trigger a Railway redeploy' : 'Set RAILWAY_API_TOKEN, RAILWAY_SERVICE_ID and RAILWAY_ENVIRONMENT_ID to enable'"
+              x-text="deployPending ? 'Deploying…' : 'Redeploy'"></button>
+      <button class="btn" :class="risk?.trading_paused_dashboard ? 'btn--primary' : 'btn--danger'"
+              @click="togglePause()" :disabled="killSwitchPending"
+              x-text="killSwitchPending ? 'Working…' : risk?.trading_paused_dashboard ? 'Resume trading' : 'Pause trading'"></button>
     </div>
   </header>
 
+  <main class="page">
 
-  <!-- ==================================================================
-       PRIMARY METRIC STRIP - 6 compact cells, no repeated values
-       ================================================================== -->
-  <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2.5">
-
-    <div class="card stat-card rounded-lg border border-white/[0.06] px-3.5 py-3" style="--accent: var(--live-primary);">
-      <p class="label-caps">Portfolio Value</p>
-      <p class="text-lg font-bold font-mono-nums mt-1" style="color: var(--text-strong);"
-         x-text="account ? '$' + fmt2(account.portfolio_value) : '-'">-</p>
-      <p class="text-[10.5px] mt-1" style="color: var(--text-muted);">Equity</p>
-    </div>
-
-    <div class="card stat-card rounded-lg border border-white/[0.06] px-3.5 py-3" style="--accent: var(--live-secondary);">
-      <p class="label-caps">Daily P&amp;L</p>
-      <p class="text-lg font-bold font-mono-nums mt-1"
-         :class="[pnlClass(risk?.daily_pnl), pnlFlashing ? 'pnl-flash' : '']"
-         x-text="risk != null ? fmtDollar(risk.daily_pnl) : '-'">-</p>
-      <p class="text-[10.5px] mt-1 font-mono-nums" :class="risk != null ? pnlClass(risk?.daily_pnl) : ''" :style="risk == null ? 'color: var(--text-muted)' : ''"
-         x-text="(risk?.equity && risk.daily_pnl != null) ? fmtPct(risk.daily_pnl / risk.equity * 100) : (risk != null ? '0.00%' : '-')"></p>
-    </div>
-
-    <div class="card stat-card rounded-lg border border-white/[0.06] px-3.5 py-3" style="--accent: var(--live-cyan);">
-      <p class="label-caps">Cash Available</p>
-      <p class="text-lg font-bold font-mono-nums mt-1" style="color: var(--text-strong);"
-         x-text="account ? '$' + fmt2(account.cash) : '-'">-</p>
-      <p class="text-[10.5px] mt-1" style="color: var(--text-muted);">Available to trade</p>
-    </div>
-
-    <div class="card stat-card rounded-lg border border-white/[0.06] px-3.5 py-3" style="--accent: #38bdf8;">
-      <p class="label-caps">Buying Power</p>
-      <p class="text-lg font-bold font-mono-nums mt-1" style="color: var(--text-strong);"
-         x-text="account ? '$' + fmt2(account.buying_power) : '-'">-</p>
-      <p class="text-[10.5px] mt-1" style="color: var(--text-muted);">From broker</p>
-    </div>
-
-    <div class="card stat-card rounded-lg border border-white/[0.06] px-3.5 py-3" style="--accent: var(--violet);">
-      <p class="label-caps">Open Positions</p>
-      <p class="text-lg font-bold font-mono-nums mt-1" style="color: var(--text-strong);" x-text="positions.length">-</p>
-      <p class="text-[10.5px] mt-1" style="color: var(--text-muted);"
-         x-text="positions.length ? fmtDollar(positions.reduce((s,p) => s + Math.abs(p.market_value), 0)) + ' exposure' : 'No exposure'"></p>
-    </div>
-
-    <div class="card stat-card rounded-lg border border-white/[0.06] px-3.5 py-3" style="--accent: #f59e0b;">
-      <p class="label-caps">Orders Today</p>
-      <p class="text-lg font-bold font-mono-nums mt-1" style="color: var(--text-strong);" x-text="orders.length">-</p>
-      <p class="text-[10.5px] mt-1" style="color: var(--text-muted);"
-         x-text="orders.length ? (ordersSummary().filled + ' filled · ' + ordersSummary().pending + ' pending · ' + ordersSummary().rejected + ' rejected') : 'None yet'"></p>
-    </div>
-  </div>
-
-
-  <!-- ==================================================================
-       MAIN MONITORING AREA - session performance (left) + runtime & risk (right)
-       ================================================================== -->
-  <div class="grid grid-cols-1 xl:grid-cols-3 gap-3">
-
-    <!-- LEFT: Session performance -->
-    <div class="card xl:col-span-2 rounded-xl border border-white/[0.06] overflow-hidden">
-      <div class="panel-head">
-        <div>
-          <h2 class="section-label">Session Performance</h2>
-          <p class="section-caption">Today's P&amp;L only - resets each session, not historical</p>
-        </div>
-        <span class="text-xs font-mono-nums" style="color: var(--text-muted);"
-              x-text="lastUpdated ? 'Last update ' + lastUpdated : ''"></span>
+    <dl class="stats">
+      <div class="stat">
+        <dt>Portfolio value</dt>
+        <dd x-text="money(account?.portfolio_value)">-</dd>
+        <dd>Equity</dd>
       </div>
+      <div class="stat">
+        <dt>Today's P&amp;L</dt>
+        <dd :class="tone(risk?.daily_pnl)" x-text="signedMoney(risk?.daily_pnl)">-</dd>
+        <dd x-text="risk?.equity ? pct(risk.daily_pnl / risk.equity * 100) + ' of equity' : ''"></dd>
+      </div>
+      <div class="stat">
+        <dt>Cash</dt>
+        <dd x-text="money(account?.cash)">-</dd>
+        <dd x-text="account?.portfolio_value ? pct(account.cash / account.portfolio_value * 100, false) + ' of portfolio' : ''"></dd>
+      </div>
+      <div class="stat">
+        <dt>Buying power</dt>
+        <dd x-text="money(account?.buying_power)">-</dd>
+        <dd>From the broker</dd>
+      </div>
+      <div class="stat">
+        <dt>Open positions</dt>
+        <dd x-text="positions.length"></dd>
+        <dd x-text="positions.length ? money(exposure()) + ' exposure' : 'No exposure'"></dd>
+      </div>
+      <div class="stat">
+        <dt>Orders today</dt>
+        <dd x-text="orders.length"></dd>
+        <dd x-text="orders.length ? orderCounts().filled + ' filled · ' + orderCounts().pending + ' open · ' + orderCounts().rejected + ' rejected' : 'None yet'"></dd>
+      </div>
+    </dl>
 
-      <div class="p-4 sm:p-5">
-        <!-- Populated chart - kept permanently mounted (x-show, never x-if/template) so
-             #pnlChart always exists for initCharts() to find on the FIRST WS push, even
-             if the session starts at fewer than 2 flat-zero points. initCharts() only
-             ever runs once; if the canvas were removed from the DOM at that moment (a
-             fresh session), updateCharts()'s `if (_charts.pnl)` guard would silently
-             skip it forever once real activity later appeared - the chart would never
-             draw itself. Only visibility toggles, never DOM presence. -->
-        <div x-show="sessionHasActivity()">
-          <div class="flex items-center gap-5 flex-wrap mb-3">
+    <div class="grid-main">
+      <section class="section" aria-labelledby="pnl-title">
+        <div class="section-head">
+          <h2 id="pnl-title">Today's P&amp;L</h2>
+          <div class="aside num" x-show="hasActivity()">
+            <span>High <span :class="tone(sessionRange().high)" x-text="signedMoney(sessionRange().high)"></span></span>
+            <span>Low <span :class="tone(sessionRange().low)" x-text="signedMoney(sessionRange().low)"></span></span>
+          </div>
+        </div>
+        <!-- The canvas stays mounted so the chart created on the first push
+             keeps receiving updates; only its visibility changes. -->
+        <div class="chart" x-show="hasActivity()">
+          <canvas id="pnlChart" role="img" :aria-label="'Profit and loss since this page opened, now ' + signedMoney(risk?.daily_pnl)"></canvas>
+        </div>
+        <div class="empty" x-show="!hasActivity()">
+          <p x-text="pnlSeries.data.length < 2 ? 'Collecting today\'s P&L.' : 'No P&L movement yet this session.'"></p>
+          <p x-text="health?.market?.is_open ? 'The chart starts once P&L moves.' : 'The market is closed; the chart starts when trading resumes.'"></p>
+        </div>
+        <p class="small muted" style="margin-top: 8px;">Recorded by this browser from the live feed; it resets each day and is not a history.</p>
+      </section>
+
+      <div class="stack">
+        <section class="section" aria-labelledby="loss-title">
+          <div class="section-head">
+            <h2 id="loss-title">Daily loss limit</h2>
+            <span class="aside" x-show="risk?.daily_loss_limit_pct" x-text="risk?.daily_loss_limit_pct + '% of equity'"></span>
+          </div>
+          <template x-if="risk?.daily_loss_limit_dollars != null">
             <div>
-              <p class="label-caps-dim">Current</p>
-              <p class="text-xl font-bold font-mono-nums mt-0.5" :class="[pnlClass(risk?.daily_pnl), pnlFlashing ? 'pnl-flash' : '']" x-text="fmtDollar(risk?.daily_pnl)"></p>
+              <div class="meter" role="progressbar" aria-label="Daily loss limit used"
+                   :aria-valuenow="risk.daily_loss_used_pct ?? 0" aria-valuemin="0" aria-valuemax="100">
+                <span :class="lossTone()" :style="`width: ${Math.min(risk.daily_loss_used_pct ?? 0, 100)}%`"></span>
+              </div>
+              <p class="num small" style="margin-top: 8px; display: flex; justify-content: space-between;">
+                <span :class="lossTone()" x-text="money(Math.max(0, -(risk.daily_pnl ?? 0))) + ' lost (' + (risk.daily_loss_used_pct ?? 0).toFixed(1) + '%)'"></span>
+                <span class="muted" x-text="'Limit ' + money(risk.daily_loss_limit_dollars, 0)"></span>
+              </p>
             </div>
-            <div class="border-l pl-5" style="border-color: var(--bdr-row);">
-              <p class="label-caps-dim">Session High</p>
-              <p class="text-sm font-mono-nums mt-0.5 text-emerald-400" x-text="fmtDollar(sessionHighLow().high)"></p>
-            </div>
-            <div>
-              <p class="label-caps-dim">Session Low</p>
-              <p class="text-sm font-mono-nums mt-0.5 text-red-400" x-text="fmtDollar(sessionHighLow().low)"></p>
-            </div>
-          </div>
-          <div class="chart-grid-bg rounded-lg">
-            <div class="relative h-[220px]">
-              <canvas id="pnlChart" role="img" aria-describedby="pnl-chart-summary"></canvas>
-            </div>
-          </div>
-          <p id="pnl-chart-summary" class="sr-only" x-text="'Line chart of today\'s profit and loss over time. Current value ' + fmtDollar(risk?.daily_pnl) + '.'"></p>
-        </div>
+          </template>
+          <p class="small muted" x-show="risk && risk.daily_loss_limit_dollars == null">Not configured. Set <code>STRATEGY_CONFIG</code> to enable it.</p>
+          <p class="small muted" x-show="!risk">Waiting for broker data.</p>
+        </section>
 
-        <!-- Still collecting: fewer than 2 points yet, nothing meaningful to plot yet -->
-        <template x-if="!sessionHasActivity() && pnlSeries.data.length < 2">
-          <div class="flex flex-col items-center justify-center text-center py-8">
-            <svg class="w-5 h-5 mb-2" style="color: var(--live-primary);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
-            </svg>
-            <p class="text-sm font-medium" style="color: var(--text-base);">Collecting today's P&amp;L</p>
-            <p class="text-xs mt-1" style="color: var(--text-dim);"
-               x-text="health?.market?.is_open ? 'Chart will populate as updates arrive.' : 'Market is closed - chart will populate once trading resumes.'"></p>
-          </div>
-        </template>
-
-        <!-- 2+ points but every one is flat $0 (typical while market is closed) - a real
-             empty state, not a giant flat-line chart with nothing to show. -->
-        <template x-if="!sessionHasActivity() && pnlSeries.data.length >= 2">
-          <div class="flex flex-col items-center justify-center text-center py-8">
-            <svg class="w-5 h-5 mb-2" style="color: var(--text-dim);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-            </svg>
-            <p class="text-sm font-medium" style="color: var(--text-base);">No P&amp;L activity recorded this dashboard session.</p>
-            <p class="text-xs mt-1" style="color: var(--text-dim);"
-               x-text="health?.market?.is_open ? 'Chart will populate once P&L moves away from zero.' : 'Market is closed - chart will populate once trading resumes.'"></p>
-          </div>
-        </template>
+        <section class="section" aria-labelledby="runtime-title">
+          <div class="section-head"><h2 id="runtime-title">Runtime</h2></div>
+          <dl class="kv">
+            <div><dt>Bot started</dt><dd class="num" x-text="dateTime(health?.last_startup)"></dd></div>
+            <div><dt>State file saved</dt><dd class="num" x-text="time(health?.last_saved)"></dd></div>
+            <div><dt>Morning check</dt><dd class="num" :class="health?.last_morning_check_date ? '' : 'muted'" x-text="health?.last_morning_check_date ?? 'Pending'"></dd></div>
+            <div><dt>Day trades (PDT count)</dt><dd class="num" x-text="account?.daytrade_count ?? '-'"></dd></div>
+          </dl>
+        </section>
       </div>
     </div>
 
-    <!-- RIGHT: Runtime & Risk - real fields only, no invented rows -->
-    <div class="flex flex-col gap-3">
-      <div class="card-soft rounded-xl p-4 sm:p-5">
-        <h2 class="section-label mb-3">Runtime &amp; Risk</h2>
-        <div class="space-y-2.5 text-xs">
-          <div class="flex items-center justify-between">
-            <span style="color: var(--text-muted);">Trading</span>
-            <span class="font-semibold" :class="risk?.trading_paused ? 'text-yellow-400' : 'text-emerald-400'"
-                  x-text="risk ? (risk.trading_paused ? 'Paused' : 'Enabled') : '-'"></span>
-          </div>
-          <div class="flex items-center justify-between">
-            <span style="color: var(--text-muted);">Mode</span>
-            <span class="font-semibold" :class="risk?.dry_run ? 'text-purple-300' : (account?.paper ?? true) ? 'text-blue-300' : 'text-red-300'"
-                  x-text="modeLabel()"></span>
-          </div>
-          <div class="flex items-center justify-between">
-            <span style="color: var(--text-muted);">Market</span>
-            <span class="font-semibold" :class="health?.market?.is_open ? 'text-emerald-400' : ''" :style="!health?.market?.is_open ? 'color: var(--text-base)' : ''"
-                  x-text="health ? (health.market?.is_open ? 'Open' : 'Closed') : '-'"></span>
-          </div>
-          <div class="flex items-center justify-between">
-            <span style="color: var(--text-muted);">Broker</span>
-            <span class="font-semibold" :class="health?.broker_connected ? 'text-emerald-400' : 'text-red-400'"
-                  x-text="!health ? '-' : (health.broker_connected ? 'Connected' : 'Disconnected')"></span>
-          </div>
-          <div class="flex items-center justify-between">
-            <span style="color: var(--text-muted);">Dashboard Feed</span>
-            <span class="font-semibold" :class="wsStatus === 'connected' ? (dataAgeStale(nowTick) ? 'text-amber-400' : 'text-emerald-400') : 'text-red-400'"
-                  x-text="wsStatus === 'connected' ? (dataAgeStale(nowTick) ? 'Stale' : 'Connected') : (wsStatus === 'connecting' ? 'Reconnecting' : 'Disconnected')"></span>
-          </div>
-          <div class="flex items-center justify-between">
-            <span style="color: var(--text-muted);" title="When the bot last wrote its state file - separate from the WebSocket feed timestamp above">State File Update</span>
-            <span class="font-mono-nums" style="color: var(--text-base);" x-text="health?.last_saved ? fmtTime(health.last_saved) : '-'"></span>
-          </div>
-        </div>
-
-        <div class="divider-fade my-3.5"></div>
-
-        <!-- Daily loss limit - never shows a reassuring bar without a real configured limit -->
-        <h3 class="label-caps mb-2">Daily Loss Limit</h3>
-        <template x-if="risk?.daily_loss_limit_dollars != null">
-          <div>
-            <div class="flex justify-between text-[11px] mb-1.5">
-              <span style="color: var(--text-muted);">Used
-                <span class="font-mono-nums" :class="pnlClass(risk?.daily_pnl)" x-text="risk != null ? fmtDollar(risk.daily_pnl) : '-'"></span>
-              </span>
-              <span style="color: var(--text-muted);" x-text="'Limit $' + fmt0(risk.daily_loss_limit_dollars)"></span>
-            </div>
-            <div class="w-full rounded-full h-2 overflow-hidden" style="background: rgba(148,163,184,0.15);">
-              <div class="h-full rounded-full transition-all duration-700"
-                   :class="{
-                     'loss-bar-danger': (risk?.daily_loss_used_pct ?? 0) >= 80,
-                     'loss-bar-warn':   (risk?.daily_loss_used_pct ?? 0) >= 50 && (risk?.daily_loss_used_pct ?? 0) < 80,
-                     'loss-bar-safe':   (risk?.daily_loss_used_pct ?? 0) < 50,
-                   }"
-                   :style="'width: ' + Math.min(risk?.daily_loss_used_pct ?? 0, 100) + '%'"
-                   role="progressbar" :aria-valuenow="risk?.daily_loss_used_pct ?? 0" aria-valuemin="0" aria-valuemax="100"
-              ></div>
-            </div>
-            <div class="flex justify-between mt-1.5 text-[11px]">
-              <span class="font-semibold" :class="{
-                  'text-red-400':     (risk?.daily_loss_used_pct ?? 0) >= 80,
-                  'text-yellow-400':  (risk?.daily_loss_used_pct ?? 0) >= 50 && (risk?.daily_loss_used_pct ?? 0) < 80,
-                  'text-emerald-500': (risk?.daily_loss_used_pct ?? 0) < 50,
-                }"
-                x-text="(risk?.daily_loss_used_pct ?? 0).toFixed(1) + '% used'"></span>
-              <span style="color: var(--text-dim);" x-text="risk?.daily_loss_limit_pct ? risk.daily_loss_limit_pct + '% configured limit' : ''"></span>
-            </div>
-          </div>
-        </template>
-        <template x-if="risk && risk.daily_loss_limit_dollars == null">
-          <p class="text-[11px]" style="color: var(--text-dim);">Not configured - set <code>STRATEGY_CONFIG</code> to enable this gauge.</p>
-        </template>
-        <template x-if="!risk">
-          <p class="text-[11px] animate-pulse" style="color: var(--text-dim);">Waiting for broker data…</p>
-        </template>
+    <section class="section" aria-labelledby="positions-title">
+      <div class="section-head">
+        <h2 id="positions-title">Open positions</h2>
+        <span class="aside" x-text="positions.length + ' open'"></span>
       </div>
-
-      <!-- Session detail - preserved from the previous "Today's Activity" panel -->
-      <div class="card-soft rounded-xl p-4 sm:p-5">
-        <h2 class="section-label mb-3">Session Detail</h2>
-        <div class="space-y-2.5 text-xs">
-          <div class="flex items-center justify-between">
-            <span style="color: var(--text-muted);">PDT Count</span>
-            <span class="font-mono-nums" style="color: var(--text-base);" x-text="account?.daytrade_count ?? '-'"></span>
-          </div>
-          <div class="flex items-center justify-between">
-            <span style="color: var(--text-muted);">Morning Check</span>
-            <span class="font-medium" :class="health?.last_morning_check_date ? 'text-emerald-400' : ''" :style="!health?.last_morning_check_date ? 'color: var(--text-dim)' : ''"
-                  x-text="health?.last_morning_check_date ? health.last_morning_check_date : 'Pending'"></span>
-          </div>
-          <div class="flex items-center justify-between">
-            <span style="color: var(--text-muted);">Bot Since</span>
-            <span class="font-mono-nums" style="color: var(--text-dim);" x-text="health?.last_startup ? fmtDate(health.last_startup) : '-'"></span>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-
-  <!-- ==================================================================
-       OPEN POSITIONS - primary operational table, read-only
-       ================================================================== -->
-  <div class="card rounded-xl border border-white/[0.06] overflow-hidden">
-    <div class="panel-head">
-      <h2 class="section-label">Open Positions</h2>
-      <span class="text-xs font-mono-nums" style="color: var(--text-muted);" x-text="positions.length + ' active'"></span>
-    </div>
-
-    <div class="overflow-x-auto">
-      <table class="w-full text-sm" style="min-width: 700px;">
-        <caption class="sr-only">Currently open broker positions with live unrealized profit and loss. Read-only - no order controls.</caption>
-        <thead>
-          <tr style="border-bottom: 1px solid var(--bdr-card); background: rgba(248,250,252,0.02);">
-            <th scope="col" class="px-4 py-2 text-left label-caps">Ticker</th>
-            <th scope="col" class="px-3 py-2 text-right label-caps">Shares</th>
-            <th scope="col" class="px-3 py-2 text-right label-caps">Entry</th>
-            <th scope="col" class="px-3 py-2 text-right label-caps">Price</th>
-            <th scope="col" class="px-3 py-2 text-right label-caps">Mkt Value</th>
-            <th scope="col" class="px-3 py-2 text-right label-caps">P&amp;L $</th>
-            <th scope="col" class="px-3 py-2 text-right label-caps">P&amp;L %</th>
-            <th scope="col" class="px-3 py-2 text-right label-caps">Trail Stop</th>
-            <th scope="col" class="px-3 py-2 text-right label-caps">Held</th>
-          </tr>
-        </thead>
-        <tbody>
-          <template x-if="positions.length === 0">
+      <div class="table-wrap" x-show="positions.length > 0">
+        <table>
+          <caption class="sr-only">Open broker positions with unrealized profit and loss. Read-only.</caption>
+          <thead>
             <tr>
-              <td colspan="9" class="px-5 py-8 text-center">
-                <p class="text-sm font-semibold" style="color: var(--text-strong);">No open positions</p>
-                <p class="text-xs mt-1" style="color: var(--text-dim);">New positions from the strategy engine will appear here</p>
-              </td>
+              <th scope="col">Ticker</th>
+              <th scope="col" class="r">Shares</th>
+              <th scope="col" class="r">Entry</th>
+              <th scope="col" class="r">Price</th>
+              <th scope="col" class="r">Value</th>
+              <th scope="col" class="r">P&amp;L</th>
+              <th scope="col" class="r">Return</th>
+              <th scope="col" class="r">Trailing stop</th>
+              <th scope="col" class="r">Held</th>
             </tr>
-          </template>
-
-          <template x-for="p in positions" :key="p.symbol">
-            <tr
-              class="transition-colors"
-              style="border-top: 1px solid var(--bdr-row);"
-              :class="{
-                'row-flash-green':   positionFlash[p.symbol] === 'green',
-                'row-flash-red':     positionFlash[p.symbol] === 'red',
-                'hover:bg-white/[0.025]': !positionFlash[p.symbol],
-              }"
-            >
-              <td class="px-4 py-2">
-                <div class="flex items-center gap-2">
-                  <div class="shrink-0">
-                    <div class="font-semibold text-sm" style="color: var(--text-strong);" x-text="p.symbol"></div>
-                    <div class="text-[9px] font-medium mt-0.5" :class="p.side === 'long' ? 'text-emerald-500' : 'text-red-400'" x-text="p.side.toUpperCase()"></div>
-                  </div>
-                  <div class="w-14 h-6 shrink-0">
-                    <canvas
-                      :id="'spark-' + p.symbol"
-                      x-init="$nextTick(() => initSparkline(p.symbol))"
-                      role="img" :aria-label="p.symbol + ' 20-day price trend'"
-                    ></canvas>
-                  </div>
-                </div>
-              </td>
-              <td class="px-3 py-2 text-right font-mono-nums" style="color: var(--text-base);" x-text="p.qty"></td>
-              <td class="px-3 py-2 text-right font-mono-nums" style="color: var(--text-muted);" x-text="'$' + p.avg_entry_price.toFixed(2)"></td>
-              <td class="px-3 py-2 text-right font-mono-nums font-medium" style="color: var(--text-base);" x-text="'$' + p.current_price.toFixed(2)"></td>
-              <td class="px-3 py-2 text-right font-mono-nums" style="color: var(--text-base);" x-text="fmtDollar(p.market_value)"></td>
-              <td class="px-3 py-2 text-right font-mono-nums font-semibold" :class="pnlClass(p.unrealized_pl)" x-text="fmtDollar(p.unrealized_pl)"></td>
-              <td class="px-3 py-2 text-right font-mono-nums font-semibold" :class="pnlClass(p.unrealized_plpc)" x-text="fmtPct(p.unrealized_plpc)"></td>
-              <td class="px-3 py-2 text-right font-mono-nums text-xs" style="color: var(--text-dim);"
-                  x-text="p.trailing_stop_level ? '$' + p.trailing_stop_level.toFixed(2) + (p.trailing_stop_pct ? ' (' + p.trailing_stop_pct + '%)' : '') : '-'"></td>
-              <td class="px-3 py-2 text-right font-mono-nums text-xs" :class="heldClass(p.entry_timestamp)"
-                  :title="p.entry_timestamp ? 'Since ' + fmtDate(p.entry_timestamp) : ''" x-text="fmtHeld(p.entry_timestamp)"></td>
+          </thead>
+          <tbody>
+            <template x-for="p in positions" :key="p.symbol">
+              <tr :class="flash[p.symbol] ? 'flash-' + flash[p.symbol] : ''">
+                <td>
+                  <span class="num" x-text="p.symbol"></span>
+                  <span class="small muted" x-show="p.side !== 'long'" x-text="p.side"></span>
+                  <svg class="spark" viewBox="0 0 100 20" preserveAspectRatio="none" role="img" :aria-label="p.symbol + ', last 20 daily closes'" x-show="sparks[p.symbol]?.length > 1">
+                    <polyline :points="sparkPoints(p.symbol)" :style="`stroke: var(--${sparkTone(p.symbol)})`"></polyline>
+                  </svg>
+                </td>
+                <td class="num r" x-text="p.qty"></td>
+                <td class="num r muted" x-text="money(p.avg_entry_price)"></td>
+                <td class="num r" x-text="money(p.current_price)"></td>
+                <td class="num r" x-text="money(p.market_value)"></td>
+                <td class="num r" :class="tone(p.unrealized_pl)" x-text="signedMoney(p.unrealized_pl)"></td>
+                <td class="num r" :class="tone(p.unrealized_plpc)" x-text="pct(p.unrealized_plpc)"></td>
+                <td class="num r muted" x-text="p.trailing_stop_level ? money(p.trailing_stop_level) + ' (' + p.trailing_stop_pct + '%)' : '-'"></td>
+                <td class="num r" :class="heldTone(p.entry_timestamp)" :title="p.entry_timestamp ? 'Since ' + dateTime(p.entry_timestamp) : ''" x-text="held(p.entry_timestamp)"></td>
+              </tr>
+            </template>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td>Total</td>
+              <td colspan="3"></td>
+              <td class="num r" x-text="money(exposure())"></td>
+              <td class="num r" :class="tone(openPnl())" x-text="signedMoney(openPnl())"></td>
+              <td class="num r" :class="tone(openPnl())" x-text="account?.portfolio_value ? pct(openPnl() / account.portfolio_value * 100) : ''"></td>
+              <td colspan="2"></td>
             </tr>
-          </template>
-
-          <!-- Totals footer - only meaningful with real positions -->
-          <template x-if="positions.length > 0">
-            <tr style="border-top: 1px solid var(--bdr-card); background: rgba(248,250,252,0.02);">
-              <td class="px-4 py-2 text-xs font-semibold" style="color: var(--text-muted);">Total</td>
-              <td></td><td></td>
-              <td class="px-3 py-2 text-right text-xs" style="color: var(--text-dim);">Mkt Value</td>
-              <td class="px-3 py-2 text-right font-mono-nums font-semibold" style="color: var(--text-base);"
-                  x-text="fmtDollar(positions.reduce((s,p) => s + Math.abs(p.market_value), 0))"></td>
-              <td class="px-3 py-2 text-right font-mono-nums font-semibold" :class="pnlClass(openPnl())" x-text="fmtDollar(openPnl())"></td>
-              <td class="px-3 py-2 text-right font-mono-nums font-semibold" :class="pnlClass(openPnl())"
-                  x-text="account?.portfolio_value ? fmtPct(openPnl() / account.portfolio_value * 100) : ''"></td>
-              <td></td><td></td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-
-  <!-- ==================================================================
-       PORTFOLIO ALLOCATION (compact) + RECENT ORDERS
-       ================================================================== -->
-  <div class="grid grid-cols-1 xl:grid-cols-3 gap-3">
-
-    <!-- Allocation - compact supporting panel, not a large primary visual -->
-    <div class="card-soft rounded-xl p-4">
-      <h2 class="section-label mb-1">Portfolio Allocation</h2>
-      <p class="section-caption mb-3" x-text="positions.length ? (positions.length + ' position' + (positions.length === 1 ? '' : 's') + ' · ' + fmtDollar(positions.reduce((s,p) => s + Math.abs(p.market_value), 0)) + ' gross') : 'No open exposure'"></p>
-
-      <!-- Chart stays mounted at all times (initCharts/updateCharts target it unconditionally); visually
-           swapped for a compact "100% cash" state when there are no positions. -->
-      <div class="relative h-[120px]" :class="positions.length === 0 ? 'opacity-0 h-0 overflow-hidden' : ''">
-        <canvas id="allocChart" role="img" aria-describedby="alloc-chart-summary"></canvas>
+          </tfoot>
+        </table>
       </div>
-      <p id="alloc-chart-summary" class="sr-only"
-         x-text="positions.length ? ('Donut chart of allocation across ' + positions.length + ' positions by market value.') : 'Portfolio is fully allocated to cash.'"></p>
+      <div class="empty" x-show="positions.length === 0">
+        <p>No open positions.</p>
+        <p>Positions opened by the strategy engine appear here.</p>
+      </div>
+    </section>
 
-      <template x-if="positions.length === 0">
-        <div class="flex items-center gap-3 py-2">
-          <div class="h-10 w-10 rounded-full shrink-0" style="background: conic-gradient(var(--live-primary) 0deg 360deg);"></div>
-          <div>
-            <p class="text-sm font-bold" style="color: var(--text-strong);">100% Cash</p>
-            <p class="text-xs" style="color: var(--text-muted);" x-text="account ? fmtDollar(account.cash) + ' available' : 'Waiting for broker…'"></p>
+    <div class="grid-split">
+      <section class="section" aria-labelledby="alloc-title">
+        <div class="section-head">
+          <h2 id="alloc-title">Allocation</h2>
+          <span class="aside" x-show="account?.portfolio_value" x-text="'of ' + money(account?.portfolio_value, 0)"></span>
+        </div>
+        <div class="alloc">
+          <ul>
+            <template x-for="row in allocation()" :key="row.label">
+              <li>
+                <span class="num" :class="row.label === 'Cash' ? 'muted' : ''" x-text="row.label"></span>
+                <div class="meter"><span :class="row.label === 'Cash' ? 'faint' : 'muted'" :style="`width: ${row.share}%`"></span></div>
+                <span class="num r" x-text="row.share.toFixed(1) + '%'"></span>
+              </li>
+            </template>
+          </ul>
+        </div>
+        <p class="small muted" x-show="!account">Waiting for broker data.</p>
+      </section>
+
+      <section class="section" aria-labelledby="orders-title">
+        <div class="section-head">
+          <h2 id="orders-title">Orders today</h2>
+          <div class="aside">
+            <span x-text="orders.length + ' orders'"></span>
+            <button class="link" @click="exportCsv()" :disabled="!orders.length">Export CSV</button>
           </div>
+        </div>
+        <div class="table-wrap" x-show="orders.length > 0">
+          <table>
+            <caption class="sr-only">Today's submitted orders with fill status. Read-only.</caption>
+            <thead>
+              <tr>
+                <th scope="col">Submitted</th>
+                <th scope="col">Ticker</th>
+                <th scope="col">Side</th>
+                <th scope="col" class="r">Filled</th>
+                <th scope="col" class="r">Fill price</th>
+                <th scope="col" class="r">Value</th>
+                <th scope="col">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="o in orders" :key="o.id">
+                <tr>
+                  <td class="num muted" x-text="time(o.submitted_at)"></td>
+                  <td class="num" x-text="o.symbol"></td>
+                  <td :class="o.side === 'sell' ? 'loss' : 'gain'" x-text="o.side === 'sell' ? 'Sell' : 'Buy'"></td>
+                  <td class="num r" x-text="o.filled_qty + ' / ' + o.qty"></td>
+                  <td class="num r" x-text="o.filled_avg_price ? money(o.filled_avg_price) : '-'"></td>
+                  <td class="num r" x-text="o.filled_avg_price && o.filled_qty ? money(o.filled_qty * o.filled_avg_price) : '-'"></td>
+                  <td :class="orderStatus(o.status).tone" x-text="orderStatus(o.status).label"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+        <div class="empty" x-show="orders.length === 0">
+          <p>No orders today.</p>
+          <p>Orders the bot submits appear here as they happen.</p>
+        </div>
+      </section>
+    </div>
+
+    <section class="section" aria-labelledby="screener-title">
+      <div class="section-head">
+        <h2 id="screener-title">Magic Formula screener</h2>
+        <div class="aside">
+          <span x-show="screener" x-text="screener ? 'Ran ' + dateTime(screener.screened_at) + ' · ' + screener.universe_size + ' tickers' : ''"></span>
+          <button class="link" @click="fetchScreener()" :disabled="screenerLoading" x-text="screenerLoading ? 'Loading…' : 'Reload'"></button>
+        </div>
+      </div>
+      <template x-if="screener?.candidates">
+        <div class="table-wrap">
+          <table>
+            <caption class="sr-only">Magic Formula candidates ranked by combined earnings yield and return on capital. For information only.</caption>
+            <thead>
+              <tr>
+                <th scope="col">#</th>
+                <th scope="col">Ticker</th>
+                <th scope="col">Company</th>
+                <th scope="col">Sector</th>
+                <th scope="col" class="r">Earnings yield</th>
+                <th scope="col" class="r">Return on capital</th>
+                <th scope="col" class="r">Rank</th>
+                <th scope="col" class="r">Market cap</th>
+                <th scope="col" class="r">Debt / equity</th>
+                <th scope="col"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(c, i) in screener.candidates" :key="c.ticker">
+                <tr>
+                  <td class="num muted" x-text="i + 1"></td>
+                  <td class="num" x-text="c.ticker"></td>
+                  <td x-text="c.company_name"></td>
+                  <td class="muted" x-text="c.sector"></td>
+                  <td class="num r" x-text="fraction(c.earnings_yield)"></td>
+                  <td class="num r" x-text="fraction(c.return_on_capital)"></td>
+                  <td class="num r" x-text="c.combined_rank ?? '-'"></td>
+                  <td class="num r" x-text="billions(c.market_cap_b)"></td>
+                  <td class="num r muted" x-text="c.debt_to_equity ? c.debt_to_equity.toFixed(2) + '×' : '-'"></td>
+                  <td :class="isHeld(c.ticker) ? 'gain' : 'muted'" x-text="isHeld(c.ticker) ? 'Held' : ''"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
         </div>
       </template>
-    </div>
-
-    <!-- Recent Orders -->
-    <div class="card xl:col-span-2 rounded-xl border border-white/[0.06] overflow-hidden">
-      <div class="panel-head">
-        <h2 class="section-label">Recent Orders</h2>
-        <div class="flex items-center gap-2.5">
-          <span class="text-xs font-mono-nums" style="color: var(--text-muted);" x-text="orders.length + ' today'"></span>
-          <button
-            @click="exportCsv()"
-            :disabled="!orders.length"
-            title="Download today's orders as CSV"
-            aria-label="Export today's orders as CSV"
-            class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-medium border
-                   transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            style="border-color: var(--bdr-row); color: var(--text-muted);"
-          >
-            <svg class="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-            </svg>
-            <span class="hidden sm:inline">Export CSV</span>
-          </button>
-        </div>
+      <div class="empty" x-show="screener === false">
+        <p>No screener output yet.</p>
+        <p>It runs on the 1st of each month. Set <code>SCREENER_OUTPUT_PATH</code> if the file is not in the project root.</p>
       </div>
+      <p class="small muted" x-show="screener === null">Loading…</p>
+    </section>
 
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm" style="min-width: 640px;">
-          <caption class="sr-only">Today's submitted orders with fill status. Read-only - no cancel or modify controls.</caption>
-          <thead>
-            <tr style="border-bottom: 1px solid var(--bdr-card); background: rgba(248,250,252,0.02);">
-              <th scope="col" class="px-4 py-2 text-left label-caps">Time</th>
-              <th scope="col" class="px-3 py-2 text-left label-caps">Ticker</th>
-              <th scope="col" class="px-3 py-2 text-left label-caps">Side</th>
-              <th scope="col" class="px-3 py-2 text-right label-caps">Qty</th>
-              <th scope="col" class="px-3 py-2 text-right label-caps">Fill Price</th>
-              <th scope="col" class="px-3 py-2 text-right label-caps">Value</th>
-              <th scope="col" class="px-3 py-2 text-left label-caps">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template x-if="orders.length === 0">
-              <tr>
-                <td colspan="7" class="px-5 py-8 text-center">
-                  <p class="text-sm font-semibold" style="color: var(--text-strong);">No orders today</p>
-                  <p class="text-xs mt-1" style="color: var(--text-dim);">Executed trades will appear here in real time</p>
-                </td>
-              </tr>
-            </template>
-            <template x-for="o in orders" :key="o.id">
-              <tr class="hover:bg-white/[0.025] transition-colors" style="border-top: 1px solid var(--bdr-row);">
-                <td class="px-4 py-2 text-xs font-mono-nums" style="color: var(--text-dim);" x-text="fmtTime(o.submitted_at)"></td>
-                <td class="px-3 py-2 font-semibold" style="color: var(--text-strong);" x-text="o.symbol"></td>
-                <td class="px-3 py-2">
-                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase"
-                        :class="o.side === 'buy' ? 'bg-emerald-900/60 text-emerald-400 border border-emerald-700/30' : 'bg-red-900/60 text-red-400 border border-red-700/30'"
-                        x-text="o.side"></span>
-                </td>
-                <td class="px-3 py-2 text-right font-mono-nums" style="color: var(--text-base);" x-text="o.filled_qty + ' / ' + o.qty"></td>
-                <td class="px-3 py-2 text-right font-mono-nums" style="color: var(--text-base);" x-text="o.filled_avg_price ? '$' + o.filled_avg_price.toFixed(2) : '-'"></td>
-                <td class="px-3 py-2 text-right font-mono-nums" style="color: var(--text-base);"
-                    x-text="o.filled_avg_price && o.filled_qty ? '$' + (o.filled_qty * o.filled_avg_price).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-'"></td>
-                <td class="px-3 py-2">
-                  <span class="px-2 py-0.5 rounded-full text-[10px] uppercase font-medium"
-                        :class="{
-                          'bg-emerald-900/50 text-emerald-400 border border-emerald-700/20': o.status === 'filled',
-                          'bg-yellow-900/50 text-yellow-400 border border-yellow-700/20': o.status === 'partially_filled' || o.status === 'new' || o.status === 'accepted',
-                          'bg-slate-700/40 text-slate-400 border border-slate-600/20': o.status === 'canceled' || o.status === 'expired',
-                          'bg-red-900/50 text-red-400 border border-red-700/20': o.status === 'rejected',
-                        }"
-                        x-text="o.status === 'partially_filled' ? 'partial fill' : o.status"></span>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
+    <footer>
+      <span>Read-only monitor, updated every 5 seconds</span>
+      <span class="num" x-show="health?.server_time" x-text="'Server time ' + time(health?.server_time)"></span>
+      <span class="num" x-show="health?.state_file" x-text="health?.state_file"></span>
+    </footer>
+  </main>
+</div>
 
-
-  <!-- ==================================================================
-       SYSTEM ACTIVITY - Magic Formula screener (preserved, not in the
-       reference screenshot, still real functionality)
-       ================================================================== -->
-  <div class="card-muted rounded-xl overflow-hidden">
-    <div class="px-4 py-3 flex items-center justify-between flex-wrap gap-2" style="border-bottom: 1px dashed var(--bdr-row);">
-      <div>
-        <h2 class="text-[13px] font-bold" style="color: var(--text-base);">Magic Formula Screener</h2>
-        <template x-if="screener">
-          <p class="section-caption hidden sm:block truncate"
-                x-text="'Insights only · last run ' + fmtDate(screener.screened_at) + ' · ' + screener.universe_size + ' tickers screened'">
-          </p>
-        </template>
-      </div>
-      <button
-        @click="fetchScreener()"
-        :disabled="screenerLoading"
-        aria-label="Refresh screener data"
-        class="px-2.5 py-1.5 rounded-lg text-[10px] font-medium border transition-colors disabled:opacity-40"
-        style="border-color: var(--bdr-row); color: var(--text-muted);"
-        x-text="screenerLoading ? 'Loading…' : '↻ Refresh'"
-      ></button>
-    </div>
-
-    <template x-if="screener === false">
-      <div class="px-5 py-8 text-center">
-        <p class="text-sm font-medium" style="color: var(--text-base);">No screener data yet</p>
-        <p class="text-xs mt-1 max-w-sm mx-auto" style="color: var(--text-dim);">Runs automatically on the 1st of each month. Set <code style="color: var(--text-muted);">SCREENER_OUTPUT_PATH</code> if the file is not in the project root.</p>
-      </div>
-    </template>
-
-    <template x-if="screener === null">
-      <div class="px-5 py-6 text-center text-sm animate-pulse" style="color: var(--text-dim);">Loading screener data…</div>
-    </template>
-
-    <template x-if="screener && screener.candidates">
-      <div class="overflow-x-auto opacity-95">
-        <table class="w-full text-sm" style="min-width: 680px;">
-          <caption class="sr-only">Greenblatt Magic Formula screener candidates, ranked by combined value/quality score.</caption>
-          <thead>
-            <tr>
-              <th scope="col" class="px-5 py-2 text-left label-caps-dim">#</th>
-              <th scope="col" class="px-4 py-2 text-left label-caps-dim">Ticker</th>
-              <th scope="col" class="px-4 py-2 text-left label-caps-dim">Company</th>
-              <th scope="col" class="px-4 py-2 text-left label-caps-dim">Sector</th>
-              <th scope="col" class="px-4 py-2 text-right label-caps-dim">Earn. Yield</th>
-              <th scope="col" class="px-4 py-2 text-right label-caps-dim">ROC</th>
-              <th scope="col" class="px-4 py-2 text-right label-caps-dim">Rank</th>
-              <th scope="col" class="px-4 py-2 text-right label-caps-dim">Mkt Cap</th>
-              <th scope="col" class="px-4 py-2 text-right label-caps-dim">D/E</th>
-              <th scope="col" class="px-4 py-2 text-left label-caps-dim">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template x-for="(c, i) in screener.candidates" :key="c.ticker">
-              <tr class="hover:bg-white/[0.025] transition-colors" style="border-top: 1px solid var(--bdr-row);" :class="isHeld(c.ticker) ? 'bg-emerald-950/30' : ''">
-                <td class="px-5 py-2 font-mono-nums text-xs" style="color: var(--text-dim);" x-text="i + 1"></td>
-                <td class="px-4 py-2 font-bold" :class="isHeld(c.ticker) ? 'text-emerald-400' : ''" :style="isHeld(c.ticker) ? '' : 'color: var(--text-strong)'" x-text="c.ticker"></td>
-                <td class="px-4 py-2 text-xs max-w-[180px] truncate" style="color: var(--text-base);" :title="c.company_name" x-text="c.company_name"></td>
-                <td class="px-4 py-2 text-xs" style="color: var(--text-muted);" x-text="c.sector"></td>
-                <td class="px-4 py-2 text-right font-mono-nums text-emerald-400 font-medium" x-text="fmtPct1(c.earnings_yield)"></td>
-                <td class="px-4 py-2 text-right font-mono-nums text-cyan-400" x-text="fmtPct1(c.return_on_capital)"></td>
-                <td class="px-4 py-2 text-right font-mono-nums" style="color: var(--text-base);" x-text="c.combined_rank ?? '-'"></td>
-                <td class="px-4 py-2 text-right font-mono-nums text-xs" style="color: var(--text-muted);" x-text="fmtB(c.market_cap_b)"></td>
-                <td class="px-4 py-2 text-right font-mono-nums text-xs" style="color: var(--text-dim);" x-text="c.debt_to_equity ? c.debt_to_equity.toFixed(2) + 'x' : '-'"></td>
-                <td class="px-4 py-2">
-                  <template x-if="isHeld(c.ticker)">
-                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-900/60 text-emerald-400 border border-emerald-700/30">HELD</span>
-                  </template>
-                  <template x-if="!isHeld(c.ticker)">
-                    <span class="px-2 py-0.5 rounded-full text-[10px] font-medium" style="background: rgba(167,139,250,0.1); color: #c4b5fd; border: 1px solid rgba(167,139,250,0.25);">WATCHING</span>
-                  </template>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-      </div>
-    </template>
-  </div>
-
-
-  <!-- ==================================================================
-       FOOTER
-       ================================================================== -->
-  <footer class="flex flex-wrap justify-center gap-x-2 gap-y-0.5 text-[11px] pb-4 pt-1" style="color: var(--text-dim);">
-    <span>Read-only monitoring</span>
-    <span>·</span>
-    <span>Updates every 5 seconds</span>
-    <span x-show="health?.server_time">·
-      <span x-text="health?.server_time ? 'Server ' + new Date(health.server_time).toLocaleTimeString() : ''"></span>
-    </span>
-    <span class="hidden sm:inline" x-show="health?.state_file" x-text="'· ' + (health?.state_file ?? '')"></span>
-  </footer>
-
-</div><!-- /x-data -->
-
-
-<!-- ====================================================================
-     Toast renderer (mounted outside main div to avoid z-index issues)
-     ==================================================================== -->
-<div id="toast-portal" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
-
+<div id="toasts" aria-live="polite"></div>
 
 <script>
-// Chart.js instances - stored outside Alpine to prevent reactivity conflicts
-const _charts = { sparklines: {} };
+// Chart.js keeps its own references to the data it draws, so the instance
+// lives outside Alpine's reactive state.
+let pnlChart = null;
+
+const PNL_POINTS_MAX = 5040;   // a full 7-hour session at one point per 5 s push
+const FEED_STALE_S = 15;       // three missed pushes
+const DAY_MS = 86_400_000;
+
+const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim();
+const todayKey = () => `alphalive_pnl_${new Date().toLocaleDateString('en-CA')}`;
 
 document.addEventListener('alpine:init', () => {
   Alpine.data('dashboard', () => ({
-
-    // ── Data ──────────────────────────────────────────────────────────
-    account:     null,
-    positions:   [],
-    orders:      [],
-    risk:        null,
-    health:      null,
-    lastUpdated: null,
-    lastUpdatedAt: null,   // epoch ms - real timestamp backing dataAgeLabel()/dataAgeStale()
-    nowTick:     0,        // incremented every second so age-based x-text expressions re-evaluate
-    chartsReady: false,
-
-    // ── Theme ─────────────────────────────────────────────────────────
-    darkMode: localStorage.getItem('alphalive-theme') !== 'light',
-
-    applyTheme() {
-      document.documentElement.classList.toggle('light', !this.darkMode);
-      localStorage.setItem('alphalive-theme', this.darkMode ? 'dark' : 'light');
-    },
-
-    toggleTheme() {
-      this.darkMode = !this.darkMode;
-      this.applyTheme();
-    },
-
-    // ── P&L localStorage persistence ─────────────────────────────────
-    _pnlStorageKey() {
-      return `alphalive_pnl_${new Date().toLocaleDateString('en-CA')}`;
-    },
-
-    loadPnlFromStorage() {
-      try {
-        const key = this._pnlStorageKey();
-        const raw = localStorage.getItem(key);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed.labels) && Array.isArray(parsed.data)
-              && parsed.labels.length === parsed.data.length) {
-            this.pnlSeries = parsed;
-          }
-        }
-        // Remove stale keys from previous days
-        Object.keys(localStorage)
-          .filter(k => k.startsWith('alphalive_pnl_') && k !== key)
-          .forEach(k => localStorage.removeItem(k));
-      } catch(_) { /* localStorage unavailable - degrade silently */ }
-    },
-
-    savePnlToStorage() {
-      try {
-        localStorage.setItem(this._pnlStorageKey(), JSON.stringify(this.pnlSeries));
-      } catch(_) { /* storage full - silently ignore */ }
-    },
-
-    // ── WebSocket ─────────────────────────────────────────────────────
-    ws:                null,
-    wsStatus:          'connecting',   // 'connected' | 'connecting' | 'disconnected'
-    wsReconnectDelay:  1000,
-
-    // ── Kill switch ───────────────────────────────────────────────────
+    account: null,
+    positions: [],
+    orders: [],
+    risk: null,
+    health: null,
+    screener: null,          // null = loading, false = not generated yet
+    screenerLoading: false,
+    sparks: {},              // symbol -> last 20 daily closes
+    flash: {},               // symbol -> 'up' | 'down', briefly, when its P&L changes
+    pnlSeries: { labels: [], data: [] },
+    wsStatus: 'connecting',
+    wsRetryMs: 1000,
+    lastPushAt: null,
+    nowTick: 0,              // bumped every second so age labels re-render
+    darkMode: !document.documentElement.classList.contains('light'),
     killSwitchPending: false,
-
-    // ── Railway deploy ────────────────────────────────────────────────
     deployPending: false,
 
-    // ── Screener ──────────────────────────────────────────────────────
-    screener:         null,   // null = not loaded, false = 404, object = data
-    screenerLoading:  false,
-
-    // ── Realized P&L map ─────────────────────────────────────────────
-    orderPnlMap: {},   // { order_id: number | null }
-
-    // ── Change tracking ───────────────────────────────────────────────
-    prevPositionPnl: {},  // { symbol: unrealized_pl }
-    positionFlash:   {},  // { symbol: 'green' | 'red' }
-    pnlFlashing:     false,
-    prevDailyPnl:    null,
-    prevOrderIds:    [],  // IDs seen in last push
-
-    // ── P&L time series (persisted to localStorage, keyed by date) ───
-    pnlSeries: { labels: [], data: [] },
-
-    // ──────────────────────────────────────────────────────────────────
     init() {
-      this.applyTheme();
-      this.loadPnlFromStorage();
-      this.connectWS();
+      this.loadPnlSeries();
+      this.connect();
       this.fetchScreener();
-      setInterval(() => { this.nowTick++; }, 1000);
+      setInterval(() => this.nowTick++, 1000);
     },
 
-    // ── WebSocket ─────────────────────────────────────────────────────
-    connectWS() {
+    // ── Feed ─────────────────────────────────────────────────────────
+    connect() {
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const url   = `${proto}//${location.host}/ws`;
-      this.ws = new WebSocket(url);
-
-      this.ws.onopen = () => {
-        this.wsStatus = 'connected';
-        this.wsReconnectDelay = 1000;
+      const ws = new WebSocket(`${proto}//${location.host}/ws`);
+      ws.onopen = () => { this.wsStatus = 'connected'; this.wsRetryMs = 1000; };
+      ws.onmessage = (e) => {
+        try { this.apply(JSON.parse(e.data)); } catch (err) { console.error('Bad feed message', err); }
       };
-
-      this.ws.onmessage = (evt) => {
-        try {
-          this.applyData(JSON.parse(evt.data));
-        } catch(e) {
-          console.error('WS parse error:', e);
-        }
-      };
-
-      this.ws.onclose = () => {
-        this.wsStatus = 'connecting';
-        setTimeout(() => this.connectWS(), this.wsReconnectDelay);
-        this.wsReconnectDelay = Math.min(this.wsReconnectDelay * 2, 30_000);
-      };
-
-      this.ws.onerror = () => {
-        this.wsStatus = 'disconnected';
-        // onclose fires next - reconnect loop handles it
+      ws.onerror = () => { this.wsStatus = 'disconnected'; };
+      ws.onclose = () => {
+        if (this.wsStatus === 'connected') this.wsStatus = 'connecting';
+        setTimeout(() => this.connect(), this.wsRetryMs);
+        this.wsRetryMs = Math.min(this.wsRetryMs * 2, 30_000);
       };
     },
 
-    // ── Apply incoming WS payload ─────────────────────────────────────
-    applyData(d) {
-      // Account
+    apply(d) {
       if (d.account !== undefined) this.account = d.account;
-
-      // Positions + row flash
-      if (d.positions !== undefined) {
-        const newPos = d.positions;
-        newPos.forEach(p => {
-          const prev = this.prevPositionPnl[p.symbol];
-          if (prev !== undefined && Math.abs(prev - p.unrealized_pl) > 0.001) {
-            const dir = p.unrealized_pl > prev ? 'green' : 'red';
-            this.positionFlash = { ...this.positionFlash, [p.symbol]: dir };
-            setTimeout(() => {
-              const f = { ...this.positionFlash };
-              delete f[p.symbol];
-              this.positionFlash = f;
-            }, 700);
-          }
-          this.prevPositionPnl[p.symbol] = p.unrealized_pl;
-        });
-
-        // Clean up sparklines for closed positions
-        const newSyms = new Set(newPos.map(p => p.symbol));
-        Object.keys(_charts.sparklines).forEach(sym => {
-          if (!newSyms.has(sym)) {
-            _charts.sparklines[sym].destroy();
-            delete _charts.sparklines[sym];
-          }
-        });
-
-        this.positions = newPos;
-
-        // Init sparklines for newly appearing symbols
-        this.$nextTick(() => {
-          this.positions.forEach(p => this.initSparkline(p.symbol));
-        });
-      }
-
-      // Orders + toast on new trade
-      if (d.orders !== undefined) {
-        const newOrders  = d.orders;
-        const prevIdSet  = new Set(this.prevOrderIds);
-        if (prevIdSet.size > 0) {
-          newOrders.forEach(o => {
-            if (!prevIdSet.has(o.id)) {
-              const side = o.side === 'buy' ? '▲ BUY' : '▼ SELL';
-              this.showToast(`${side} ${o.symbol} - ${o.status}`, o.side);
-            }
-          });
-        }
-        this.prevOrderIds = newOrders.map(o => o.id);
-        this.orders = newOrders;
-        this.orderPnlMap = this.computeOrderPnl(newOrders);
-      }
-
-      // Risk + P&L flash
-      if (d.risk !== undefined) {
-        const newPnl = d.risk?.daily_pnl ?? null;
-        if (this.prevDailyPnl !== null && newPnl !== null &&
-            Math.abs(newPnl - this.prevDailyPnl) > 0.001) {
-          this.pnlFlashing = false;
-          this.$nextTick(() => { this.pnlFlashing = true; });
-          setTimeout(() => { this.pnlFlashing = false; }, 400);
-        }
-        this.prevDailyPnl = newPnl;
-        this.risk = d.risk;
-      }
-
       if (d.health !== undefined) this.health = d.health;
+      if (d.positions !== undefined) this.applyPositions(d.positions);
+      if (d.orders !== undefined) this.applyOrders(d.orders);
+      if (d.risk !== undefined) this.risk = d.risk;
+      if (this.risk) this.recordPnl(this.risk.daily_pnl ?? 0);
+      this.lastPushAt = Date.now();
+      this.drawPnl();
+    },
 
-      // P&L time series - cap at 5040 points (full 7h trading day at 5s resolution)
-      if (this.risk != null) {
-        const lbl = new Date().toLocaleTimeString('en-US',
-          { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        this.pnlSeries.labels.push(lbl);
-        this.pnlSeries.data.push(this.risk.daily_pnl ?? 0);
-        if (this.pnlSeries.labels.length > 5040) {
-          this.pnlSeries.labels.shift();
-          this.pnlSeries.data.shift();
+    applyPositions(next) {
+      const before = Object.fromEntries(this.positions.map((p) => [p.symbol, p.unrealized_pl]));
+      for (const p of next) {
+        const prev = before[p.symbol];
+        if (prev !== undefined && Math.abs(prev - p.unrealized_pl) > 0.001) {
+          this.flash = { ...this.flash, [p.symbol]: p.unrealized_pl > prev ? 'up' : 'down' };
+          setTimeout(() => { const { [p.symbol]: _, ...rest } = this.flash; this.flash = rest; }, 800);
         }
-        this.savePnlToStorage();
+        if (!(p.symbol in this.sparks)) this.loadSpark(p.symbol);
       }
-
-      this.lastUpdatedAt = Date.now();
-      this.lastUpdated = new Date().toLocaleTimeString('en-US',
-        { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-      if (!this.chartsReady) {
-        this.$nextTick(() => { this.initCharts(); this.chartsReady = true; });
-      } else {
-        this.updateCharts();
-      }
+      this.positions = next;
     },
 
-    // ── Chart.js - main charts ────────────────────────────────────────
-    initCharts() {
-      const pnlCanvas = document.getElementById('pnlChart');
-      if (pnlCanvas) {
-        const pnl = this.risk?.daily_pnl ?? 0;
-        _charts.pnl = new Chart(pnlCanvas.getContext('2d'), {
-          type: 'line',
-          data: {
-            // Spread into plain arrays - pnlSeries is Alpine-reactive (a
-            // Proxy), and handing that Proxy directly to Chart.js causes
-            // its internal object-walking to collide with Alpine's own
-            // get/set traps on the same array, producing a recursive
-            // "Maximum call stack size exceeded" on every WS push.
-            labels: [...this.pnlSeries.labels],
-            datasets: [{
-              data: [...this.pnlSeries.data],
-              borderColor: pnl >= 0 ? '#10b981' : '#ef4444',
-              backgroundColor: pnl >= 0 ? 'rgba(16,185,129,0.07)' : 'rgba(239,68,68,0.07)',
-              borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.35,
-            }],
-          },
-          options: {
-            animation: false, responsive: true, maintainAspectRatio: false,
-            plugins: {
-              legend: { display: false },
-              tooltip: { callbacks: { label: ctx =>
-                `P&L: ${ctx.raw >= 0 ? '+' : ''}$${Number(ctx.raw).toFixed(2)}` } },
-            },
-            scales: {
-              x: { ticks: { color: '#475569', maxTicksLimit: 4, font: { size: 9 } },
-                   grid: { color: '#1e293b' } },
-              y: { ticks: { color: '#475569', font: { size: 9 },
-                   callback: v => { const a = Math.abs(v); const s = v < 0 ? '-' : '';
-                     return a >= 1000 ? `${s}$${(a/1000).toFixed(1)}K` : `${s}$${a.toFixed(0)}`; } },
-                   grid: { color: '#1e293b' } },
-            },
-          },
-        });
+    applyOrders(next) {
+      const seen = new Set(this.orders.map((o) => o.id));
+      if (seen.size > 0) {
+        next.filter((o) => !seen.has(o.id)).forEach((o) =>
+          this.toast(`${o.side === 'sell' ? 'Sell' : 'Buy'} ${o.symbol}: ${this.orderStatus(o.status).label.toLowerCase()}`, o.side === 'sell' ? 'loss' : 'gain'));
       }
-
-      const allocCanvas = document.getElementById('allocChart');
-      if (allocCanvas) {
-        const COLORS = ['#10b981','#3b82f6','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899'];
-        const labels = this.positions.length > 0 ? this.positions.map(p => p.symbol) : ['Cash'];
-        const data   = this.positions.length > 0 ? this.positions.map(p => Math.abs(p.market_value)) : [this.account?.cash ?? 1];
-        _charts.alloc = new Chart(allocCanvas.getContext('2d'), {
-          type: 'doughnut',
-          data: {
-            labels,
-            datasets: [{ data, backgroundColor: COLORS.slice(0, data.length), borderWidth: 2, borderColor: '#172033', hoverOffset: 4 }],
-          },
-          options: {
-            animation: false, responsive: true, maintainAspectRatio: false, cutout: '62%',
-            plugins: {
-              legend: { display: true, position: 'right',
-                labels: { color: '#94a3b8', boxWidth: 10, font: { size: 10 }, padding: 8 } },
-              tooltip: { callbacks: { label: ctx =>
-                `${ctx.label}: $${Number(ctx.raw).toLocaleString('en-US', { maximumFractionDigits: 0 })}` } },
-            },
-          },
-        });
-      }
+      this.orders = next;
     },
 
-    updateCharts() {
-      if (_charts.pnl) {
-        const pnl = this.risk?.daily_pnl ?? 0;
-        // Same Proxy-cloning as initCharts() above - must stay plain arrays.
-        _charts.pnl.data.labels                      = [...this.pnlSeries.labels];
-        _charts.pnl.data.datasets[0].data            = [...this.pnlSeries.data];
-        _charts.pnl.data.datasets[0].borderColor     = pnl >= 0 ? '#10b981' : '#ef4444';
-        _charts.pnl.data.datasets[0].backgroundColor = pnl >= 0 ? 'rgba(16,185,129,0.07)' : 'rgba(239,68,68,0.07)';
-        _charts.pnl.update('none');
-      }
-      if (_charts.alloc) {
-        if (this.positions.length > 0) {
-          _charts.alloc.data.labels             = this.positions.map(p => p.symbol);
-          _charts.alloc.data.datasets[0].data   = this.positions.map(p => Math.abs(p.market_value));
-        } else {
-          _charts.alloc.data.labels             = ['Cash'];
-          _charts.alloc.data.datasets[0].data   = [this.account?.cash ?? 1];
-        }
-        _charts.alloc.update('none');
-      }
-    },
-
-    // ── Per-position mini sparklines ──────────────────────────────────
-    async initSparkline(symbol) {
-      if (_charts.sparklines[symbol]) return;   // already initialized
-      const canvas = document.getElementById('spark-' + symbol);
-      if (!canvas) return;
-
-      let closes = [];
+    // Marks the symbol as loading first, so overlapping pushes fetch it once.
+    async loadSpark(symbol) {
+      this.sparks = { ...this.sparks, [symbol]: [] };
       try {
-        const r = await fetch('/api/bars/' + symbol + '?n=20');
-        if (r.ok) {
-          const d = await r.json();
-          closes = (d.bars ?? []).map(b => b.c);
-        }
-      } catch(_) { /* render empty sparkline */ }
+        const r = await fetch(`/api/bars/${symbol}?n=20`);
+        if (!r.ok) return;
+        const closes = ((await r.json()).bars ?? []).map((b) => b.c);
+        this.sparks = { ...this.sparks, [symbol]: closes };
+      } catch (_) { /* no sparkline for this row */ }
+    },
 
-      const trending = closes.length > 1 && closes[closes.length - 1] >= closes[0];
-      _charts.sparklines[symbol] = new Chart(canvas.getContext('2d'), {
+    // ── Session P&L series, kept per calendar day in localStorage ───
+    loadPnlSeries() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(todayKey()) ?? 'null');
+        if (saved && Array.isArray(saved.labels) && saved.labels.length === saved.data?.length) this.pnlSeries = saved;
+        Object.keys(localStorage)
+          .filter((k) => k.startsWith('alphalive_pnl_') && k !== todayKey())
+          .forEach((k) => localStorage.removeItem(k));
+      } catch (_) { /* storage unavailable: start empty */ }
+    },
+
+    recordPnl(value) {
+      const { labels, data } = this.pnlSeries;
+      labels.push(new Date().toLocaleTimeString('en-US', { hour12: false }));
+      data.push(value);
+      if (labels.length > PNL_POINTS_MAX) { labels.shift(); data.shift(); }
+      try { localStorage.setItem(todayKey(), JSON.stringify(this.pnlSeries)); } catch (_) { /* storage full */ }
+    },
+
+    drawPnl() {
+      const colour = cssVar((this.risk?.daily_pnl ?? 0) >= 0 ? 'gain' : 'loss');
+      // Plain copies: handing Alpine's reactive proxies to Chart.js makes the
+      // two libraries recurse into each other.
+      const labels = [...this.pnlSeries.labels];
+      const data = [...this.pnlSeries.data];
+      if (pnlChart) {
+        pnlChart.data.labels = labels;
+        Object.assign(pnlChart.data.datasets[0], { data, borderColor: colour });
+        pnlChart.update('none');
+        return;
+      }
+      const canvas = document.getElementById('pnlChart');
+      if (!canvas) return;
+      const axis = { ticks: { color: cssVar('text-muted'), font: { family: 'IBM Plex Mono', size: 10 } }, grid: { color: cssVar('border-soft') }, border: { display: false } };
+      pnlChart = new Chart(canvas, {
         type: 'line',
-        data: {
-          labels: Array(closes.length).fill(''),
-          datasets: [{
-            data: closes,
-            borderColor: trending ? '#10b981' : '#ef4444',
-            borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: false,
-          }],
-        },
+        data: { labels, datasets: [{ data, borderColor: colour, borderWidth: 1.5, pointRadius: 0, tension: 0 }] },
         options: {
           animation: false, responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { display: false }, tooltip: { enabled: false } },
-          scales: { x: { display: false }, y: { display: false } },
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => this.signedMoney(c.raw) } } },
+          scales: {
+            x: { ...axis, ticks: { ...axis.ticks, maxTicksLimit: 5 }, grid: { display: false } },
+            y: { ...axis, ticks: { ...axis.ticks, callback: (v) => this.signedMoney(v, 0) } },
+          },
         },
       });
     },
 
-    // ── CSV export ────────────────────────────────────────────────────
-    exportCsv() {
-      if (!this.orders.length) return;
-
-      const headers = [
-        'Symbol', 'Side', 'Type', 'Qty', 'Filled Qty',
-        'Avg Fill Price', 'Fill Value', 'Realized P&L',
-        'Status', 'Submitted At', 'Filled At',
-      ];
-
-      const rows = this.orders.map(o => {
-        const pnl   = this.orderPnlMap[o.id];
-        const value = (o.filled_avg_price && o.filled_qty)
-          ? (o.filled_qty * o.filled_avg_price).toFixed(2)
-          : '';
-        return [
-          o.symbol,
-          o.side,
-          o.order_type,
-          o.qty,
-          o.filled_qty,
-          o.filled_avg_price != null ? o.filled_avg_price.toFixed(2) : '',
-          value,
-          pnl != null ? pnl.toFixed(2) : '',
-          o.status,
-          o.submitted_at ?? '',
-          o.filled_at ?? '',
-        ];
-      });
-
-      const escape = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-      const csv = [headers, ...rows].map(r => r.map(escape).join(',')).join('\n');
-
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url  = URL.createObjectURL(blob);
-      const a    = Object.assign(document.createElement('a'), {
-        href:     url,
-        download: `alphalive-orders-${new Date().toLocaleDateString('en-CA')}.csv`,
-      });
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+    // Chart.js caches resolved colours, so a theme switch rebuilds it.
+    toggleTheme() {
+      this.darkMode = !this.darkMode;
+      document.documentElement.classList.toggle('light', !this.darkMode);
+      localStorage.setItem('alphalive-theme', this.darkMode ? 'dark' : 'light');
+      pnlChart?.destroy();
+      pnlChart = null;
+      this.drawPnl();
     },
 
-    // ── Realized P&L matching (FIFO, today's orders only) ────────────
-    computeOrderPnl(orders) {
-      const result = {};
-      const buysBySymbol = {}; // { symbol: [{price, qty}] }
-
-      // Process chronologically so FIFO matching is correct
-      const sorted = [...orders].sort(
-        (a, b) => new Date(a.submitted_at) - new Date(b.submitted_at)
-      );
-
-      for (const o of sorted) {
-        const filled = o.status === 'filled' && o.filled_avg_price > 0 && o.filled_qty > 0;
-        if (!filled) { result[o.id] = null; continue; }
-
-        if (o.side === 'buy') {
-          if (!buysBySymbol[o.symbol]) buysBySymbol[o.symbol] = [];
-          buysBySymbol[o.symbol].push({ price: o.filled_avg_price, qty: o.filled_qty });
-          result[o.id] = null;  // P&L realised on the SELL side
-        } else if (o.side === 'sell') {
-          const buys = buysBySymbol[o.symbol];
-          if (!buys || buys.length === 0) {
-            result[o.id] = null;  // position opened before today - can't compute
-          } else {
-            const totalQty  = buys.reduce((s, b) => s + b.qty, 0);
-            const totalCost = buys.reduce((s, b) => s + b.price * b.qty, 0);
-            result[o.id]    = (o.filled_avg_price - totalCost / totalQty) * o.filled_qty;
-          }
-        } else {
-          result[o.id] = null;
-        }
-      }
-      return result;
+    hasActivity() {
+      const d = this.pnlSeries.data;
+      return d.length >= 2 && d.some((v) => Math.abs(v) > 0.005);
     },
 
-    // ── Screener ──────────────────────────────────────────────────────
+    sessionRange() {
+      const d = this.pnlSeries.data;
+      return d.length < 2 ? { high: null, low: null } : { high: Math.max(...d), low: Math.min(...d) };
+    },
+
+    // ── Screener ─────────────────────────────────────────────────────
     async fetchScreener() {
       this.screenerLoading = true;
       try {
         const r = await fetch('/api/screener');
         this.screener = r.ok ? await r.json() : false;
-      } catch(_) {
+      } catch (_) {
         this.screener = false;
       } finally {
         this.screenerLoading = false;
@@ -1315,251 +640,209 @@ document.addEventListener('alpine:init', () => {
     },
 
     isHeld(ticker) {
-      return this.positions.some(p => p.symbol === ticker.toUpperCase());
+      return this.positions.some((p) => p.symbol === ticker.toUpperCase());
     },
 
-    fmtPct1(v) {
-      if (v == null) return '-';
-      return (v * 100).toFixed(1) + '%';
-    },
-
-    fmtB(v) {
-      if (v == null) return '-';
-      if (v >= 1000) return `$${(v / 1000).toFixed(1)}T`;
-      if (v >= 1)    return `$${v.toFixed(1)}B`;
-      return `$${(v * 1000).toFixed(0)}M`;
-    },
-
-    // ── Kill switch ───────────────────────────────────────────────────
+    // ── Controls ─────────────────────────────────────────────────────
     async togglePause() {
       const pausing = !this.risk?.trading_paused_dashboard;
-      const label   = pausing ? 'Pause' : 'Resume';
-      if (!confirm(`${label} trading via dashboard kill switch?`)) return;
-
+      if (!confirm(`${pausing ? 'Pause' : 'Resume'} trading with the dashboard kill switch?`)) return;
       this.killSwitchPending = true;
       try {
-        const endpoint = pausing ? '/api/control/pause' : '/api/control/resume';
-        const r = await fetch(endpoint, { method: 'POST' });
+        const r = await fetch(pausing ? '/api/control/pause' : '/api/control/resume', { method: 'POST' });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        this.showToast(
-          pausing ? '⏸ Trading paused via dashboard' : '▶ Trading resumed via dashboard',
-          pausing ? 'sell' : 'buy'
-        );
-      } catch(e) {
-        this.showToast(`Kill switch failed: ${e.message}`, 'info');
+        this.toast(pausing ? 'Trading paused from the dashboard' : 'Trading resumed from the dashboard', pausing ? 'loss' : 'gain');
+      } catch (e) {
+        this.toast(`Kill switch failed: ${e.message}`);
       } finally {
         this.killSwitchPending = false;
       }
     },
 
-    // ── Railway deploy ────────────────────────────────────────────────
     async triggerDeploy() {
-      if (!confirm('Trigger a Railway redeploy of AlphaLive?\n\nThe bot will restart in ~30 seconds.')) return;
+      if (!confirm('Redeploy AlphaLive on Railway?\n\nThe bot restarts in about 30 seconds.')) return;
       this.deployPending = true;
       try {
         const r = await fetch('/api/deploy', { method: 'POST' });
-        const data = await r.json();
-        if (!r.ok) {
-          this.showToast(data.detail ?? `Deploy failed (HTTP ${r.status})`, 'info');
-        } else {
-          this.showToast('Redeploy triggered - Railway restarting in ~30s', 'buy');
-        }
-      } catch(e) {
-        this.showToast(`Deploy error: ${e.message}`, 'info');
+        const body = await r.json();
+        this.toast(r.ok ? 'Redeploy started; Railway restarts the bot in about 30 seconds' : body.detail ?? `Deploy failed (HTTP ${r.status})`, r.ok ? 'gain' : 'loss');
+      } catch (e) {
+        this.toast(`Deploy failed: ${e.message}`, 'loss');
       } finally {
         this.deployPending = false;
       }
     },
 
-    // ── Toast notifications ───────────────────────────────────────────
-    showToast(msg, type = 'info') {
-      const portal = document.getElementById('toast-portal');
-      if (!portal) return;
-
-      const el = document.createElement('div');
-      const colorMap = {
-        buy:  'bg-emerald-900/95 border-emerald-700/60 text-emerald-200',
-        sell: 'bg-red-900/95 border-red-700/60 text-red-200',
-        info: 'bg-slate-800/95 border-slate-600/60 text-slate-200',
-      };
-      const cls = colorMap[type] ?? colorMap.info;
-      el.className = `toast-enter pointer-events-auto px-4 py-3 rounded-lg border text-sm shadow-xl backdrop-blur-sm flex items-center gap-2 ${cls}`;
-      el.textContent = msg;
-      portal.appendChild(el);
-      setTimeout(() => {
-        el.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
-        el.style.opacity = '0';
-        el.style.transform = 'translateX(1rem)';
-        setTimeout(() => el.remove(), 320);
-      }, 4000);
+    toast(message, tone = '') {
+      const el = Object.assign(document.createElement('div'), { className: `toast ${tone ? 'toast--' + tone : ''}`, textContent: message });
+      document.getElementById('toasts').appendChild(el);
+      setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 4000);
     },
 
-    // ── Computed helpers ──────────────────────────────────────────────
-    botStatus() {
-      if (!this.health)                  return 'CONNECTING';
-      if (!this.health.broker_connected) return 'OFFLINE';
-      if (this.risk?.trading_paused)     return 'PAUSED';
-      if (this.risk?.dry_run)            return 'DRY RUN';
-      if (this.account?.paper)           return 'PAPER';
-      return 'LIVE';
+    // ── CSV export, with FIFO-matched realized P&L for today's sells ─
+    realizedPnl() {
+      const result = {};
+      const buys = {};   // symbol -> [{ price, qty }]
+      const chronological = [...this.orders].sort((a, b) => new Date(a.submitted_at) - new Date(b.submitted_at));
+      for (const o of chronological) {
+        result[o.id] = null;
+        if (o.status !== 'filled' || !(o.filled_avg_price > 0) || !(o.filled_qty > 0)) continue;
+        if (o.side === 'buy') {
+          (buys[o.symbol] ??= []).push({ price: o.filled_avg_price, qty: o.filled_qty });
+        } else if (o.side === 'sell' && buys[o.symbol]?.length) {
+          // A sell against a position opened before today has no basis here.
+          const qty = buys[o.symbol].reduce((s, b) => s + b.qty, 0);
+          const cost = buys[o.symbol].reduce((s, b) => s + b.price * b.qty, 0);
+          result[o.id] = (o.filled_avg_price - cost / qty) * o.filled_qty;
+        }
+      }
+      return result;
     },
 
-    statusClass() {
+    exportCsv() {
+      const pnl = this.realizedPnl();
+      const header = ['Symbol', 'Side', 'Type', 'Qty', 'Filled Qty', 'Avg Fill Price', 'Fill Value', 'Realized P&L', 'Status', 'Submitted At', 'Filled At'];
+      const rows = this.orders.map((o) => [
+        o.symbol, o.side, o.order_type, o.qty, o.filled_qty,
+        o.filled_avg_price?.toFixed(2) ?? '',
+        o.filled_avg_price && o.filled_qty ? (o.filled_qty * o.filled_avg_price).toFixed(2) : '',
+        pnl[o.id]?.toFixed(2) ?? '',
+        o.status, o.submitted_at ?? '', o.filled_at ?? '',
+      ]);
+      const quote = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const csv = [header, ...rows].map((r) => r.map(quote).join(',')).join('\n');
+      const link = Object.assign(document.createElement('a'), {
+        href: URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' })),
+        download: `alphalive-orders-${new Date().toLocaleDateString('en-CA')}.csv`,
+      });
+      link.click();
+      URL.revokeObjectURL(link.href);
+    },
+
+    // ── Derived values ───────────────────────────────────────────────
+    mode() {
+      if (!this.health) return { label: 'Connecting…', tone: '' };
+      if (this.risk?.dry_run) return { label: 'Dry run', tone: 'warning' };
+      return (this.account?.paper ?? this.health.paper_trading) ? { label: 'Paper account', tone: '' } : { label: 'Live account, real money', tone: 'loss' };
+    },
+
+    // `tick` only makes Alpine re-evaluate this every second.
+    feed(tick) {
+      if (this.wsStatus === 'disconnected') return { label: 'Feed disconnected', tone: 'loss' };
+      if (this.wsStatus === 'connecting' || !this.lastPushAt) return { label: 'Feed reconnecting', tone: 'warning' };
+      const age = Math.round((Date.now() - this.lastPushAt) / 1000);
+      const label = age < 60 ? `Feed ${age}s ago` : `Feed ${Math.round(age / 60)}m ago`;
+      return { label, tone: age > FEED_STALE_S ? 'warning' : '' };
+    },
+
+    orderCounts() {
+      const count = (...statuses) => this.orders.filter((o) => statuses.includes(o.status)).length;
+      const filled = count('filled');
+      const rejected = count('rejected');
+      return { filled, rejected, pending: this.orders.length - filled - rejected - count('canceled', 'expired') };
+    },
+
+    orderStatus(status) {
       return ({
-        'LIVE':       'bg-emerald-500 text-black badge-live',
-        'PAPER':      'bg-blue-500 text-white',
-        'PAUSED':     'bg-yellow-400 text-black',
-        'DRY RUN':    'bg-purple-500 text-white',
-        'OFFLINE':    'bg-red-600 text-white',
-        'CONNECTING': 'bg-slate-600 text-white',
-      })[this.botStatus()] ?? 'bg-slate-600 text-white';
+        filled: { label: 'Filled', tone: '' },
+        partially_filled: { label: 'Partly filled', tone: 'warning' },
+        new: { label: 'Open', tone: 'warning' },
+        accepted: { label: 'Accepted', tone: 'warning' },
+        rejected: { label: 'Rejected', tone: 'loss' },
+        canceled: { label: 'Canceled', tone: 'muted' },
+        expired: { label: 'Expired', tone: 'muted' },
+      })[status] ?? { label: status, tone: 'muted' };
     },
 
-    // Mode only (paper/live/dry-run) - independent of pause state, so it
-    // never disagrees with the "Trading Enabled/Paused" pill next to it.
-    modeLabel() {
-      if (!this.health) return 'Connecting…';
-      if (this.risk?.dry_run) return 'Dry Run';
-      return (this.account?.paper ?? true) ? 'Paper' : 'Live · Real Money';
+    exposure() {
+      return this.positions.reduce((s, p) => s + Math.abs(p.market_value), 0);
     },
 
-    // Real elapsed time since the last successful WS push - not a fabricated
-    // "avg delay" metric, just Date.now() minus a real timestamp we recorded.
-    // `tick` is unused but referenced by callers so Alpine tracks nowTick as
-    // a reactive dependency and re-evaluates this every second.
-    dataAgeSeconds(tick) {
-      if (!this.lastUpdatedAt) return null;
-      return Math.max(0, Math.round((Date.now() - this.lastUpdatedAt) / 1000));
-    },
-    dataAgeLabel(tick) {
-      const s = this.dataAgeSeconds(tick);
-      if (s == null) return '-';
-      return s < 60 ? `Feed updated ${s}s ago` : `Feed updated ${Math.round(s / 60)}m ago`;
-    },
-    // WS pushes every 5s - 3 missed pushes (15s) is a reasonable, stated
-    // threshold for flagging the feed as stale rather than silently stale.
-    dataAgeStale(tick) {
-      const s = this.dataAgeSeconds(tick);
-      return s != null && s > 15;
-    },
-
-    // Real per-status counts derived from the same orders[] array already
-    // rendered in the Recent Orders table - no server-side computation exists.
-    ordersSummary() {
-      const filled = this.orders.filter(o => o.status === 'filled').length;
-      const rejected = this.orders.filter(o => o.status === 'rejected').length;
-      const pending = this.orders.length - filled - rejected
-        - this.orders.filter(o => o.status === 'canceled' || o.status === 'expired').length;
-      return { filled, pending: Math.max(0, pending), rejected };
-    },
-
-    // Session high/low of the real, already-collected pnlSeries - never
-    // earlier-than-today history, since pnlSeries itself resets daily.
-    sessionHighLow() {
-      const data = this.pnlSeries.data;
-      if (!data || data.length < 2) return { high: null, low: null };
-      return { high: Math.max(...data), low: Math.min(...data) };
-    },
-
-    // True once the session series has at least 2 points AND at least one
-    // is meaningfully non-zero - distinguishes "still collecting" and "flat
-    // $0 all session" (typical while the market is closed) from a genuine
-    // populated chart, so we never render a large flat-line chart for
-    // nothing.
-    sessionHasActivity() {
-      const data = this.pnlSeries.data;
-      if (!data || data.length < 2) return false;
-      return data.some(v => Math.abs(v) > 0.005);
-    },
-
-    pnlClass(v) {
-      if (v == null || v === 0) return 'text-slate-400';
-      return v > 0 ? 'text-emerald-400' : 'text-red-400';
-    },
-
-    // ── Hero snapshot helpers - both derived from data already in state,
-    // no new data source, no fake values ─────────────────────────────
     openPnl() {
-      return this.positions.reduce((sum, p) => sum + (p.unrealized_pl || 0), 0);
+      return this.positions.reduce((s, p) => s + (p.unrealized_pl || 0), 0);
     },
 
-    sparklinePoints() {
-      const data = this.pnlSeries.data;
-      if (!data || data.length < 2) return '';
-      const recent = data.slice(-60);
-      const min = Math.min(...recent), max = Math.max(...recent);
-      const range = (max - min) || 1;
-      const w = 100, h = 32;
-      return recent.map((v, i) => `${(i / (recent.length - 1)) * w},${h - ((v - min) / range) * h}`).join(' ');
+    allocation() {
+      const total = this.account?.portfolio_value;
+      if (!total) return [];
+      const rows = [...this.positions]
+        .sort((a, b) => Math.abs(b.market_value) - Math.abs(a.market_value))
+        .map((p) => ({ label: p.symbol, share: Math.abs(p.market_value) / total * 100 }));
+      return [...rows, { label: 'Cash', share: Math.max(0, (this.account.cash ?? 0) / total * 100) }];
     },
 
-    fmtDollar(v) {
-      if (v == null) return '-';
-      const a = Math.abs(v);
-      const s = v > 0 ? '+' : v < 0 ? '-' : '';
-      if (a >= 1_000_000) return `${s}$${(a/1_000_000).toFixed(2)}M`;
-      if (a >= 10_000)    return `${s}$${(a/1_000).toFixed(1)}K`;
-      return `${s}$${a.toFixed(2)}`;
+    lossTone() {
+      const used = this.risk?.daily_loss_used_pct ?? 0;
+      return used >= 80 ? 'loss' : used >= 50 ? 'warning' : 'muted';
     },
 
-    fmt2(v) {
-      if (v == null) return '-';
-      return Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    sparkPoints(symbol) {
+      const closes = this.sparks[symbol] ?? [];
+      const min = Math.min(...closes), range = (Math.max(...closes) - min) || 1;
+      return closes.map((c, i) => `${(i / (closes.length - 1)) * 100},${19 - ((c - min) / range) * 18}`).join(' ');
     },
 
-    fmt0(v) {
-      if (v == null) return '-';
-      return Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 0 });
+    sparkTone(symbol) {
+      const c = this.sparks[symbol] ?? [];
+      return c[c.length - 1] >= c[0] ? 'gain' : 'loss';
     },
 
-    fmtPct(v) {
-      if (v == null) return '-';
-      return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+    // Greenblatt Weekly's minimum hold is 52 weeks: amber in the last month before it, green after.
+    heldTone(iso) {
+      const weeks = (Date.now() - new Date(iso).getTime()) / (7 * DAY_MS);
+      return weeks >= 52 ? 'gain' : weeks >= 48 ? 'warning' : 'muted';
     },
 
-    fmtHeld(iso) {
+    held(iso) {
       if (!iso) return '-';
-      try {
-        const ms    = Date.now() - new Date(iso).getTime();
-        if (ms < 0) return '-';
-        const mins  = Math.floor(ms / 60_000);
-        const hrs   = Math.floor(ms / 3_600_000);
-        const days  = Math.floor(ms / 86_400_000);
-        const weeks = Math.floor(days / 7);
-        const years = Math.floor(weeks / 52);
-        if (years >= 1)   return `${years}y ${weeks % 52}w`;
-        if (weeks >= 2)   return `${weeks}w ${days % 7}d`;
-        if (days >= 1)    return `${days}d ${hrs % 24}h`;
-        if (hrs >= 1)     return `${hrs}h ${mins % 60}m`;
-        return `${mins}m`;
-      } catch { return '-'; }
+      const ms = Date.now() - new Date(iso).getTime();
+      if (!(ms >= 0)) return '-';
+      const mins = Math.floor(ms / 60_000), hours = Math.floor(ms / 3_600_000), days = Math.floor(ms / DAY_MS), weeks = Math.floor(days / 7);
+      if (weeks >= 52) return `${Math.floor(weeks / 52)}y ${weeks % 52}w`;
+      if (weeks >= 2) return `${weeks}w ${days % 7}d`;
+      if (days >= 1) return `${days}d ${hours % 24}h`;
+      if (hours >= 1) return `${hours}h ${mins % 60}m`;
+      return `${mins}m`;
     },
 
-    // Colour hint: grey by default; amber when approaching common min-hold thresholds;
-    // emerald once held a year+ (greenblatt_weekly min hold = 52w)
-    heldClass(iso) {
-      if (!iso) return 'text-slate-600';
-      try {
-        const weeks = (Date.now() - new Date(iso).getTime()) / 604_800_000;
-        if (weeks >= 52)  return 'text-emerald-400';   // ≥ 1 year - greenblatt min hold met
-        if (weeks >= 48)  return 'text-yellow-400';    // within 4 weeks of 1-year threshold
-        return 'text-slate-500';
-      } catch { return 'text-slate-600'; }
+    // ── Formatting ───────────────────────────────────────────────────
+    tone(v) {
+      return !v ? 'muted' : v > 0 ? 'gain' : 'loss';
     },
 
-    fmtTime(iso) {
+    money(v, digits = 2) {
+      if (v == null) return '-';
+      return '$' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+    },
+
+    signedMoney(v, digits = 2) {
+      if (v == null) return '-';
+      return (v > 0 ? '+' : v < 0 ? '-' : '') + this.money(v, digits);
+    },
+
+    pct(v, signed = true) {
+      if (v == null) return '-';
+      return `${signed && v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+    },
+
+    fraction(v) {
+      return v == null ? '-' : (v * 100).toFixed(1) + '%';
+    },
+
+    billions(v) {
+      if (v == null) return '-';
+      if (v >= 1000) return `$${(v / 1000).toFixed(1)}T`;
+      return v >= 1 ? `$${v.toFixed(1)}B` : `$${(v * 1000).toFixed(0)}M`;
+    },
+
+    time(iso) {
+      return iso ? new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '-';
+    },
+
+    dateTime(iso) {
       if (!iso) return '-';
-      try { return new Date(iso).toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit' }); }
-      catch { return iso; }
-    },
-
-    fmtDate(iso) {
-      if (!iso) return '-';
-      try {
-        const d = new Date(iso);
-        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-          + ' ' + d.toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit' });
-      } catch { return iso; }
+      const d = new Date(iso);
+      return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${this.time(iso)}`;
     },
   }));
 });

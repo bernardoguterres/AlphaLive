@@ -898,14 +898,3 @@ async def serve_logo():
         raise HTTPException(status_code=404, detail="logo.png not found")
     return FileResponse(logo_path)
 
-
-@app.get("/design-preview")
-async def serve_design_preview():
-    """Experimental mock-data-only visual-direction preview. Not wired to any
-    broker/API/state logic - see dashboard/design-preview.html."""
-    html_path = DASHBOARD_DIR / "design-preview.html"
-    if not html_path.exists():
-        raise HTTPException(
-            status_code=404, detail="dashboard/design-preview.html not found"
-        )
-    return _serve_html_with_optional_reload(html_path)
