@@ -224,6 +224,14 @@ The output lists:
 
 It hides amounts, quantities, IDs and keys.
 
+The summary includes each session's exit code and whether the deadline stopped it,
+plus the probe outcome. The command exits with status 1 if a session exits with an
+unexpected nonzero code, or if the probe fails, times out or cannot start. A deadline
+stop by SIGTERM or SIGKILL is intentional and does not itself fail the check; this
+does not assert graceful shutdown. Status 0 reports process execution only, not
+successful scheduling, restart suppression or trading validation. Inspect the logged
+decision evidence separately.
+
 ```bash
 cd AlphaLive
 python3 scripts/paper_readonly_check.py        # start at ~09:33 ET on a trading day; exits on its own (~10 min)
