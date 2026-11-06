@@ -58,6 +58,7 @@ import time
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
+from typing import NamedTuple
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
@@ -214,7 +215,20 @@ def effective_settings(env: dict) -> list[str]:
     ]
 
 
-def run_session(env, run_dir, config, tag, seconds) -> Path:
+class SessionResult(NamedTuple):
+    log: Path
+    returncode: int
+    stopped_at_deadline: bool
+
+    @property
+    def ok(self) -> bool:
+        return self.returncode == 0 or (
+            self.stopped_at_deadline
+            and self.returncode in (-signal.SIGTERM, -signal.SIGKILL)
+        )
+
+
+def run_session(env, run_dir, config, tag, seconds) -> SessionResult:
     log = run_dir / f"{tag}.log"
     cmd = [sys.executable, str(ALPHALIVE / "run.py"), "--config", str(config)]
     if env["DRY_RUN"] == "true":
@@ -223,16 +237,18 @@ def run_session(env, run_dir, config, tag, seconds) -> Path:
         proc = subprocess.Popen(
             cmd, cwd=run_dir, env=env, stdout=fh, stderr=subprocess.STDOUT
         )
+        stopped_at_deadline = False
         try:
             proc.wait(timeout=seconds)
         except subprocess.TimeoutExpired:
+            stopped_at_deadline = True
             proc.send_signal(signal.SIGTERM)
             try:
                 proc.wait(timeout=30)
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait()
-    return log
+    return SessionResult(log, proc.returncode, stopped_at_deadline)
 
 
 _MONEY = re.compile(r"\$-?[0-9][0-9,]*(\.[0-9]+)?")
@@ -259,7 +275,7 @@ def redact(line: str) -> str:
     return _QTY.sub(r"\1 <qty>", line).rstrip()
 
 
-def summarize(log: Path, tag: str) -> dict:
+def summarize(log: Path, tag: str, result: SessionResult | None = None) -> dict:
     lines = log.read_text(errors="replace").splitlines()
     allowed, refused = Counter(), Counter()
     for ln in lines:
@@ -275,6 +291,10 @@ def summarize(log: Path, tag: str) -> dict:
         elif "BROKER MUTATION BLOCKED" in ln:
             refused[("?", "?")] += 1
     print(f"\n===== {tag}: {log.name} ({len(lines)} log lines)")
+    if result is not None:
+        stop = "stopped at deadline" if result.stopped_at_deadline else "exited early"
+        status = "OK" if result.ok else "FAILED"
+        print(f"Session outcome: {status} ({stop}, exit code {result.returncode})")
     print("Alpaca requests sent (all GET):")
     for (meth, path), n in sorted(allowed.items()):
         print(f"  {n:4d}  {meth} {path}")
@@ -296,7 +316,7 @@ def summarize(log: Path, tag: str) -> dict:
             if shown >= 60:
                 print("  ... (truncated)")
                 break
-    return {"allowed": allowed, "refused": refused}
+    return {"allowed": allowed, "refused": refused, "session": result}
 
 
 def probe(ticker: str) -> None:
@@ -384,15 +404,16 @@ def main(argv=None):
     for s in effective_settings(env):
         print("  " + s)
 
-    log1 = run_session(env, run_dir, args.config, "session1", args.first_seconds)
-    summarize(log1, "session 1")
+    first = run_session(env, run_dir, args.config, "session1", args.first_seconds)
+    summarize(first.log, "session 1", first)
     time.sleep(2)
-    log2 = run_session(
+    restart = run_session(
         env, run_dir, args.config, "session2_restart", args.restart_seconds
     )
-    summarize(log2, "session 2 (same-day restart)")
+    summarize(restart.log, "session 2 (same-day restart)", restart)
     print("\n===== market-data probe (AlphaLive MarketDataFetcher, read-only)")
     ticker = __import__("json").loads(args.config.read_text())["ticker"]
+    probe_ok = False
     try:
         res = subprocess.run(
             [sys.executable, str(Path(__file__).resolve()), "--probe", ticker],
@@ -403,8 +424,16 @@ def main(argv=None):
             timeout=120,
         )
         out = res.stdout + (res.stderr[-1500:] if res.returncode else "")
+        probe_ok = res.returncode == 0
+        print(
+            f"Probe outcome: {'OK' if probe_ok else 'FAILED'} (exit code {res.returncode})"
+        )
     except subprocess.TimeoutExpired:
         out = "probe timed out after 120 s"
+        print("Probe outcome: FAILED (timeout)")
+    except OSError as exc:
+        out = f"probe could not start: {exc}"
+        print("Probe outcome: FAILED (could not start)")
     for ln in out.splitlines():
         if "Broker request" in ln or "READ-ONLY" in ln:
             continue
@@ -412,7 +441,13 @@ def main(argv=None):
     print(
         f"\nFinished {datetime.now(ET):%Y-%m-%d %H:%M:%S} ET; no process left running."
     )
+    ok = first.ok and restart.ok and probe_ok
+    print("Check outcome: " + ("OK" if ok else "FAILED"))
+    print(
+        "This outcome reports process execution only, not trading or scheduling validation."
+    )
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
