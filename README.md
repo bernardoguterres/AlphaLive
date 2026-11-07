@@ -4,6 +4,12 @@ AlphaLive is a Python execution and risk-management engine for systematic tradin
 
 **This is a working prototype, not a system that has been validated through a real Alpaca paper-account runtime or with real money.** Exercised so far: config loading/validation against real AlphaLab exports (`run.py --validate-only`); signal generation cross-checked against AlphaLab on historical fixtures; risk management, state persistence, and reconciliation against a mocked broker; the AlphaSignal gate against a running instance over real HTTP calls (fail-open confirmed for timeout/no-data, blocking confirmed for threshold-breaching sentiment). Not exercised: a real paper-account runtime, long-duration unattended operation, any Railway deployment, or real-money trading (see [Known Limitations](#known-limitations)). Treat everything below as implemented and tested in isolation, not proven in production.
 
+<p align="center">
+  <img src="docs/screenshots/execution-monitor.png" alt="AlphaLive execution monitor showing portfolio value, today's profit and loss, runtime and risk status, open positions, allocation, today's orders and the Magic Formula screener" width="900">
+  <br>
+  <sub>The read-only execution monitor, shown with mock paper-trading data. It does not represent real trading results.</sub>
+</p>
+
 ---
 
 ## Engineering Highlights
