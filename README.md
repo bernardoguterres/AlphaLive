@@ -5,9 +5,12 @@ AlphaLive is a Python execution and risk-management engine for systematic tradin
 **This is a working prototype, not a system that has been validated through a real Alpaca paper-account runtime or with real money.** Exercised so far: config loading/validation against real AlphaLab exports (`run.py --validate-only`); signal generation cross-checked against AlphaLab on historical fixtures; risk management, state persistence, and reconciliation against a mocked broker; the AlphaSignal gate against a running instance over real HTTP calls (fail-open confirmed for timeout/no-data, blocking confirmed for threshold-breaching sentiment). Not exercised: a real paper-account runtime, long-duration unattended operation, any Railway deployment, or real-money trading (see [Known Limitations](#known-limitations)). Treat everything below as implemented and tested in isolation, not proven in production.
 
 <p align="center">
-  <img src="docs/screenshots/execution-monitor.png" alt="AlphaLive execution monitor showing portfolio value, today's profit and loss, runtime and risk status, open positions, allocation, today's orders and the Magic Formula screener" width="900">
+  <img src="docs/screenshots/dashboard-dark.png" alt="AlphaLive execution monitor, dark theme: portfolio value, today's profit and loss, daily loss limit, runtime state and open positions" width="49%">
+  <img src="docs/screenshots/dashboard-light.png" alt="AlphaLive execution monitor, light theme" width="49%">
   <br>
-  <sub>The read-only execution monitor, shown with mock paper-trading data. It does not represent real trading results.</sub>
+  <img src="docs/screenshots/orders-and-screener.png" alt="AlphaLive execution monitor: allocation, the day's orders and the Magic Formula screener" width="98%">
+  <br>
+  <sub>The read-only execution monitor in its dark and light themes, shown with mock paper-trading data. It does not represent real trading results.</sub>
 </p>
 
 ---
