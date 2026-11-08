@@ -1234,3 +1234,103 @@ def test_bear_filter_suppressed_buy_does_not_leave_engine_long(
     r = eng.generate_signal(df)
     assert r["signal"] == "HOLD" and r["filtered_signal"] == "BUY"
     assert eng.get_state()["in_position"] is False
+
+
+def test_bear_market_filter_execution_override_false(sample_strategy_dict, monkeypatch):
+    """When execution.bear_market_filter is False, bear market check returns False even if env=true."""
+    monkeypatch.setenv("ENABLE_BEAR_MARKET_FILTER", "true")
+    d = dict(sample_strategy_dict)
+    d["execution"]["bear_market_filter"] = False
+    d["strategy"] = {"name": "greenblatt_weekly", "parameters": {}}
+    from alphalive.strategy_schema import StrategySchema
+
+    eng = SignalEngine(StrategySchema(**d))
+    df = _declining_df(60)
+    assert eng._is_bear_market(df) is False
+
+
+def test_bear_market_filter_execution_override_true(sample_strategy_dict, monkeypatch):
+    """When execution.bear_market_filter is True, bear market check runs even if env=false."""
+    monkeypatch.setenv("ENABLE_BEAR_MARKET_FILTER", "false")
+    d = dict(sample_strategy_dict)
+    d["execution"]["bear_market_filter"] = True
+    d["strategy"] = {"name": "greenblatt_weekly", "parameters": {"slow_sma": 10}}
+    from alphalive.strategy_schema import StrategySchema
+
+    eng = SignalEngine(StrategySchema(**d))
+    df = _declining_df(60)
+    df["sma_10"] = df["close"] * 1.05
+    df.loc[df.index[-21], "sma_10"] = df["sma_10"].iloc[-1] + 10.0
+    assert eng._is_bear_market(df) is True
+
+
+def test_bear_market_filter_params_override_false(sample_strategy_dict, monkeypatch):
+    """When params.bear_market_filter is False and execution.bear_market_filter is None, filter is disabled."""
+    monkeypatch.setenv("ENABLE_BEAR_MARKET_FILTER", "true")
+    d = dict(sample_strategy_dict)
+    d["strategy"] = {"name": "greenblatt_weekly", "parameters": {}}
+    from alphalive.strategy_schema import StrategySchema
+
+    eng = SignalEngine(StrategySchema(**d))
+    eng.params["bear_market_filter"] = False
+    df = _declining_df(60)
+    assert eng._is_bear_market(df) is False
+
+
+def test_momentum_breakout_custom_atr_period_wiring(sample_strategy_dict):
+    """Test momentum_breakout looks up custom atr_period column."""
+    d = dict(sample_strategy_dict)
+    d["strategy"] = {
+        "name": "momentum_breakout",
+        "parameters": {"lookback": 5, "atr_period": 21, "cooldown_days": 0},
+    }
+    from alphalive.strategy_schema import StrategySchema
+
+    eng = SignalEngine(StrategySchema(**d))
+    df = pd.DataFrame(
+        {
+            "open": [10.0] * 10,
+            "high": [12.0] * 10,
+            "low": [8.0] * 10,
+            "close": [11.0] * 10,
+            "volume": [1000] * 10,
+            "atr_ewm_21": [1.5] * 10,
+            "rsi_ewm_14": [60.0] * 10,
+            "rolling_high": [10.0] * 10,
+            "rolling_low": [5.0] * 10,
+            "volume_ma_20": [500] * 10,
+        }
+    )
+    res = eng._momentum_breakout_signal(df)
+    assert res["signal"] in ("BUY", "HOLD", "SELL")
+
+
+def test_bollinger_breakout_custom_volume_ma_period_wiring(sample_strategy_dict):
+    """Test bollinger_breakout looks up custom volume_ma_period column."""
+    d = dict(sample_strategy_dict)
+    d["strategy"] = {
+        "name": "bollinger_breakout",
+        "parameters": {
+            "volume_ma_period": 30,
+            "confirmation_bars": 1,
+            "cooldown_days": 0,
+        },
+    }
+    from alphalive.strategy_schema import StrategySchema
+
+    eng = SignalEngine(StrategySchema(**d))
+    df = pd.DataFrame(
+        {
+            "open": [10.0] * 10,
+            "high": [11.0] * 9 + [15.0],
+            "low": [9.0] * 10,
+            "close": [10.0] * 9 + [14.0],
+            "volume": [1000] * 9 + [2000],
+            "bb_upper": [12.0] * 10,
+            "bb_middle": [10.0] * 10,
+            "bb_lower": [8.0] * 10,
+            "volume_ma_30": [1000] * 10,
+        }
+    )
+    res = eng._bollinger_breakout_signal(df)
+    assert res["signal"] == "BUY"

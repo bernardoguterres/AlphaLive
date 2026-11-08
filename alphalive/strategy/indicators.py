@@ -406,7 +406,12 @@ def _indicators_momentum_breakout(
     df[f"volume_ma_{volume_ma_period}"] = (
         df["volume"].rolling(window=volume_ma_period).mean()
     )
-    df["atr_ewm_14"] = atr_ewm(df["high"], df["low"], df["close"], 14)
+    atr_period = params.get("atr_period", 14)
+    df[f"atr_ewm_{atr_period}"] = atr_ewm(
+        df["high"], df["low"], df["close"], atr_period
+    )
+    if atr_period != 14:
+        df["atr_ewm_14"] = df[f"atr_ewm_{atr_period}"]
     df["rsi_ewm_14"] = rsi_ewm(df["close"], 14)
     logger.debug(
         f"Added indicators for momentum_breakout: high/low_{lookback} (prev bar), "
@@ -430,7 +435,10 @@ def _indicators_bollinger_breakout(
     df["bb_middle"] = mid
     df["bb_upper"] = mid + std_dev * sd
     df["bb_lower"] = mid - std_dev * sd
-    df["volume_ma_20"] = df["volume"].rolling(window=20).mean()
+    vmp = params.get("volume_ma_period", 20)
+    df[f"volume_ma_{vmp}"] = df["volume"].rolling(window=vmp).mean()
+    if vmp != 20:
+        df["volume_ma_20"] = df[f"volume_ma_{vmp}"]
     logger.debug(
         f"Added indicators for bollinger_breakout: BB({period},{std_dev}, ddof=1)"
     )

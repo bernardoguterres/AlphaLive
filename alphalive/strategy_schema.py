@@ -384,6 +384,10 @@ class Execution(BaseModel):
     cooldown_bars: int = Field(
         default=1, description="Cooldown period in bars between trades", ge=0
     )
+    bear_market_filter: Optional[bool] = Field(
+        default=None,
+        description="Enable bear market entry suppression filter (200 SMA / 50w SMA). None defaults to environment setting.",
+    )
 
 
 class SafetyLimits(BaseModel):
