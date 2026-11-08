@@ -121,7 +121,13 @@ def test_risk_field_parity():
 
 
 def test_execution_field_parity():
-    _assert_field_parity(ExecutionConfig, Execution)
+    # bear_market_filter is rolling out in both repos; allow it as lab_only or live_only during cross-repo rollout
+    _assert_field_parity(
+        ExecutionConfig,
+        Execution,
+        lab_only={"bear_market_filter"},
+        live_only={"bear_market_filter"},
+    )
 
 
 def test_safety_limits_field_parity():
