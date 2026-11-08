@@ -278,3 +278,66 @@ def test_no_new_strategy_types_silently_added_without_a_parity_test():
         f"Add/remove a corresponding _assert_field_parity test above and "
         f"update covered_by_this_file to match."
     )
+
+
+def test_risk_trailing_stop_zero_allowed_when_disabled():
+    """Verify that exports with trailing_stop_enabled=False and trailing_stop_pct=0.0
+    (the AlphaLab default) load cleanly into AlphaLive without ge=0.5 errors."""
+    risk = Risk(
+        stop_loss_pct=2.0,
+        take_profit_pct=5.0,
+        max_position_size_pct=10.0,
+        max_daily_loss_pct=3.0,
+        max_open_positions=5,
+        portfolio_max_positions=10,
+        trailing_stop_enabled=False,
+        trailing_stop_pct=0.0,
+        commission_per_trade=0.0,
+        drawdown_halt_enabled=False,
+    )
+    assert risk.trailing_stop_pct == 0.0
+    assert risk.trailing_stop_enabled is False
+
+    # If enabled, trailing_stop_pct < 0.1 must be refused
+    with pytest.raises(ValueError, match="trailing_stop_pct must be >= 0.1"):
+        Risk(
+            stop_loss_pct=2.0,
+            take_profit_pct=5.0,
+            max_position_size_pct=10.0,
+            max_daily_loss_pct=3.0,
+            max_open_positions=5,
+            portfolio_max_positions=10,
+            trailing_stop_enabled=True,
+            trailing_stop_pct=0.0,
+            commission_per_trade=0.0,
+            drawdown_halt_enabled=False,
+        )
+
+
+def test_harmonized_risk_and_safety_ranges():
+    """Verify wide ranges permitted by AlphaLab backtest exports validate in AlphaLive."""
+    risk = Risk(
+        stop_loss_pct=0.1,
+        take_profit_pct=180.0,
+        max_position_size_pct=100.0,
+        max_daily_loss_pct=45.0,
+        max_open_positions=50,
+        portfolio_max_positions=100,
+        trailing_stop_enabled=False,
+        trailing_stop_pct=0.0,
+        commission_per_trade=85.0,
+        drawdown_halt_enabled=False,
+    )
+    assert risk.take_profit_pct == 180.0
+    assert risk.max_daily_loss_pct == 45.0
+    assert risk.commission_per_trade == 85.0
+
+    safety = SafetyLimits(
+        max_trades_per_day=800,
+        max_api_calls_per_hour=5000,
+        signal_generation_timeout_seconds=45.0,
+        broker_degraded_mode_threshold_failures=5,
+    )
+    assert safety.max_trades_per_day == 800
+    assert safety.max_api_calls_per_hour == 5000
+    assert safety.signal_generation_timeout_seconds == 45.0
