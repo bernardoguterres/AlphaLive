@@ -105,22 +105,56 @@ class SignalEngine:
         rejection); a position may be closed by a risk exit. Ledger wins.
         Deterministic-replay strategies don't read these fields, so this is
         a no-op for their decisions."""
-        if has_position and not self._in_position:
-            self._in_position = True
-            self._entry_price = float(entry_price or 0.0)
-            self._peak_price = max(float(peak_price or 0.0), self._entry_price)
-            if self.strategy_name == "vwap_reversion":
-                self._vwap_position = 1
-            logger.info(
-                f"Engine position synced to ledger: LONG (entry ${self._entry_price:.2f})"
+        try:
+            ep = (
+                float(entry_price)
+                if isinstance(entry_price, (int, float, str))
+                and not isinstance(entry_price, bool)
+                else 0.0
             )
-        elif not has_position and self._in_position:
-            self._in_position = False
-            self._entry_price = 0.0
-            self._peak_price = 0.0
-            if self.strategy_name == "vwap_reversion" and self._vwap_position == 1:
-                self._vwap_position = 0
-            logger.info("Engine position synced to ledger: FLAT")
+        except (ValueError, TypeError):
+            ep = 0.0
+        try:
+            pp = (
+                float(peak_price)
+                if isinstance(peak_price, (int, float, str))
+                and not isinstance(peak_price, bool)
+                else 0.0
+            )
+        except (ValueError, TypeError):
+            pp = 0.0
+
+        if has_position:
+            if not self._in_position:
+                self._in_position = True
+                self._entry_price = ep
+                self._peak_price = max(pp, self._entry_price)
+                if self.strategy_name == "vwap_reversion":
+                    self._vwap_position = 1
+                logger.info(
+                    f"Engine position synced to ledger: LONG (entry ${self._entry_price:.2f})"
+                )
+            else:
+                if ep > 0.0:
+                    self._entry_price = ep
+                if pp > self._peak_price:
+                    self._peak_price = pp
+                if self.strategy_name == "vwap_reversion" and self._vwap_position == 0:
+                    self._vwap_position = 1
+        else:
+            if (
+                self._in_position
+                or self._entry_price != 0.0
+                or self._peak_price != 0.0
+                or self._peak_bar_ts is not None
+            ):
+                self._in_position = False
+                self._entry_price = 0.0
+                self._peak_price = 0.0
+                self._peak_bar_ts = None
+                if self.strategy_name == "vwap_reversion" and self._vwap_position == 1:
+                    self._vwap_position = 0
+                logger.info("Engine position synced to ledger: FLAT")
 
     def get_state(self) -> Dict[str, Any]:
         """Snapshot the stateful-strategy fields for persistence.
