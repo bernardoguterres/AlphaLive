@@ -25,7 +25,7 @@ import requests
 
 # Set up paths for cross-repo imports
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-ALPHALAB_BACKEND = Path("/Users/bernardoguterrres/Desktop/Alpha/AlphaLab/backend")
+ALPHALAB_BACKEND = (PROJECT_ROOT.parent / "AlphaLab" / "backend").resolve()
 if str(ALPHALAB_BACKEND) not in sys.path:
     sys.path.insert(0, str(ALPHALAB_BACKEND))
 
