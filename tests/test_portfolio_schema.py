@@ -63,6 +63,34 @@ class TestPortfolioStrategySchema:
         with pytest.raises(ValidationError, match="cannot exceed"):
             PortfolioStrategySchema(**d)
 
+    def test_top_n_exceeding_max_open_positions_rejected(self, valid_strategy_dict):
+        d = _portfolio_dict(valid_strategy_dict)
+        d["tickers"] = ["AAPL", "MSFT", "GOOGL", "META", "JNJ", "NVDA", "AMZN"]
+        d["strategy"]["top_n"] = 6
+        d["risk"] = dict(d["risk"])
+        d["risk"]["max_open_positions"] = 5
+        d["risk"]["portfolio_max_positions"] = 10
+        with pytest.raises(
+            ValidationError, match="cannot exceed risk.max_open_positions"
+        ):
+            PortfolioStrategySchema(**d)
+
+    def test_top_n_exceeding_portfolio_max_positions_rejected(
+        self, valid_strategy_dict
+    ):
+        d = _portfolio_dict(valid_strategy_dict)
+        d["tickers"] = ["AAPL", "MSFT", "GOOGL", "META", "JNJ", "NVDA", "AMZN"]
+        d["strategy"]["top_n"] = 6
+        d["risk"] = dict(d["risk"])
+        d["risk"]["max_open_positions"] = 6
+        d["risk"]["portfolio_max_positions"] = 5
+        # Note: Risk itself ensures portfolio_max_positions >= max_open_positions,
+        # but if risk were initialized with matching or bypassed values, portfolio_schema enforces it.
+        # Here we test Risk's own validator triggers if max_open_positions > portfolio_max_positions,
+        # and test PortfolioStrategySchema when top_n > portfolio_max_positions:
+        with pytest.raises(ValidationError):
+            PortfolioStrategySchema(**d)
+
     def test_fewer_than_two_tickers_rejected(self, valid_strategy_dict):
         d = _portfolio_dict(valid_strategy_dict)
         d["tickers"] = ["AAPL"]
