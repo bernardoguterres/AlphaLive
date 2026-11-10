@@ -1143,6 +1143,37 @@ class BotState:
         self.save()
 
     @_synchronized
+    def release_quarantine_intent(self, intent_id: str, operator: str, note: str) -> bool:
+        """Operator release of a discrepancy quarantine intent.
+
+        Discrepancy quarantines (``is_quarantine``) are never auto-abandoned,
+        so this is the only way to clear one. The caller must have verified
+        the broker position by hand. Returns False (and changes nothing) for
+        an unknown intent, one that is not an uncertain quarantine, or a
+        missing operator/note - the release must be attributable.
+        """
+        intent = self.state.get("submission_intents", {}).get(intent_id)
+        if (
+            intent is None
+            or intent.get("status") != INTENT_UNCERTAIN
+            or not (
+                intent.get("is_quarantine")
+                or str(intent.get("last_error") or "").startswith("post-cancellation position")
+            )
+            or not operator.strip()
+            or not note.strip()
+        ):
+            return False
+        intent["status"] = INTENT_RECONCILED
+        intent["released_by"] = operator.strip()
+        intent["release_note"] = note.strip()
+        intent["released_at"] = datetime.now(ET).isoformat()
+        intent["updated_at"] = intent["released_at"]
+        self.save()
+        logger.warning(f"Quarantine intent {intent_id} released by {operator.strip()}: {note.strip()}")
+        return True
+
+    @_synchronized
     def get_submission_intent(self, intent_id: str) -> Optional[Dict[str, Any]]:
         intent = self.state.get("submission_intents", {}).get(intent_id)
         return dict(intent) if intent is not None else None

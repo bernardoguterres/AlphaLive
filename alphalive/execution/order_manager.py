@@ -774,7 +774,11 @@ class OrderManager:
             return {"action": "quarantine", "detail": f"broker lookup unavailable: {e}"}
 
         if broker_order is None:
-            if intent.get("is_quarantine"):
+            if intent.get("is_quarantine") or str(intent.get("last_error") or "").startswith(
+                "post-cancellation position"
+            ):
+                # The last_error prefix covers discrepancy quarantines persisted
+                # before the is_quarantine flag existed.
                 return {"action": "quarantine", "detail": "discrepancy quarantine intent (requires operator resolution)"}
 
             if intent["status"] == INTENT_PREPARED:

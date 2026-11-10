@@ -39,10 +39,21 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install -r dashboard/requirements.txt
+          pip install -r requirements-test.txt
+        working-directory: AlphaLive
+
+      # The cross-repo tests import AlphaLab's backend. Install only what that
+      # import needs (not AlphaLab's full pins, which would downgrade pydantic
+      # below FastAPI's requirement). The checkout above is continue-on-error,
+      # so only install when it succeeded; otherwise those tests skip and -rs
+      # below lists them.
+      - name: Install AlphaLab import dependencies (cross-repo tests)
+        if: hashFiles('AlphaLab/backend/requirements.txt') != ''
+        run: pip install -r requirements-alphalab-export.txt
         working-directory: AlphaLive
 
       - name: Run tests
-        run: pytest tests/ -v --tb=short
+        run: pytest tests/ -v --tb=short -rs
         working-directory: AlphaLive
         env:
           # Broker + Telegram are fully mocked in tests - dummy values prevent

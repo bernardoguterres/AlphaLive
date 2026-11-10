@@ -130,3 +130,122 @@ def test_discrepancy_quarantine_intent_not_abandoned_after_grace(om, broker, sta
     assert rec["action"] == "quarantine"
     assert saved["status"] == INTENT_UNCERTAIN
     assert saved["status"] != INTENT_ABANDONED
+
+
+def test_legacy_quarantine_without_flag_not_abandoned(om, state):
+    """Quarantines persisted before is_quarantine existed are recognised by
+    their last_error and must not be auto-abandoned either."""
+    it = state.create_submission_intent(
+        ticker="AAPL", side="CLOSE", qty=10.0, order_type="market", strategy_name="ma_crossover"
+    )
+    state.update_submission_intent(
+        it["intent_id"],
+        status=INTENT_UNCERTAIN,
+        last_error="post-cancellation position (10.0) inconsistent with expected remainder (0.0)",
+        not_found_since=(datetime.now(ET) - timedelta(seconds=1200)).isoformat(),
+    )
+    rec = om._reconcile_intent(state.get_submission_intent(it["intent_id"]))
+    assert rec["action"] == "quarantine"
+    assert state.get_submission_intent(it["intent_id"])["status"] == INTENT_UNCERTAIN
+
+
+def test_operator_release_unblocks_ticker_and_requires_attribution(state):
+    it = state.create_submission_intent(
+        ticker="AAPL", side="CLOSE", qty=10.0, order_type="market", strategy_name="ma_crossover"
+    )
+    state.update_submission_intent(it["intent_id"], status=INTENT_UNCERTAIN, is_quarantine=True)
+    assert not state.release_quarantine_intent(it["intent_id"], "", "checked")
+    assert not state.release_quarantine_intent(it["intent_id"], "bg", " ")
+    assert not state.release_quarantine_intent("nope", "bg", "checked")
+    assert state.get_open_intent("AAPL", "CLOSE") is not None
+    assert state.release_quarantine_intent(it["intent_id"], "bg", "verified at broker")
+    assert state.get_open_intent("AAPL", "CLOSE") is None
+    saved = state.get_submission_intent(it["intent_id"])
+    assert saved["released_by"] == "bg" and saved["status"] == "reconciled"
+    # a non-quarantine uncertain intent cannot be force-released
+    other = state.create_submission_intent(
+        ticker="MSFT", side="BUY", qty=1, order_type="market", strategy_name="ma_crossover"
+    )
+    state.update_submission_intent(other["intent_id"], status=INTENT_UNCERTAIN)
+    assert not state.release_quarantine_intent(other["intent_id"], "bg", "x")
+
+
+def test_release_script_lists_and_releases(tmp_path, capsys):
+    import importlib.util, pathlib
+    spec = importlib.util.spec_from_file_location(
+        "release_quarantine", pathlib.Path(__file__).parent.parent / "scripts" / "release_quarantine.py"
+    )
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    sf = str(tmp_path / "s.json")
+    st = BotState(state_file=sf)
+    it = st.create_submission_intent(
+        ticker="AAPL", side="CLOSE", qty=5.0, order_type="market", strategy_name="ma_crossover"
+    )
+    st.update_submission_intent(it["intent_id"], status=INTENT_UNCERTAIN, is_quarantine=True)
+    assert mod.main(["--state-file", sf]) == 0
+    assert "1 quarantined" in capsys.readouterr().out
+    assert mod.main(["--state-file", sf, "--release", it["intent_id"]]) == 1
+    assert mod.main(["--state-file", sf, "--release", it["intent_id"], "--operator", "bg", "--note", "ok"]) == 0
+    assert BotState(state_file=sf).get_open_intent("AAPL", "CLOSE") is None
+
+
+def _quarantined(state, ticker="AAPL"):
+    it = state.create_submission_intent(
+        ticker=ticker, side="CLOSE", qty=10.0, order_type="market", strategy_name="ma_crossover"
+    )
+    state.update_submission_intent(
+        it["intent_id"],
+        status=INTENT_UNCERTAIN,
+        is_quarantine=True,
+        last_error="post-cancellation position (10.0) inconsistent with expected remainder (0.0)",
+        not_found_since=(datetime.now(ET) - timedelta(seconds=1200)).isoformat(),
+    )
+    return it["intent_id"]
+
+
+def _om_for(state, broker, mock_risk_manager, sample_config):
+    return OrderManager(
+        broker=broker, risk_manager=mock_risk_manager, config=sample_config,
+        notifier=None, dry_run=False, state=state,
+    )
+
+
+def test_quarantine_persists_across_restart_and_stays_quarantined(
+    tmp_path, broker, mock_risk_manager, sample_config
+):
+    """Process 1 quarantines; process 2 (fresh BotState + OrderManager on the same
+    file, past the grace period, broker knows nothing) must still hold it."""
+    f = str(tmp_path / "restart.json")
+    intent_id = _quarantined(BotState(state_file=f))
+
+    state2 = BotState(state_file=f)  # simulated restart
+    reloaded = state2.get_submission_intent(intent_id)
+    assert reloaded["status"] == INTENT_UNCERTAIN and reloaded["is_quarantine"] is True
+    assert state2.get_open_intent("AAPL", "CLOSE") is not None
+
+    om2 = _om_for(state2, broker, mock_risk_manager, sample_config)
+    results = om2.sync_open_intents()
+    assert [(r.get("action") or r.get("outcome")) for r in results if r["intent_id"] == intent_id] == ["quarantine"]
+    assert BotState(state_file=f).get_submission_intent(intent_id)["status"] == INTENT_UNCERTAIN
+    assert broker.submit_calls == []  # nothing resubmitted
+
+
+def test_operator_release_is_idempotent_and_survives_restart(
+    tmp_path, broker, mock_risk_manager, sample_config
+):
+    f = str(tmp_path / "release.json")
+    state = BotState(state_file=f)
+    intent_id = _quarantined(state)
+    assert state.release_quarantine_intent(intent_id, "bg", "verified at broker")
+    first = state.get_submission_intent(intent_id)
+
+    assert not state.release_quarantine_intent(intent_id, "someone-else", "again")
+    again = state.get_submission_intent(intent_id)
+    assert (again["released_by"], again["released_at"]) == (first["released_by"], first["released_at"])
+
+    state2 = BotState(state_file=f)  # restart after release
+    assert state2.get_submission_intent(intent_id)["status"] == "reconciled"
+    assert state2.get_open_intent("AAPL", "CLOSE") is None
+    om2 = _om_for(state2, broker, mock_risk_manager, sample_config)
+    assert [r for r in om2.sync_open_intents() if r["intent_id"] == intent_id] == []
+    assert not state2.release_quarantine_intent(intent_id, "bg", "third time")
