@@ -334,14 +334,26 @@ class ReplaySimulator:
         entry_price = position["entry_price"]
         qty = position["qty"]
         side = position["side"]
+        # The replay records the entry signal ("BUY"/"SELL"); RiskManager's exit
+        # checks take the position direction ("long"/"short"). Passing the lowered
+        # signal ("buy") made every check log "Invalid side" and return False, so
+        # stop-loss / take-profit / trailing exits never fired in replay.
+        risk_side = "long" if side.upper() == "BUY" else "short"
 
-        # Get price high since entry (for trailing stop)
+        # Get price high since entry (for trailing stop) strictly before
+        # today's close: at 9:35 AM (today's open), today's bar has not
+        # completed yet, so reading today's "high" would be look-ahead bias.
         entry_date = position["entry_date"]
-        bars_since_entry = self.historical_data[ticker].loc[entry_date:current_date]
-        highest_since_entry = bars_since_entry["high"].max()
+        all_bars = self.historical_data[ticker]
+        prior_mask = (all_bars.index >= entry_date) & (all_bars.index < current_date)
+        prior_bars = all_bars[prior_mask]
+        highest_prior = (
+            float(prior_bars["high"].max()) if not prior_bars.empty else entry_price
+        )
+        highest_since_entry = max(highest_prior, current_price, entry_price)
 
         # Check stop loss
-        if risk_manager.check_stop_loss(entry_price, current_price, side.lower()):
+        if risk_manager.check_stop_loss(entry_price, current_price, risk_side):
             self._close_position(
                 ticker,
                 current_date,
@@ -354,7 +366,7 @@ class ReplaySimulator:
             return
 
         # Check take profit
-        if risk_manager.check_take_profit(entry_price, current_price, side.lower()):
+        if risk_manager.check_take_profit(entry_price, current_price, risk_side):
             self._close_position(
                 ticker,
                 current_date,
@@ -368,7 +380,7 @@ class ReplaySimulator:
 
         # Check trailing stop
         if risk_manager.check_trailing_stop(
-            entry_price, highest_since_entry, current_price, side.lower()
+            entry_price, highest_since_entry, current_price, risk_side
         ):
             self._close_position(
                 ticker,

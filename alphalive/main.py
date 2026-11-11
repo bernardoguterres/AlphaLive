@@ -320,7 +320,12 @@ def _restore_engine_states(
                         f"the ledger has none - resetting position fields."
                     )
                     sanitized.update(
-                        {"in_position": False, "entry_price": 0.0, "peak_price": 0.0}
+                        {
+                            "in_position": False,
+                            "entry_price": 0.0,
+                            "peak_price": 0.0,
+                            "peak_bar_ts": None,
+                        }
                     )
                     if sanitized.get("vwap_position") == 1:
                         sanitized["vwap_position"] = 0
@@ -387,25 +392,87 @@ def _apply_corporate_actions(positions, bot_state, notifier) -> None:
         notifier.send_alert(f"ℹ️ {msg}")
 
 
-def _sync_engines_with_ledger(signal_engine_map: dict, bot_state) -> None:
+def _sync_engines_with_ledger(
+    signal_engine_map: dict, bot_state, save: bool = True
+) -> None:
     """Ledger wins, continuously: align each engine's long/flat flag with
     the broker-confirmed position ledger whenever no order for that ticker
     is still in flight (an unfilled BUY must not leave the engine "long",
     a risk-exit close must not leave it "long" either)."""
-    ledger = bot_state.get_open_positions()
-    busy = {i["ticker"] for i in bot_state.list_open_intents()}
+    if bot_state is None:
+        return
+    try:
+        raw_ledger = (
+            bot_state.get_open_positions()
+            if hasattr(bot_state, "get_open_positions")
+            else {}
+        )
+        ledger = raw_ledger if isinstance(raw_ledger, dict) else {}
+    except Exception:
+        ledger = {}
+    try:
+        raw_intents = (
+            bot_state.list_open_intents()
+            if hasattr(bot_state, "list_open_intents")
+            else []
+        )
+        if isinstance(raw_intents, (list, tuple, set)):
+            busy = {
+                i["ticker"]
+                for i in raw_intents
+                if isinstance(i, dict) and "ticker" in i
+            }
+        else:
+            busy = set()
+    except Exception:
+        busy = set()
+
     for ticker, engine in signal_engine_map.items():
         if ticker in busy:
             continue
-        before = engine.get_state()
+        try:
+            before = engine.get_state()
+        except Exception:
+            before = None
         entry = ledger.get(ticker)
-        engine.sync_position(
-            entry is not None,
-            entry_price=(entry or {}).get("entry_price", 0.0),
-            peak_price=bot_state.get_position_high(ticker) or 0.0,
-        )
-        if engine.get_state() != before:
-            bot_state.save_engine_state(ticker, engine.get_state())
+        has_pos = entry is not None
+        raw_entry = (entry or {}).get("entry_price", 0.0) if has_pos else 0.0
+        try:
+            entry_price = (
+                float(raw_entry)
+                if isinstance(raw_entry, (int, float, str))
+                and not isinstance(raw_entry, bool)
+                else 0.0
+            )
+        except (ValueError, TypeError):
+            entry_price = 0.0
+        try:
+            raw_high = (
+                bot_state.get_position_high(ticker)
+                if hasattr(bot_state, "get_position_high")
+                else 0.0
+            )
+            peak_price = (
+                float(raw_high)
+                if isinstance(raw_high, (int, float, str))
+                and not isinstance(raw_high, bool)
+                else 0.0
+            )
+        except (ValueError, TypeError):
+            peak_price = 0.0
+
+        if hasattr(engine, "sync_position"):
+            engine.sync_position(
+                has_pos,
+                entry_price=entry_price,
+                peak_price=peak_price,
+            )
+        try:
+            after = engine.get_state()
+        except Exception:
+            after = None
+        if save and after != before and hasattr(bot_state, "save_engine_state"):
+            bot_state.save_engine_state(ticker, after)
 
 
 def _run_startup_warmup(
@@ -832,6 +899,14 @@ def _check_signal_for_strategy(
         _mark_periodic_check_attempted(
             strat_cfg, now_et, morning_checks_done, bot_state
         )
+        try:
+            _sync_engines_with_ledger(
+                {strat_cfg.ticker: signal_engine_map[strat_cfg.ticker]},
+                bot_state,
+                save=False,
+            )
+        except Exception:
+            pass
         return
 
     except Exception as e:
@@ -846,11 +921,26 @@ def _check_signal_for_strategy(
         _mark_periodic_check_attempted(
             strat_cfg, now_et, morning_checks_done, bot_state
         )
+        try:
+            _sync_engines_with_ledger(
+                {strat_cfg.ticker: signal_engine_map[strat_cfg.ticker]},
+                bot_state,
+                save=False,
+            )
+        except Exception:
+            pass
         return
 
     # Persist engine state (stateful strategies must survive restarts).
-    # Saved regardless of outcome - generate_signal() already mutated the
-    # engine, and this must faithfully reflect what the engine believes.
+    # Reconcile engine state with ledger: an entry BUY that was blocked
+    # (sentiment, risk) or rejected by the broker must not leave the engine
+    # "long" (phantom position lockout). Ledger wins whenever no order for
+    # this ticker is still in flight.
+    _sync_engines_with_ledger(
+        {strat_cfg.ticker: signal_engine_map[strat_cfg.ticker]},
+        bot_state,
+        save=False,
+    )
     bot_state.save_engine_state(
         strat_cfg.ticker, signal_engine_map[strat_cfg.ticker].get_state()
     )

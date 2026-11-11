@@ -601,11 +601,15 @@ class OrderManager:
         ticker. Returns a "pending" result to retry at the next exit check,
         or None when the close may proceed. Quarantined (uncertain) intents
         have no confirmed live order and do not hold the close back."""
-        live = (INTENT_SUBMITTED, INTENT_PARTIALLY_FILLED)
+        live = (INTENT_SUBMITTING, INTENT_SUBMITTED, INTENT_PARTIALLY_FILLED)
 
         def working(side: str) -> Optional[Dict[str, Any]]:
             intent = self.state.get_open_intent(ticker, side)
-            if intent is None or intent["status"] not in live:
+            if intent is None:
+                return None
+            if intent["status"] == INTENT_SUBMITTING:
+                return intent
+            if intent["status"] not in live:
                 return None
             self._reconcile_intent(intent)
             intent = self.state.get_open_intent(ticker, side)
@@ -625,9 +629,14 @@ class OrderManager:
                 "filled_qty": None,
                 "fill_status": sell["status"],
             }
-        if working("BUY") is not None:
+        initial_buy = working("BUY")
+        if initial_buy is not None:
             self.cancel_open_entry_orders(f"protective close: {reason}")
             buy = working("BUY")
+            if buy is None:
+                open_buy = self.state.get_open_intent(ticker, "BUY")
+                if open_buy and open_buy.get("intent_id") == initial_buy.get("intent_id"):
+                    buy = open_buy
             if buy is not None:
                 logger.warning(
                     f"Close for {ticker} deferred until entry order "
@@ -654,9 +663,17 @@ class OrderManager:
         for intent in self.state.list_open_intents():
             if intent["ticker"] != self.config.ticker or intent["side"] != "BUY":
                 continue
-            if intent["status"] not in (INTENT_SUBMITTED, INTENT_PARTIALLY_FILLED):
+            if intent["status"] not in (
+                INTENT_SUBMITTING,
+                INTENT_SUBMITTED,
+                INTENT_PARTIALLY_FILLED,
+            ):
                 continue
             order_id = intent.get("broker_order_id")
+            if not order_id and intent["status"] == INTENT_SUBMITTING:
+                self._reconcile_intent(intent)
+                fresh = self.state.get_submission_intent(intent["intent_id"])
+                order_id = fresh.get("broker_order_id") if fresh else None
             if not order_id:
                 continue
             try:
@@ -757,6 +774,13 @@ class OrderManager:
             return {"action": "quarantine", "detail": f"broker lookup unavailable: {e}"}
 
         if broker_order is None:
+            if intent.get("is_quarantine") or str(intent.get("last_error") or "").startswith(
+                "post-cancellation position"
+            ):
+                # The last_error prefix covers discrepancy quarantines persisted
+                # before the is_quarantine flag existed.
+                return {"action": "quarantine", "detail": "discrepancy quarantine intent (requires operator resolution)"}
+
             if intent["status"] == INTENT_PREPARED:
                 # Persisted before "submitting" was written, so it was never
                 # sent. Abandon - a stale decision must not be replayed.
@@ -1391,6 +1415,7 @@ class OrderManager:
             self.state.update_submission_intent(
                 quarantine_intent["intent_id"],
                 status=INTENT_UNCERTAIN,
+                is_quarantine=True,
                 last_error=(
                     f"post-cancellation position ({actual_qty}) inconsistent "
                     f"with expected remainder ({expected_remaining})"

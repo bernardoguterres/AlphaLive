@@ -266,13 +266,13 @@ class Risk(BaseModel):
         ..., description="Stop loss percentage", ge=0.1, le=50.0
     )
     take_profit_pct: float = Field(
-        ..., description="Take profit percentage", ge=0.5, le=100.0
+        ..., description="Take profit percentage", ge=0.1, le=200.0
     )
     max_position_size_pct: float = Field(
         ..., description="Max position size as % of portfolio", ge=1.0, le=100.0
     )
     max_daily_loss_pct: float = Field(
-        ..., description="Max daily loss as % of portfolio", ge=0.5, le=20.0
+        ..., description="Max daily loss as % of portfolio", ge=0.1, le=50.0
     )
     max_open_positions: int = Field(
         ..., description="Max open positions per strategy", ge=1, le=50
@@ -284,10 +284,10 @@ class Risk(BaseModel):
         default=False, description="Enable trailing stop"
     )
     trailing_stop_pct: Optional[float] = Field(
-        default=None, description="Trailing stop percentage", ge=0.5, le=20.0
+        default=None, description="Trailing stop percentage", ge=0.0, le=50.0
     )
     commission_per_trade: float = Field(
-        default=0.0, description="Commission per trade (USD)", ge=0.0, le=50.0
+        default=0.0, description="Commission per trade (USD)", ge=0.0, le=100.0
     )
     drawdown_halt_enabled: Optional[bool] = Field(
         default=None,
@@ -365,11 +365,12 @@ class Risk(BaseModel):
 
     @model_validator(mode="after")
     def validate_trailing_stop_config(self) -> "Risk":
-        """Ensure trailing_stop_pct is set if trailing_stop_enabled"""
-        if self.trailing_stop_enabled and self.trailing_stop_pct is None:
-            raise ValueError(
-                "trailing_stop_pct must be set when trailing_stop_enabled is True"
-            )
+        """Ensure trailing_stop_pct is set and >= 0.1 if trailing_stop_enabled"""
+        if self.trailing_stop_enabled:
+            if self.trailing_stop_pct is None or self.trailing_stop_pct < 0.1:
+                raise ValueError(
+                    "trailing_stop_pct must be >= 0.1 when trailing_stop_enabled is True"
+                )
         return self
 
 
@@ -383,22 +384,26 @@ class Execution(BaseModel):
     cooldown_bars: int = Field(
         default=1, description="Cooldown period in bars between trades", ge=0
     )
+    bear_market_filter: Optional[bool] = Field(
+        default=None,
+        description="Enable bear market entry suppression filter (200 SMA / 50w SMA). None defaults to environment setting.",
+    )
 
 
 class SafetyLimits(BaseModel):
     """Safety limits to prevent runaway behavior"""
 
     max_trades_per_day: int = Field(
-        default=20, description="Max trades per day", ge=1, le=200
+        default=20, description="Max trades per day", ge=1, le=1000
     )
     max_api_calls_per_hour: int = Field(
-        default=500, description="Max API calls per hour", ge=100, le=2000
+        default=500, description="Max API calls per hour", ge=10, le=10000
     )
     signal_generation_timeout_seconds: float = Field(
         default=5.0,
         description="Timeout for signal generation in seconds",
-        ge=1.0,
-        le=30.0,
+        ge=0.1,
+        le=60.0,
     )
     broker_degraded_mode_threshold_failures: int = Field(
         default=3,

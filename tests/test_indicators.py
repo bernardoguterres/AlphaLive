@@ -303,3 +303,39 @@ def test_rsi_ewm_and_atr_ewm_match_independent_hand_computation():
     c = pd.Series([10.0, 11.0, 9.0])
     # TR: [2, max(2,2,0)=2, max(3,0,3)=3]; ewm(alpha=1/2): 2, 2, 2.5
     assert list(atr_ewm(high, low, c, 2)) == pytest.approx([2.0, 2.0, 2.5])
+
+
+def test_momentum_breakout_custom_atr_period():
+    """Test that custom atr_period computes both atr_ewm_{atr_period} and atr_ewm_14 alias."""
+    data = {
+        "open": [100.0 + i for i in range(50)],
+        "high": [102.0 + i for i in range(50)],
+        "low": [98.0 + i for i in range(50)],
+        "close": [100.0 + i for i in range(50)],
+        "volume": [1000000] * 50,
+    }
+    df = pd.DataFrame(data)
+    df = add_all_for_strategy(
+        df, "momentum_breakout", {"atr_period": 21, "lookback": 20}
+    )
+    assert "atr_ewm_21" in df.columns
+    assert "atr_ewm_14" in df.columns
+    assert df["atr_ewm_21"].equals(df["atr_ewm_14"])
+
+
+def test_bollinger_breakout_custom_volume_ma_period():
+    """Test that custom volume_ma_period computes both volume_ma_{vmp} and volume_ma_20 alias."""
+    data = {
+        "open": [100.0 + i for i in range(50)],
+        "high": [102.0 + i for i in range(50)],
+        "low": [98.0 + i for i in range(50)],
+        "close": [100.0 + i for i in range(50)],
+        "volume": [1000000 + i * 1000 for i in range(50)],
+    }
+    df = pd.DataFrame(data)
+    df = add_all_for_strategy(
+        df, "bollinger_breakout", {"period": 20, "std_dev": 2.0, "volume_ma_period": 30}
+    )
+    assert "volume_ma_30" in df.columns
+    assert "volume_ma_20" in df.columns
+    assert df["volume_ma_30"].equals(df["volume_ma_20"])

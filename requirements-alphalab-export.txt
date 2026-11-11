@@ -1,0 +1,8 @@
+# Test-only: the minimum needed to import AlphaLab's backend (alphalab.api.helpers)
+# for the real-export tests, using AlphaLab's own pins. Deliberately NOT AlphaLab's
+# full backend/requirements.txt, which pins pydantic==2.7.1 and would downgrade it
+# below what the dashboard's FastAPI requires. Installed in CI only when the
+# AlphaLab sibling checkout succeeded.
+Flask==3.0.0
+flask-cors==4.0.0
+scipy==1.15.3

@@ -105,22 +105,56 @@ class SignalEngine:
         rejection); a position may be closed by a risk exit. Ledger wins.
         Deterministic-replay strategies don't read these fields, so this is
         a no-op for their decisions."""
-        if has_position and not self._in_position:
-            self._in_position = True
-            self._entry_price = float(entry_price or 0.0)
-            self._peak_price = max(float(peak_price or 0.0), self._entry_price)
-            if self.strategy_name == "vwap_reversion":
-                self._vwap_position = 1
-            logger.info(
-                f"Engine position synced to ledger: LONG (entry ${self._entry_price:.2f})"
+        try:
+            ep = (
+                float(entry_price)
+                if isinstance(entry_price, (int, float, str))
+                and not isinstance(entry_price, bool)
+                else 0.0
             )
-        elif not has_position and self._in_position:
-            self._in_position = False
-            self._entry_price = 0.0
-            self._peak_price = 0.0
-            if self.strategy_name == "vwap_reversion" and self._vwap_position == 1:
-                self._vwap_position = 0
-            logger.info("Engine position synced to ledger: FLAT")
+        except (ValueError, TypeError):
+            ep = 0.0
+        try:
+            pp = (
+                float(peak_price)
+                if isinstance(peak_price, (int, float, str))
+                and not isinstance(peak_price, bool)
+                else 0.0
+            )
+        except (ValueError, TypeError):
+            pp = 0.0
+
+        if has_position:
+            if not self._in_position:
+                self._in_position = True
+                self._entry_price = ep
+                self._peak_price = max(pp, self._entry_price)
+                if self.strategy_name == "vwap_reversion":
+                    self._vwap_position = 1
+                logger.info(
+                    f"Engine position synced to ledger: LONG (entry ${self._entry_price:.2f})"
+                )
+            else:
+                if ep > 0.0:
+                    self._entry_price = ep
+                if pp > self._peak_price:
+                    self._peak_price = pp
+                if self.strategy_name == "vwap_reversion" and self._vwap_position == 0:
+                    self._vwap_position = 1
+        else:
+            if (
+                self._in_position
+                or self._entry_price != 0.0
+                or self._peak_price != 0.0
+                or self._peak_bar_ts is not None
+            ):
+                self._in_position = False
+                self._entry_price = 0.0
+                self._peak_price = 0.0
+                self._peak_bar_ts = None
+                if self.strategy_name == "vwap_reversion" and self._vwap_position == 1:
+                    self._vwap_position = 0
+                logger.info("Engine position synced to ledger: FLAT")
 
     def get_state(self) -> Dict[str, Any]:
         """Snapshot the stateful-strategy fields for persistence.
@@ -620,6 +654,7 @@ class SignalEngine:
         lookback = p.get("lookback", 20)
         surge = p.get("surge_pct", 1.5)
         vmp = p.get("volume_ma_period", 20)
+        atr_period = p.get("atr_period", 14)
         rsi_min = p.get("rsi_min", 50)
         sl_mult = p.get("stop_loss_atr_mult", 2.0)
         ts_mult = p.get("trailing_stop_atr_mult", 3.0)
@@ -634,7 +669,12 @@ class SignalEngine:
             )
         close = df["close"].to_numpy()
         volume = df["volume"].to_numpy()
-        atr = df["atr_ewm_14"].to_numpy()
+        atr_col = (
+            f"atr_ewm_{atr_period}"
+            if f"atr_ewm_{atr_period}" in df.columns
+            else "atr_ewm_14"
+        )
+        atr = df[atr_col].to_numpy()
         rsi = df["rsi_ewm_14"].to_numpy()
         hi = df["rolling_high"].to_numpy()
         lo = df["rolling_low"].to_numpy()
@@ -724,6 +764,7 @@ class SignalEngine:
         volume_filter = p.get("volume_filter", True)
         threshold = p.get("volume_threshold", 1.5)
         cooldown = p.get("cooldown_days", 3)
+        vmp = p.get("volume_ma_period", 20)
 
         close = df["close"]
         upper = df["bb_upper"]
@@ -737,8 +778,11 @@ class SignalEngine:
         above = (close > upper).astype(int)
         consec = (above.rolling(confirmation).sum() >= confirmation).to_numpy()
         exit_zone = (close <= middle * 1.01).to_numpy()
+        vma_col = (
+            f"volume_ma_{vmp}" if f"volume_ma_{vmp}" in df.columns else "volume_ma_20"
+        )
         if volume_filter:
-            vol_ok = (df["volume"] >= df["volume_ma_20"] * threshold).to_numpy()
+            vol_ok = (df["volume"] >= df[vma_col] * threshold).to_numpy()
         else:
             vol_ok = np.ones(len(df), dtype=bool)
 
@@ -1327,16 +1371,30 @@ class SignalEngine:
         # uncaught ValueError would crash signal generation entirely. Fail
         # toward the filter staying ON (the protective direction, and what
         # the old code already did for any unrecognized value) instead.
-        try:
-            filter_enabled = parse_bool_env(
-                os.environ.get("ENABLE_BEAR_MARKET_FILTER"),
-                var_name="ENABLE_BEAR_MARKET_FILTER",
-                default=True,
-            )
-        except ValueError:
-            filter_enabled = True
-        if not filter_enabled:
-            return False
+        cfg_filter = None
+        if hasattr(self, "config") and hasattr(self.config, "execution"):
+            cfg_filter = getattr(self.config.execution, "bear_market_filter", None)
+            if cfg_filter is None and isinstance(self.config.execution, dict):
+                cfg_filter = self.config.execution.get("bear_market_filter", None)
+        if cfg_filter is None and hasattr(self, "params"):
+            if isinstance(self.params, dict) or hasattr(self.params, "get"):
+                cfg_filter = self.params.get("bear_market_filter", None)
+            else:
+                cfg_filter = getattr(self.params, "bear_market_filter", None)
+        if cfg_filter is not None:
+            if not cfg_filter:
+                return False
+        else:
+            try:
+                filter_enabled = parse_bool_env(
+                    os.environ.get("ENABLE_BEAR_MARKET_FILTER"),
+                    var_name="ENABLE_BEAR_MARKET_FILTER",
+                    default=True,
+                )
+            except ValueError:
+                filter_enabled = True
+            if not filter_enabled:
+                return False
 
         # Weekly strategies use slow_sma as the trend filter equivalent of SMA_200
         if self.strategy_name == "greenblatt_weekly":
@@ -1353,7 +1411,7 @@ class SignalEngine:
             sma_prev = df[col].iloc[-21]
             if pd.isna(sma_prev) or sma_prev == 0:
                 return False
-            return price_below and (sma_now < sma_prev)
+            return bool(price_below and (sma_now < sma_prev))
 
         # Daily strategies: standard SMA_200 filter
         if "sma_200" not in df.columns or len(df) < 221:
@@ -1371,7 +1429,7 @@ class SignalEngine:
 
         sma_declining = sma_now < sma_prev
 
-        return price_below and sma_declining
+        return bool(price_below and sma_declining)
 
     def _no_signal(
         self, reason: str, start_time: float, warmup_complete: bool = True

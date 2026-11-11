@@ -128,6 +128,22 @@ class PortfolioStrategySchema(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def validate_top_n_fits_risk_limits(self) -> "PortfolioStrategySchema":
+        if self.strategy.top_n > self.risk.max_open_positions:
+            raise ValueError(
+                f"strategy.top_n ({self.strategy.top_n}) cannot exceed "
+                f"risk.max_open_positions ({self.risk.max_open_positions}) - "
+                "the strategy would be blocked from holding its target basket"
+            )
+        if self.strategy.top_n > self.risk.portfolio_max_positions:
+            raise ValueError(
+                f"strategy.top_n ({self.strategy.top_n}) cannot exceed "
+                f"risk.portfolio_max_positions ({self.risk.portfolio_max_positions}) - "
+                "the global portfolio cap would block the strategy's target basket"
+            )
+        return self
+
+    @model_validator(mode="after")
     def log_configuration_summary(self) -> "PortfolioStrategySchema":
         logger.info(
             f"Portfolio strategy validated: {self.strategy.name} | "

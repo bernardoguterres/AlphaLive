@@ -282,6 +282,38 @@ def test_check_exit_trailing_stop_triggers_close(simulator, risk_manager):
     assert "AAPL" not in simulator.positions
 
 
+def test_check_exit_trailing_stop_does_not_peek_at_same_day_future_high(
+    simulator, risk_manager
+):
+    """Verify trailing stop calculation ignores same-day future high at 9:35 AM."""
+    simulator._load_historical_data()
+    entry_date = simulator.trading_days[10]
+    current_date = simulator.trading_days[20]
+    # Artificially set an extreme intraday high on current_date
+    simulator.historical_data["AAPL"].loc[current_date, "high"] = 500.0
+
+    simulator.positions["AAPL"] = {
+        "qty": 10,
+        "entry_price": 100.0,
+        "entry_date": entry_date,
+        "side": "BUY",
+    }
+    notifier = Mock()
+
+    simulator._check_exit(
+        ticker="AAPL",
+        current_date=current_date,
+        current_price=105.0,
+        risk_manager=risk_manager,
+        notifier=notifier,
+    )
+
+    call_args = risk_manager.check_trailing_stop.call_args[0]
+    highest_passed = call_args[1]
+    assert highest_passed < 500.0
+    assert highest_passed == pytest.approx(105.0)
+
+
 def test_check_exit_no_condition_met_keeps_position(simulator, risk_manager):
     simulator._load_historical_data()
     entry_date = simulator.trading_days[10]
