@@ -436,6 +436,42 @@ class AlphaSignalClient:
 
         try:
             sentiment = await self.get_sentiment(ticker)
+        except httpx.HTTPStatusError as exc:
+            code = exc.response.status_code if exc.response is not None else None
+            if code in (401, 403):
+                # A rejected API key is a configuration error, not an outage:
+                # failing open here silently switched the gate off for every
+                # entry. Block whatever the fail policy (like a wrong service).
+                logger.critical(
+                    "AlphaSignal rejected the API key (HTTP %s) - blocking %s entry "
+                    "as a configuration error (fail policy not applied). Check "
+                    "ALPHASIGNAL_API_KEY.",
+                    code,
+                    ticker,
+                )
+                return False, {
+                    "gate_status": GATE_STATUS_MISCONFIGURED_BLOCK,
+                    "http_status": code,
+                }
+            if code == 404:
+                # AlphaSignal has no knowledge base for this ticker: sentiment
+                # can't be evaluated, so the fail policy decides (labelled
+                # no_data, not a generic error, and logged loudly).
+                logger.error(
+                    "AlphaSignal does not cover %s (HTTP 404) - sentiment cannot be "
+                    "evaluated for this ticker; fail policy applies",
+                    ticker,
+                )
+                return True, {
+                    "gate_status": GATE_STATUS_NO_DATA_BYPASS,
+                    "http_status": code,
+                }
+            logger.warning(
+                "AlphaSignal check failed for %s (failing open): %s",
+                ticker,
+                exc,
+            )
+            return True, {"gate_status": GATE_STATUS_ERROR_BYPASS, "http_status": code}
         except Exception as exc:
             logger.warning(
                 "AlphaSignal check failed for %s (failing open): %s",

@@ -1004,6 +1004,7 @@ def test_get_state_defaults_flat(sample_strategy_dict):
         "peak_bar_ts": None,
         "vwap_position": 0,
         "vwap_bars_since_signal": 10**9,
+        "protective_exit_ts": None,
     }
 
 

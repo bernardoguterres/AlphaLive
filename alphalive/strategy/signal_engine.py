@@ -15,6 +15,7 @@ import logging
 import os
 import time
 from typing import Callable, Dict, Any, Optional
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -24,6 +25,7 @@ from alphalive.strategy import indicators
 from alphalive.utils.env_bool import parse_bool_env
 
 logger = logging.getLogger(__name__)
+ET = ZoneInfo("America/New_York")
 
 
 class SignalEngine:
@@ -61,6 +63,13 @@ class SignalEngine:
         self._vwap_position: int = 0  # 0=flat, 1=long, -1=short (bookkeeping)
         self._vwap_bars_since_signal: int = 10**9  # large = no cooldown at start
         self._is_new_bar: bool = True  # set per generate_signal() call
+
+        # ma_crossover re-entry after a protective exit (opt-in via
+        # reentry_after_protective_exit). ISO timestamp (ET) of the last
+        # stop-loss/take-profit/trailing exit, set by main.py's exit path via
+        # mark_protective_exit(); cleared by a bearish cross or once the
+        # ledger shows the position re-opened. Persisted in get_state().
+        self._protective_exit_ts: Optional[str] = None
 
         # Minimum-hold gate for greenblatt_weekly's opt-in exits. Wired by
         # main.py to BotState.is_min_hold_met(); zero-arg, returns True when
@@ -125,6 +134,8 @@ class SignalEngine:
             pp = 0.0
 
         if has_position:
+            if self._protective_exit_ts is not None:
+                self._protective_exit_ts = None  # re-entered: window closed
             if not self._in_position:
                 self._in_position = True
                 self._entry_price = ep
@@ -171,7 +182,32 @@ class SignalEngine:
             "peak_bar_ts": self._peak_bar_ts,
             "vwap_position": self._vwap_position,
             "vwap_bars_since_signal": self._vwap_bars_since_signal,
+            "protective_exit_ts": self._protective_exit_ts,
         }
+
+    def mark_protective_exit(self, when: Any) -> None:
+        """Record that a stop-loss/take-profit/trailing exit just closed the
+        position (main.py's exit path). Only ma_crossover with
+        reentry_after_protective_exit=True reads it."""
+        ts = pd.Timestamp(when)
+        if ts.tzinfo is None:
+            ts = ts.tz_localize(ET)
+        self._protective_exit_ts = ts.tz_convert(ET).isoformat()
+
+    def _bars_since_protective_exit(self, df: pd.DataFrame) -> Optional[int]:
+        """Completed bars in df that start strictly after the protective exit.
+        Daily bars are labelled at the session date's midnight ET, so the exit
+        day's own bar never counts (same as AlphaLab: exit decided on bar t,
+        re-entry allowed at bar i once i - t > wait)."""
+        if self._protective_exit_ts is None:
+            return None
+        exit_ts = pd.Timestamp(self._protective_exit_ts)
+        idx = pd.DatetimeIndex(df.index)
+        if idx.tz is None:
+            exit_ts = exit_ts.tz_convert(ET).tz_localize(None)
+        else:
+            exit_ts = exit_ts.tz_convert(idx.tz)
+        return int((idx > exit_ts).sum())
 
     def restore_state(self, state: Optional[Dict[str, Any]]) -> None:
         """Restore fields captured by get_state(). None/missing keys keep defaults."""
@@ -185,6 +221,7 @@ class SignalEngine:
         self._vwap_bars_since_signal = int(
             state.get("vwap_bars_since_signal", 10**9) or 10**9
         )
+        self._protective_exit_ts = state.get("protective_exit_ts")
         if self._in_position:
             logger.info(
                 f"Signal engine state restored | {self.strategy_name}: in position "
@@ -418,7 +455,10 @@ class SignalEngine:
             vol_ok = df["volume"] > df[volume_ma_col]
 
         buy_mask = cross_up & sep_ok & vol_ok
-        sell_mask = cross_down & sep_ok & vol_ok
+        # Separation and volume filters screen ENTRIES only - applied to the
+        # death cross they dropped exits on quiet days and trapped positions
+        # (AAPL held through the 2022 bear market). Mirrors AlphaLab.
+        sell_mask = cross_down
 
         raw_signal = pd.Series(0, index=df.index)
         raw_signal[buy_mask] = 1
@@ -447,6 +487,7 @@ class SignalEngine:
             }
 
         elif last_signal == -1:
+            self._protective_exit_ts = None  # trend over: re-entry window closed
             spread_pct = ((slow_curr - fast_curr) / current_price) * 100
             confidence = min(1.0, spread_pct / 2.0)
 
@@ -462,6 +503,31 @@ class SignalEngine:
             }
 
         else:
+            # Opt-in re-entry after a protective exit (mirrors AlphaLab's
+            # BacktestEngine rule): flat, trend still up, and more than
+            # reentry_wait_bars completed bars since the exit bar.
+            if (
+                self.params.get("reentry_after_protective_exit", False)
+                and self._protective_exit_ts is not None
+                and not self._in_position
+                and fast_curr > slow_curr
+            ):
+                wait = int(self.params.get("reentry_wait_bars", 1))
+                bars_after = self._bars_since_protective_exit(df) or 0
+                if bars_after > wait:
+                    spread_pct = ((fast_curr - slow_curr) / current_price) * 100
+                    return {
+                        "signal": "BUY",
+                        "confidence": min(1.0, spread_pct / 2.0),
+                        "reason": (
+                            f"Re-entry after protective exit: Fast SMA({fast_period})="
+                            f"{fast_curr:.2f} still above Slow SMA({slow_period})="
+                            f"{slow_curr:.2f} ({bars_after} bars since exit)"
+                        ),
+                        "indicators": indicators,
+                        "warmup_complete": True,
+                    }
+
             # No crossover, or suppressed by min_separation_pct/volume/cooldown
             return {
                 "signal": "HOLD",

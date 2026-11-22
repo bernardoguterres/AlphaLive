@@ -820,7 +820,20 @@ def _check_signal_for_strategy(
                     f"fail_policy={_sentiment_pred.get('fail_policy', 'n/a')}"
                 )
             else:
-                price = market_data.get_current_price(strat_cfg.ticker)
+                try:
+                    price = market_data.get_current_price(strat_cfg.ticker)
+                except Exception as e:
+                    # A BUY needs a live price to size the order: fail the
+                    # attempt (retryable) as before. A SELL sells the held
+                    # broker quantity and must not be dropped for the day
+                    # because the quote fetch failed - fall back below.
+                    if signal_result["signal"] != "SELL":
+                        raise
+                    logger.warning(
+                        f"Live price unavailable for {strat_cfg.ticker} SELL ({e}) - "
+                        f"using the broker's position mark / last close instead"
+                    )
+                    price = None
                 try:
                     account = broker.get_account()
                 except Exception as e:
@@ -854,6 +867,13 @@ def _check_signal_for_strategy(
                     strategy_positions = [
                         p for p in all_positions if p.symbol == strat_cfg.ticker
                     ]
+                    if price is None:
+                        mark = (
+                            getattr(strategy_positions[0], "current_price", None)
+                            if strategy_positions
+                            else None
+                        )
+                        price = float(mark) if mark else float(df["close"].iloc[-1])
                     result = order_manager_map[strat_cfg.ticker].execute_signal(
                         ticker=strat_cfg.ticker,
                         signal=signal_result,
@@ -1045,6 +1065,11 @@ def _run_exit_checks(
                                     "peak_price": 0.0,
                                 }
                             )
+                            # Opens the opt-in ma_crossover re-entry window
+                            # (no effect on other strategies).
+                            signal_engine_map[ticker].mark_protective_exit(
+                                datetime.now(ET)
+                            )
                             bot_state.save_engine_state(
                                 ticker, signal_engine_map[ticker].get_state()
                             )
@@ -1052,6 +1077,20 @@ def _run_exit_checks(
                             f"Position closed by risk exit: {ticker} - "
                             f"{exit_signal['reason']}"
                         )
+                    elif result["status"] in ("pending", "partial"):
+                        # A market close is normally acknowledged as accepted/
+                        # new and fills moments later, so the exit was decided
+                        # now even though the fill isn't confirmed yet. Open
+                        # the opt-in ma_crossover re-entry window here too: if
+                        # the close never completes, the ledger keeps the
+                        # position and sync_position(True) clears the window.
+                        if signal_engine_map and ticker in signal_engine_map:
+                            signal_engine_map[ticker].mark_protective_exit(
+                                datetime.now(ET)
+                            )
+                            bot_state.save_engine_state(
+                                ticker, signal_engine_map[ticker].get_state()
+                            )
 
     except Exception as e:
         logger.error(f"Exit check error: {e}", exc_info=True)
@@ -1093,6 +1132,10 @@ def _sync_position_ledger(broker, bot_state, notifier) -> None:
                 f"position - removing from ledger (closed while bot was down?)."
             )
             bot_state.record_position_close(symbol)
+            # The closed position's trailing-stop high and entry time go with
+            # it - otherwise the next entry inherits them (see L1).
+            bot_state.clear_position_high(symbol)
+            bot_state.clear_entry_timestamp(symbol)
             notifier.send_alert(
                 f"ℹ️ Startup sync: {symbol} in ledger but not at broker - "
                 f"removed. If unexpected, check Alpaca order history."
