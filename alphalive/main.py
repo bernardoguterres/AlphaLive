@@ -1045,6 +1045,11 @@ def _run_exit_checks(
                                     "peak_price": 0.0,
                                 }
                             )
+                            # Opens the opt-in ma_crossover re-entry window
+                            # (no effect on other strategies).
+                            signal_engine_map[ticker].mark_protective_exit(
+                                datetime.now(ET)
+                            )
                             bot_state.save_engine_state(
                                 ticker, signal_engine_map[ticker].get_state()
                             )
@@ -1052,6 +1057,20 @@ def _run_exit_checks(
                             f"Position closed by risk exit: {ticker} - "
                             f"{exit_signal['reason']}"
                         )
+                    elif result["status"] in ("pending", "partial"):
+                        # A market close is normally acknowledged as accepted/
+                        # new and fills moments later, so the exit was decided
+                        # now even though the fill isn't confirmed yet. Open
+                        # the opt-in ma_crossover re-entry window here too: if
+                        # the close never completes, the ledger keeps the
+                        # position and sync_position(True) clears the window.
+                        if signal_engine_map and ticker in signal_engine_map:
+                            signal_engine_map[ticker].mark_protective_exit(
+                                datetime.now(ET)
+                            )
+                            bot_state.save_engine_state(
+                                ticker, signal_engine_map[ticker].get_state()
+                            )
 
     except Exception as e:
         logger.error(f"Exit check error: {e}", exc_info=True)
