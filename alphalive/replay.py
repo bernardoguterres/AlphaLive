@@ -213,6 +213,17 @@ class ReplaySimulator:
                     risk_manager=risk_managers[ticker],
                     notifier=notifier,
                 )
+                if ticker not in self.positions:
+                    # Protective exit at today's open: opens the opt-in
+                    # ma_crossover re-entry window, as main.py does live.
+                    # Replay decides it from information available after the
+                    # previous close (AlphaLab: exit decided on bar t = D-1,
+                    # filled at D's open), so stamp it just before today's
+                    # bar - today's bar then counts as the first bar after.
+                    signal_engine.sync_position(False)
+                    signal_engine.mark_protective_exit(
+                        pd.Timestamp(current_date).normalize() - pd.Timedelta(seconds=1)
+                    )
 
             # Execute entry signal if BUY and no position
             if signal["signal"] == "BUY" and ticker not in self.positions:
@@ -225,6 +236,8 @@ class ReplaySimulator:
                     risk_manager=risk_managers[ticker],
                     notifier=notifier,
                 )
+                if ticker in self.positions:
+                    signal_engine.sync_position(True, current_price)
 
             # Execute exit signal if SELL and we have a position
             elif signal["signal"] == "SELL" and ticker in self.positions:
@@ -238,6 +251,7 @@ class ReplaySimulator:
                     reason="Strategy SELL signal",
                     notifier=notifier,
                 )
+                signal_engine.sync_position(False)
 
         # Sleep if speed multiplier set
         if self.speed_multiplier > 0:

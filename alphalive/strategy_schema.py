@@ -61,6 +61,12 @@ class MACrossoverStrategyParams(BaseModel):
     volume_avg_period: int = Field(default=20, ge=5, le=100)
     min_separation_pct: float = Field(default=0.0, ge=0.0, le=10.0)
     cooldown_days: int = Field(default=5, ge=0, le=100)
+    # Opt-in: after a stop-loss / take-profit / trailing-stop exit, re-enter
+    # while fast SMA > slow SMA once more than reentry_wait_bars completed
+    # bars have passed since the exit bar (instead of waiting for the next
+    # golden cross). Mirrors AlphaLab's BacktestEngine re-entry rule.
+    reentry_after_protective_exit: bool = Field(default=False)
+    reentry_wait_bars: int = Field(default=1, ge=0, le=100)
 
 
 class RSIMeanReversionStrategyParams(BaseModel):
