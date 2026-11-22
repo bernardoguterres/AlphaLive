@@ -105,8 +105,18 @@ def test_max_trades_per_day_auto_pauses(
 
     assert not can_trade
     assert "Max trades/day" in reason
-    assert rm.trading_paused_manual  # Auto-paused
-    assert notifier_mock.send_alert.called
+    # Blocks entries without latching the manual pause (it lifts when the
+    # counter resets), and alerts once per breach, not on every check.
+    assert not getattr(rm, "trading_paused_manual", False)
+    assert notifier_mock.send_alert.call_count == 1
+    rm.can_trade(
+        ticker="AAPL",
+        signal="BUY",
+        account_equity=100000.0,
+        current_positions_count=0,
+        total_portfolio_positions=0,
+    )
+    assert notifier_mock.send_alert.call_count == 1
 
 
 def test_api_call_limit_auto_pauses(
@@ -138,8 +148,18 @@ def test_api_call_limit_auto_pauses(
 
     assert not can_trade
     assert "API call limit" in reason
-    assert rm.trading_paused_manual  # Auto-paused
-    assert notifier_mock.send_alert.called
+    # Blocks entries without latching the manual pause (it lifts when the
+    # counter resets), and alerts once per breach, not on every check.
+    assert not getattr(rm, "trading_paused_manual", False)
+    assert notifier_mock.send_alert.call_count == 1
+    rm.can_trade(
+        ticker="AAPL",
+        signal="BUY",
+        account_equity=100000.0,
+        current_positions_count=0,
+        total_portfolio_positions=0,
+    )
+    assert notifier_mock.send_alert.call_count == 1
 
 
 def test_api_counter_resets_hourly(

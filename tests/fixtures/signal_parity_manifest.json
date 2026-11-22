@@ -1,6 +1,6 @@
 {
   "generated_by": "AlphaLab scripts/generate_signal_parity_fixtures.py",
-  "alphalab_commit": "01e9962 (+ uncommitted working tree)",
+  "alphalab_commit": "9221696 (+ uncommitted working tree)",
   "signal_convention": "decision at bar close; fills at next open are not compared",
   "strategies": {
     "ma_crossover": {
@@ -10,7 +10,9 @@
         "volume_confirmation": true,
         "volume_avg_period": 20,
         "min_separation_pct": 0.0,
-        "cooldown_days": 5
+        "cooldown_days": 5,
+        "reentry_after_protective_exit": false,
+        "reentry_wait_bars": 1
       },
       "alphalive_params": {
         "strategy_type": "ma_crossover",
@@ -19,7 +21,9 @@
         "volume_confirmation": true,
         "volume_avg_period": 20,
         "min_separation_pct": 0.0,
-        "cooldown_days": 5
+        "cooldown_days": 5,
+        "reentry_after_protective_exit": false,
+        "reentry_wait_bars": 1
       },
       "exportable_daily": true
     },

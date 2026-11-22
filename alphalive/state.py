@@ -706,6 +706,7 @@ class BotState:
         realized = -fee
         round_trip_closed = False
         round_trip_pnl = None
+        opened_from_flat = False
         now_iso = datetime.now(ET).isoformat()
 
         if side == "BUY":
@@ -718,6 +719,7 @@ class BotState:
                 }
             old_qty = _dec(entry.get("qty"))
             old_px = _dec(entry.get("entry_price"))
+            opened_from_flat = old_qty <= QTY_EPSILON
             qty_after = old_qty + delta_qty
             entry["entry_price"] = float(
                 (old_qty * old_px + delta_qty * delta_price) / qty_after
@@ -761,6 +763,9 @@ class BotState:
             "position_qty_after": float(position_after),
             "round_trip_closed": round_trip_closed,
             "round_trip_pnl": round_trip_pnl,
+            # True on the first BUY fill of a new position (ledger was flat):
+            # the caller starts its trailing-stop high / entry time fresh.
+            "opened_from_flat": opened_from_flat,
         }
         logger.info(
             f"Fill applied (intent {intent_id}): {side} {result['delta_qty']} {ticker} "
