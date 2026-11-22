@@ -1,0 +1,26 @@
+# Keep secrets and local state out of images built with `docker build .`
+# (both Dockerfiles `COPY . .`, and run.py loads /app/.env if present: a
+# stray local .env with ALPACA_PAPER=false would switch the image to live
+# trading). Railway builds from git, where these files are gitignored anyway.
+.env
+.env.*
+!.env.example
+
+# Local tooling / editor state
+.claude/
+.git/
+.github/
+.DS_Store
+.coverage
+.hypothesis/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# Local runtime output (state, logs, caches) - never part of an image
+logs/
+*.log
+data/
+tests/reports/
