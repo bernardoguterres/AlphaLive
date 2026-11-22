@@ -283,3 +283,18 @@ def test_buy_still_needs_a_live_price():
     daily-eval marker), as for any failed evaluation."""
     om, done = _signal_check("BUY", [])
     assert not om.execute_signal.called
+
+
+# --------------------------------------------------------------------------
+# L4: portfolio_max_positions counted only filled broker positions, so two
+# strategies could both enter before either fill landed.
+def test_portfolio_count_includes_in_flight_buys(tmp_path):
+    from types import SimpleNamespace
+
+    st = BotState(str(tmp_path / "s.json"))
+    st.create_submission_intent("SPY", "BUY", 1.0, "market")
+    st.create_submission_intent("AAPL", "SELL", 1.0, "market")  # exits don't count
+    st.create_submission_intent("QQQ", "BUY", 1.0, "market")  # already held: once
+    held = [SimpleNamespace(symbol="QQQ"), SimpleNamespace(symbol="MSFT")]
+    assert M._portfolio_position_count([], st) == 2  # SPY + QQQ in flight
+    assert M._portfolio_position_count(held, st) == 3  # MSFT, QQQ, SPY

@@ -166,6 +166,23 @@ def _collect_fill_events(order_manager_map: dict) -> list:
     return fills
 
 
+def _portfolio_position_count(all_positions: list, bot_state) -> int:
+    """Positions that count against portfolio_max_positions: filled broker
+    positions plus tickers with an in-flight BUY (submitted, not yet filled).
+    Counting only filled positions let two strategies both enter before
+    either fill landed (cap 1 -> 2 positions)."""
+    held = {p.symbol for p in all_positions}
+    try:
+        pending = {
+            i["ticker"]
+            for i in bot_state.list_open_intents()
+            if str(i.get("side", "")).upper() == "BUY"
+        }
+    except Exception:
+        pending = set()
+    return len(held | pending)
+
+
 def _send_eod_summary(
     order_manager_map: dict, broker, morning_equity: float, notifier
 ) -> None:
@@ -910,7 +927,9 @@ def _check_signal_for_strategy(
                         current_price=price,
                         account_equity=account.equity,
                         current_positions_count=len(strategy_positions),
-                        total_portfolio_positions=len(all_positions),
+                        total_portfolio_positions=_portfolio_position_count(
+                            all_positions, bot_state
+                        ),
                         current_bar=df.index,
                     )
 
