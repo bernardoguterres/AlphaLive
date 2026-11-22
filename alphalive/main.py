@@ -54,7 +54,10 @@ TIMEFRAME_CHECK_INTERVALS = {
 
 
 def _compute_daily_stats(
-    all_orders: list, start_equity: float, end_equity: float
+    all_orders: list,
+    start_equity: float,
+    end_equity: float,
+    fill_events: list | None = None,
 ) -> dict:
     """
     Compute P&L and win rate from today's order history.
@@ -80,6 +83,18 @@ def _compute_daily_stats(
     # claim the whole account as today's P&L.
     pnl = end_equity - start_equity if start_equity > 0 else 0.0
 
+    # Preferred source: broker-confirmed fills (OrderManager.fill_events).
+    # Each completed round trip carries its realised P&L from the ledger, so
+    # late fills, partial fills and positions opened on earlier days are all
+    # handled. order_history records the submit response, whose price is
+    # None until the broker reports a fill (the normal case for a market
+    # order) - using it crashed the EOD summary after a same-day round trip.
+    if fill_events is not None:
+        closed = [f for f in fill_events if f.get("round_trip_closed")]
+        wins = sum(1 for f in closed if (f.get("round_trip_pnl") or 0.0) > 0)
+        win_rate = (wins / len(closed) * 100) if closed else 0.0
+        return {"pnl": pnl, "win_rate": win_rate}
+
     # Win-rate: qty-aware FIFO matching of BUYs to SELLs per ticker.
     # Each SELL consumes shares from the buy queue oldest-first; the sell is
     # a win if its price beats the weighted-average cost of the shares it
@@ -90,6 +105,8 @@ def _compute_daily_stats(
     total_sells = 0
 
     for order in sorted(all_orders, key=lambda o: o["timestamp"]):
+        if order.get("price") is None:
+            continue  # not filled when submitted - no price to compare
         ticker = order["ticker"]
         side = order.get("side", "").upper()
         qty = float(order.get("qty", 1) or 1)
@@ -139,6 +156,16 @@ def _record_broker_call(
             om.risk.record_broker_failure(error)
 
 
+def _collect_fill_events(order_manager_map: dict) -> list:
+    """Broker-confirmed fills booked today across all strategies."""
+    fills = []
+    for om in order_manager_map.values():
+        events = getattr(om, "fill_events", None)
+        if isinstance(events, list):
+            fills.extend(events)
+    return fills
+
+
 def _send_eod_summary(
     order_manager_map: dict, broker, morning_equity: float, notifier
 ) -> None:
@@ -152,7 +179,10 @@ def _send_eod_summary(
         _record_broker_call(order_manager_map, success=False, error=e)
         raise
     _record_broker_call(order_manager_map, success=True)
-    daily_stats = _compute_daily_stats(all_orders, morning_equity, account.equity)
+    fills = _collect_fill_events(order_manager_map)
+    daily_stats = _compute_daily_stats(
+        all_orders, morning_equity, account.equity, fill_events=fills
+    )
     summary = {
         "trades": len(all_orders),
         "pnl": daily_stats["pnl"],
@@ -1647,8 +1677,9 @@ def main(
                 all_orders.extend(order_manager_map[ticker].get_order_history())
 
             account = broker.get_account()
+            fills = _collect_fill_events(order_manager_map)
             daily_stats = _compute_daily_stats(
-                all_orders, morning_equity, account.equity
+                all_orders, morning_equity, account.equity, fill_events=fills
             )
             summary = {
                 "trades": len(all_orders),

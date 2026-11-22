@@ -2814,3 +2814,53 @@ def test_sentiment_timeout_block_under_closed_policy_is_final_for_the_day(
     run(
         datetime(2024, 1, 9, 9, 36, tzinfo=ET), restarted
     ).get_latest_bars.assert_called_once()
+
+
+def test_compute_daily_stats_uses_confirmed_fills_not_submit_prices():
+    """L5 (Nov 2026 audit): order_history stores price=None when the submit
+    response had no fill yet (normal for market orders); the EOD summary
+    crashed with float * None after a same-day round trip. Win rate now comes
+    from broker-confirmed round trips."""
+    from datetime import datetime
+
+    orders = [
+        {
+            "ticker": "AAPL",
+            "side": "BUY",
+            "qty": 1.0,
+            "price": None,
+            "timestamp": datetime(2026, 1, 2, 9, 35),
+        },
+        {
+            "ticker": "AAPL",
+            "side": "SELL",
+            "qty": 1.0,
+            "price": None,
+            "timestamp": datetime(2026, 1, 2, 11, 0),
+        },
+    ]
+    fills = [
+        {
+            "ticker": "AAPL",
+            "side": "BUY",
+            "round_trip_closed": False,
+            "round_trip_pnl": None,
+        },
+        {
+            "ticker": "AAPL",
+            "side": "SELL",
+            "round_trip_closed": True,
+            "round_trip_pnl": 4.2,
+        },
+        {
+            "ticker": "MSFT",
+            "side": "SELL",
+            "round_trip_closed": True,
+            "round_trip_pnl": -1.0,
+        },
+    ]
+    stats = main_module._compute_daily_stats(orders, 100.0, 103.2, fill_events=fills)
+    assert abs(stats["pnl"] - 3.2) < 1e-9
+    assert stats["win_rate"] == 50.0
+    # Legacy path (no fills passed) must not crash on unfilled orders either.
+    assert main_module._compute_daily_stats(orders, 100.0, 103.2)["win_rate"] == 0.0
