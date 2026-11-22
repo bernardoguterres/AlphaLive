@@ -201,3 +201,85 @@ def test_api_budget_halt_lifts_at_the_top_of_the_hour(monkeypatch):
     rm.last_hour_reset = rm.last_hour_reset - timedelta(hours=1)  # an hour later
     assert rm.can_trade("AAPL", "BUY", 100_000.0, 0, 0) == (True, "OK")
     assert rm.api_calls_this_hour == 0
+
+
+# --------------------------------------------------------------------------
+# L2: a strategy SELL was dropped for the day when the latest-trade price
+# fetch failed, although a SELL sells the held quantity.
+def _signal_check(signal, positions):
+    from datetime import datetime
+    from unittest import mock
+
+    import pandas as pd
+
+    cfg = json.loads(json.dumps(CONFIG))
+    sc = StrategySchema(**cfg)
+    idx = pd.date_range("2026-01-01", periods=60, freq="B", tz="America/New_York")
+    df = pd.DataFrame(
+        {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1e6},
+        index=idx,
+    )
+    md = mock.Mock()
+    md.get_latest_bars.return_value = df
+    md.get_current_price.side_effect = Exception("latest trade unavailable")
+    eng = mock.Mock()
+    eng.generate_signal.return_value = {
+        "signal": signal,
+        "confidence": 1.0,
+        "reason": "x",
+    }
+    eng.get_state.return_value = {}
+    om = mock.Mock()
+    om.risk.signal_timeout_seconds = 5
+    om.execute_signal.return_value = {
+        "status": "success",
+        "order_id": "o",
+        "fill_status": "accepted",
+    }
+    broker = mock.Mock()
+    broker.get_all_positions.return_value = positions
+    broker.get_account.return_value = mock.Mock(equity=110.0)
+    import tempfile, os
+
+    st = BotState(os.path.join(tempfile.mkdtemp(), "s.json"))
+    st.record_position_open("AAPL", 0.33, 100.0)
+    done = set()
+    M._check_signal_for_strategy(
+        sc,
+        datetime(2026, 11, 20, 9, 36, tzinfo=M.ET),
+        done,
+        {},
+        md,
+        {"AAPL": eng},
+        {"AAPL": om},
+        None,
+        broker,
+        _Notifier(),
+        mock.Mock(),
+        st,
+    )
+    return om, done
+
+
+def test_sell_survives_price_fetch_failure_using_broker_mark():
+    from unittest import mock
+
+    om, _ = _signal_check(
+        "SELL", [mock.Mock(symbol="AAPL", current_price=98.5, qty=0.33)]
+    )
+    assert om.execute_signal.called
+    assert om.execute_signal.call_args.kwargs["current_price"] == 98.5
+
+
+def test_sell_falls_back_to_last_close_without_a_mark():
+    om, _ = _signal_check("SELL", [])
+    assert om.execute_signal.called
+    assert om.execute_signal.call_args.kwargs["current_price"] == 100.0
+
+
+def test_buy_still_needs_a_live_price():
+    """Unchanged behaviour: a BUY can't be sized without a live price, so no
+    order is placed; the check is only marked attempted in memory (no durable
+    daily-eval marker), as for any failed evaluation."""
+    om, done = _signal_check("BUY", [])
+    assert not om.execute_signal.called

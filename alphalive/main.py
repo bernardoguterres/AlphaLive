@@ -820,7 +820,20 @@ def _check_signal_for_strategy(
                     f"fail_policy={_sentiment_pred.get('fail_policy', 'n/a')}"
                 )
             else:
-                price = market_data.get_current_price(strat_cfg.ticker)
+                try:
+                    price = market_data.get_current_price(strat_cfg.ticker)
+                except Exception as e:
+                    # A BUY needs a live price to size the order: fail the
+                    # attempt (retryable) as before. A SELL sells the held
+                    # broker quantity and must not be dropped for the day
+                    # because the quote fetch failed - fall back below.
+                    if signal_result["signal"] != "SELL":
+                        raise
+                    logger.warning(
+                        f"Live price unavailable for {strat_cfg.ticker} SELL ({e}) - "
+                        f"using the broker's position mark / last close instead"
+                    )
+                    price = None
                 try:
                     account = broker.get_account()
                 except Exception as e:
@@ -854,6 +867,13 @@ def _check_signal_for_strategy(
                     strategy_positions = [
                         p for p in all_positions if p.symbol == strat_cfg.ticker
                     ]
+                    if price is None:
+                        mark = (
+                            getattr(strategy_positions[0], "current_price", None)
+                            if strategy_positions
+                            else None
+                        )
+                        price = float(mark) if mark else float(df["close"].iloc[-1])
                     result = order_manager_map[strat_cfg.ticker].execute_signal(
                         ticker=strat_cfg.ticker,
                         signal=signal_result,
