@@ -455,7 +455,10 @@ class SignalEngine:
             vol_ok = df["volume"] > df[volume_ma_col]
 
         buy_mask = cross_up & sep_ok & vol_ok
-        sell_mask = cross_down & sep_ok & vol_ok
+        # Separation and volume filters screen ENTRIES only - applied to the
+        # death cross they dropped exits on quiet days and trapped positions
+        # (AAPL held through the 2022 bear market). Mirrors AlphaLab.
+        sell_mask = cross_down
 
         raw_signal = pd.Series(0, index=df.index)
         raw_signal[buy_mask] = 1

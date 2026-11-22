@@ -392,3 +392,21 @@ def test_reentry_day_matches_alphalab_with_risk_cooldown(
         and rm.check_cooldown("TEST", bars.index[:day])
     )
     assert live_day == lab_reentry_day
+
+
+def test_low_volume_death_cross_still_exits(sample_strategy_dict):
+    """Mirror of AlphaLab's test: volume_confirmation screens entries only."""
+    close = np.r_[
+        np.full(40, 100.0), np.linspace(100, 120, 20), np.linspace(119, 95, 20)
+    ]
+    bars = _bars(close)
+    eng = _engine(sample_strategy_dict, volume_confirmation=True, volume_avg_period=20)
+    death = next(
+        k
+        for k in range(41, len(close) + 1)
+        if eng.generate_signal(bars.iloc[:k])["signal"] == "SELL"
+    )
+    quiet = bars.copy()
+    quiet.iloc[death - 1, quiet.columns.get_loc("volume")] = 1_000.0
+    eng2 = _engine(sample_strategy_dict, volume_confirmation=True, volume_avg_period=20)
+    assert eng2.generate_signal(quiet.iloc[:death])["signal"] == "SELL"
