@@ -571,7 +571,15 @@ class OrderManager:
             )
         ticker = fill["ticker"]
         if fill["side"] == "BUY":
-            if ticker not in self.state.state.get("entry_timestamps", {}):
+            if fill.get("opened_from_flat"):
+                # A new position must not inherit a previous position's
+                # trailing-stop high or entry time (left behind when a position
+                # was closed outside the bot): with an old high of $200 a fresh
+                # entry at $150 was sold on the first exit check.
+                self.state.clear_position_high(ticker)
+                self.state.clear_entry_timestamp(ticker)
+                self.state.record_entry(ticker)
+            elif ticker not in self.state.state.get("entry_timestamps", {}):
                 self.state.record_entry(ticker)
         elif fill["round_trip_closed"]:
             self.state.clear_position_high(ticker)

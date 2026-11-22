@@ -1112,6 +1112,10 @@ def _sync_position_ledger(broker, bot_state, notifier) -> None:
                 f"position - removing from ledger (closed while bot was down?)."
             )
             bot_state.record_position_close(symbol)
+            # The closed position's trailing-stop high and entry time go with
+            # it - otherwise the next entry inherits them (see L1).
+            bot_state.clear_position_high(symbol)
+            bot_state.clear_entry_timestamp(symbol)
             notifier.send_alert(
                 f"ℹ️ Startup sync: {symbol} in ledger but not at broker - "
                 f"removed. If unexpected, check Alpaca order history."
