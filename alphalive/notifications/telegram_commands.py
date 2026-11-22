@@ -492,10 +492,32 @@ class TelegramCommandListener:
                     halts.append(f"{ticker}: consecutive-loss circuit breaker")
                 if getattr(rm, "degraded_mode", False):
                     halts.append(f"{ticker}: broker degraded mode")
-        elif getattr(self.risk_manager, "trading_paused_by_circuit_breaker", False):
-            halts.append("Consecutive-loss circuit breaker")
+                halts.extend(f"{ticker}: {h}" for h in self._cost_limit_halts(rm))
+        else:
+            if getattr(self.risk_manager, "trading_paused_by_circuit_breaker", False):
+                halts.append("Consecutive-loss circuit breaker")
+            halts.extend(self._cost_limit_halts(self.risk_manager))
 
         return halts
+
+    @staticmethod
+    def _cost_limit_halts(rm) -> list:
+        """Cost-safety limits that block entries until their counter resets
+        (they are not cleared by /resume)."""
+        out = []
+        trades = getattr(rm, "trades_today", 0)
+        max_trades = getattr(rm, "max_trades_per_day", None)
+        if isinstance(max_trades, int) and trades >= max_trades:
+            out.append(
+                f"max trades/day reached ({trades}/{max_trades}) - lifts at the daily reset"
+            )
+        calls = getattr(rm, "api_calls_this_hour", 0)
+        max_calls = getattr(rm, "max_api_calls_per_hour", None)
+        if isinstance(max_calls, int) and calls >= max_calls:
+            out.append(
+                f"API call budget reached ({calls}/{max_calls}) - lifts at the top of the hour"
+            )
+        return out
 
     def _cmd_close_all(self):
         """Handle /close_all command (ask for confirmation first).

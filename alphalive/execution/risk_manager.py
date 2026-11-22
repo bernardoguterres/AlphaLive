@@ -153,6 +153,7 @@ class RiskManager:
             self.consecutive_losses = 0
             self.trading_paused_by_circuit_breaker = False
             self.trades_today = 0  # NEW: Reset trade counter
+            self._trade_limit_alerted = False
             self.last_reset_date = today
             self._persist()
 
@@ -750,37 +751,47 @@ class RiskManager:
                 return (False, reason)
 
         # 3. NEW: Trade frequency limit
+        self._maybe_reset_api_hour()
+        # These two limits block entries for as long as they are breached and
+        # lift on their own when the counter resets (trades_today at the daily
+        # reset, api_calls_this_hour at the top of the hour). They used to set
+        # trading_paused_manual, which neither reset nor /resume cleared, so a
+        # halt silently lasted until a restart. Alert once per breach.
         if self.trades_today >= self.max_trades_per_day:
-            logger.critical(
-                f"[{self.strategy_name}] COST SAFETY LIMIT: {self.trades_today} trades today "
-                f"(limit: {self.max_trades_per_day}). Auto-pausing trading."
-            )
-            self.trading_paused_manual = True  # Emergency halt
-            if self.notifier:
-                self.notifier.send_alert(
-                    f"🚨 EMERGENCY HALT\n\n"
-                    f"Strategy: {self.strategy_name}\n"
-                    f"Max trades per day reached: {self.trades_today}/{self.max_trades_per_day}\n"
-                    f"Trading auto-paused. Investigate for runaway signal bugs.\n"
-                    f"Resume: /resume (after verification) or set TRADING_PAUSED=false"
+            if not getattr(self, "_trade_limit_alerted", False):
+                self._trade_limit_alerted = True
+                logger.critical(
+                    f"[{self.strategy_name}] COST SAFETY LIMIT: {self.trades_today} trades today "
+                    f"(limit: {self.max_trades_per_day}). New entries blocked until "
+                    f"the daily reset."
                 )
+                if self.notifier:
+                    self.notifier.send_alert(
+                        f"🚨 EMERGENCY HALT\n\n"
+                        f"Strategy: {self.strategy_name}\n"
+                        f"Max trades per day reached: {self.trades_today}/{self.max_trades_per_day}\n"
+                        f"New entries blocked until tomorrow's daily reset (exits keep "
+                        f"running). Investigate for runaway signal bugs."
+                    )
             return (False, f"Max trades/day limit: {self.max_trades_per_day}")
 
         # 4. NEW: API call budget (soft limit at 80%, hard limit at 100%)
         if self.api_calls_this_hour >= self.max_api_calls_per_hour:
-            logger.critical(
-                f"[{self.strategy_name}] COST SAFETY LIMIT: {self.api_calls_this_hour} API calls this hour "
-                f"(limit: {self.max_api_calls_per_hour}). Auto-pausing."
-            )
-            self.trading_paused_manual = True
-            if self.notifier:
-                self.notifier.send_alert(
-                    f"🚨 EMERGENCY HALT\n\n"
-                    f"Strategy: {self.strategy_name}\n"
-                    f"Max API calls/hour exceeded: {self.api_calls_this_hour}/{self.max_api_calls_per_hour}\n"
-                    f"Approaching Alpaca rate limits. Trading auto-paused.\n"
-                    f"This resets at the top of each hour."
+            if not getattr(self, "_api_limit_alerted", False):
+                self._api_limit_alerted = True
+                logger.critical(
+                    f"[{self.strategy_name}] COST SAFETY LIMIT: {self.api_calls_this_hour} API calls this hour "
+                    f"(limit: {self.max_api_calls_per_hour}). New entries blocked until "
+                    f"the hourly reset."
                 )
+                if self.notifier:
+                    self.notifier.send_alert(
+                        f"🚨 EMERGENCY HALT\n\n"
+                        f"Strategy: {self.strategy_name}\n"
+                        f"Max API calls/hour exceeded: {self.api_calls_this_hour}/{self.max_api_calls_per_hour}\n"
+                        f"Approaching Alpaca rate limits. New entries blocked.\n"
+                        f"This resets at the top of each hour."
+                    )
             return (False, f"API call limit: {self.max_api_calls_per_hour}/hour")
 
         # Soft warning at 80% API budget
@@ -953,6 +964,21 @@ class RiskManager:
             f"Consecutive losses: {self.consecutive_losses}"
         )
 
+    def _maybe_reset_api_hour(self) -> None:
+        """Reset the hourly API-call counter at the top of each hour."""
+        now = datetime.now(ET)
+        if (now.date(), now.hour) != (
+            self.last_hour_reset.date(),
+            self.last_hour_reset.hour,
+        ):
+            logger.info(
+                f"[{self.strategy_name}] Hourly API call counter reset. "
+                f"Last hour: {self.api_calls_this_hour} calls"
+            )
+            self.api_calls_this_hour = 0
+            self._api_limit_alerted = False
+            self.last_hour_reset = now.replace(minute=0, second=0, microsecond=0)
+
     def record_api_call(self, endpoint: str) -> None:
         """
         Track API calls for rate limit protection.
@@ -962,17 +988,7 @@ class RiskManager:
         Args:
             endpoint: API endpoint name (for logging)
         """
-        now = datetime.now(ET)
-
-        # Reset counter at top of each hour
-        if now.hour != self.last_hour_reset.hour:
-            logger.info(
-                f"[{self.strategy_name}] Hourly API call counter reset. "
-                f"Last hour: {self.api_calls_this_hour} calls"
-            )
-            self.api_calls_this_hour = 0
-            self.last_hour_reset = now.replace(minute=0, second=0, microsecond=0)
-
+        self._maybe_reset_api_hour()
         self.api_calls_this_hour += 1
 
         logger.debug(
