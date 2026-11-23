@@ -20,8 +20,12 @@ from pathlib import Path
 from typing import List, Dict, Optional
 
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import GetOrdersRequest
-from alpaca.trading.enums import QueryOrderStatus
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from alphalive.utils.fill_matching import (
+    fetch_filled_orders,
+    match_fills_fifo,
+)  # noqa: E402
 
 
 def check_environment():
@@ -65,17 +69,15 @@ class TradeJournalGenerator:
             start_date = datetime.now() - timedelta(days=days)
             end_date = datetime.now()
 
-        request = GetOrdersRequest(
-            status=QueryOrderStatus.FILLED, after=start_date, until=end_date, limit=500
-        )
-
         # Retry logic for API calls
         max_retries = 3
         for attempt in range(max_retries):
             try:
                 print("Fetching orders from Alpaca...", end="", flush=True)
-                orders = self.client.get_orders(filter=request)
-                print(f"Found {len(orders)} orders")
+                orders = fetch_filled_orders(
+                    self.client, after=start_date, until=end_date
+                )
+                print(f"Found {len(orders)} filled orders")
 
                 return [
                     {
@@ -105,69 +107,34 @@ class TradeJournalGenerator:
     def match_trades(self, orders: List[Dict]) -> List[Dict]:
         """Match buy/sell orders into complete trades"""
 
-        # Group orders by symbol
-        by_symbol = {}
-        for order in orders:
-            symbol = order["symbol"]
-            if symbol not in by_symbol:
-                by_symbol[symbol] = []
-            by_symbol[symbol].append(order)
-
-        # Sort by filled time
-        for symbol in by_symbol:
-            by_symbol[symbol].sort(key=lambda x: x["filled_at"])
-
-        # Match trades (FIFO)
+        # FIFO by quantity per symbol (alphalive/utils/fill_matching.py): one
+        # trade per SELL, entry price = weighted cost of the lots it closed.
         trades = []
-        trade_id = 1
-
-        for symbol, symbol_orders in by_symbol.items():
-            open_positions = []
-
-            for order in symbol_orders:
-                if order["side"] == "buy":
-                    open_positions.append(order)
-                elif order["side"] == "sell" and open_positions:
-                    # Match with oldest buy (FIFO)
-                    buy_order = open_positions.pop(0)
-
-                    entry_price = buy_order["fill_price"]
-                    exit_price = order["fill_price"]
-                    qty = buy_order["qty"]
-
-                    pnl = (exit_price - entry_price) * qty
-                    pnl_pct = ((exit_price / entry_price) - 1) * 100
-
-                    hold_time = order["filled_at"] - buy_order["filled_at"]
-                    hold_hours = hold_time.total_seconds() / 3600
-                    hold_days = hold_time.days
-
-                    trades.append(
-                        {
-                            "trade_id": trade_id,
-                            "symbol": symbol,
-                            "entry_date": buy_order["filled_at"].strftime("%Y-%m-%d"),
-                            "entry_time": buy_order["filled_at"].strftime("%H:%M:%S"),
-                            "entry_price": entry_price,
-                            "exit_date": order["filled_at"].strftime("%Y-%m-%d"),
-                            "exit_time": order["filled_at"].strftime("%H:%M:%S"),
-                            "exit_price": exit_price,
-                            "qty": qty,
-                            "pnl_usd": pnl,
-                            "pnl_pct": pnl_pct,
-                            "hold_hours": hold_hours,
-                            "hold_days": hold_days,
-                            "outcome": (
-                                "WIN"
-                                if pnl > 0
-                                else "LOSS" if pnl < 0 else "BREAK_EVEN"
-                            ),
-                            "buy_order_id": buy_order["id"],
-                            "sell_order_id": order["id"],
-                        }
-                    )
-
-                    trade_id += 1
+        for trade_id, t in enumerate(match_fills_fifo(orders), start=1):
+            hold = t["exit_time"] - t["entry_time"]
+            pnl = t["pnl"]
+            trades.append(
+                {
+                    "trade_id": trade_id,
+                    "symbol": t["symbol"],
+                    "entry_date": t["entry_time"].strftime("%Y-%m-%d"),
+                    "entry_time": t["entry_time"].strftime("%H:%M:%S"),
+                    "entry_price": t["entry_price"],
+                    "exit_date": t["exit_time"].strftime("%Y-%m-%d"),
+                    "exit_time": t["exit_time"].strftime("%H:%M:%S"),
+                    "exit_price": t["exit_price"],
+                    "qty": t["qty"],
+                    "pnl_usd": pnl,
+                    "pnl_pct": t["pnl_pct"],
+                    "hold_hours": hold.total_seconds() / 3600,
+                    "hold_days": hold.days,
+                    "outcome": (
+                        "WIN" if pnl > 0 else "LOSS" if pnl < 0 else "BREAK_EVEN"
+                    ),
+                    "buy_order_id": ",".join(str(i) for i in t["buy_order_ids"]),
+                    "sell_order_id": t["sell_order_id"],
+                }
+            )
 
         return trades
 

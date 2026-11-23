@@ -18,7 +18,12 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from alphalive.config import load_config_path, load_env, validate_all
+from alphalive.config import (
+    load_config_path,
+    load_env,
+    position_budget_issue,
+    validate_all,
+)
 from alphalive.services.alphasignal_client import (
     IDENTITY_UNCHECKED,
     IDENTITY_UNREACHABLE,
@@ -1440,6 +1445,9 @@ def main(
     if app_config.dry_run:
         os.environ.setdefault(READ_ONLY_ENV, "true")
 
+    _budget = position_budget_issue(all_strategy_configs)
+    if _budget:
+        logger.warning(f"POSITION BUDGET: {_budget}")
     if not validate_all(all_strategy_configs, app_config):
         logger.critical("Configuration validation failed. Exiting.")
         sys.exit(1)
