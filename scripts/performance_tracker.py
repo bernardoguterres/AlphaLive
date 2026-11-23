@@ -20,8 +20,14 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import GetOrdersRequest
-from alpaca.trading.enums import OrderSide, QueryOrderStatus
+from alpaca.trading.enums import OrderSide
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from alphalive.utils.fill_matching import (  # noqa: E402
+    fetch_filled_orders,
+    match_fills_fifo,
+    open_quantities,
+)
 
 
 def check_environment():
@@ -105,10 +111,6 @@ class PerformanceTracker:
         """Get all filled trades from last N days with retry logic"""
         after = datetime.now() - timedelta(days=days)
 
-        request = GetOrdersRequest(
-            status=QueryOrderStatus.FILLED, after=after, limit=500
-        )
-
         # Retry logic for API calls
         max_retries = 3
         for attempt in range(max_retries):
@@ -118,8 +120,8 @@ class PerformanceTracker:
                     end="",
                     flush=True,
                 )
-                orders = self.client.get_orders(filter=request)
-                print(f"Found {len(orders)} orders")
+                orders = fetch_filled_orders(self.client, after=after)
+                print(f"Found {len(orders)} filled orders")
 
                 trades = []
                 for order in orders:
@@ -160,50 +162,16 @@ class PerformanceTracker:
                 "largest_loss": 0,
             }
 
-        # Group by symbol and match buy/sell pairs
-        df = pd.DataFrame(trades)
-        df["filled_at"] = pd.to_datetime(df["filled_at"])
-        df = df.sort_values("filled_at")
-
-        positions = {}
+        # Closed trades, FIFO by quantity per symbol (shared with the trade
+        # journal and weekly report - see alphalive/utils/fill_matching.py).
         closed_trades = []
-
-        for _, trade in df.iterrows():
-            symbol = trade["symbol"]
-
-            if symbol not in positions:
-                positions[symbol] = []
-
-            if trade["side"] == "buy":
-                positions[symbol].append(
-                    {
-                        "qty": trade["qty"],
-                        "entry_price": trade["fill_price"],
-                        "entry_time": trade["filled_at"],
-                    }
-                )
-            elif trade["side"] == "sell" and positions[symbol]:
-                # Match with oldest position (FIFO)
-                position = positions[symbol].pop(0)
-                pnl = (trade["fill_price"] - position["entry_price"]) * position["qty"]
-                pnl_pct = ((trade["fill_price"] / position["entry_price"]) - 1) * 100
-
-                closed_trades.append(
-                    {
-                        "symbol": symbol,
-                        "entry_price": position["entry_price"],
-                        "exit_price": trade["fill_price"],
-                        "qty": position["qty"],
-                        "pnl": pnl,
-                        "pnl_pct": pnl_pct,
-                        "entry_time": position["entry_time"],
-                        "exit_time": trade["filled_at"],
-                        "hold_time": (
-                            trade["filled_at"] - position["entry_time"]
-                        ).total_seconds()
-                        / 3600,  # hours
-                    }
-                )
+        for t in match_fills_fifo(trades):
+            t["hold_time"] = (
+                (t["exit_time"] - t["entry_time"]).total_seconds() / 3600
+                if t["entry_time"] is not None and t["exit_time"] is not None
+                else 0.0
+            )
+            closed_trades.append(t)
 
         if not closed_trades:
             return {
@@ -216,7 +184,7 @@ class PerformanceTracker:
                 "avg_loss": 0,
                 "largest_win": 0,
                 "largest_loss": 0,
-                "open_positions": sum(len(pos) for pos in positions.values()),
+                "open_positions": len(open_quantities(trades)),
             }
 
         closed_df = pd.DataFrame(closed_trades)
@@ -238,7 +206,7 @@ class PerformanceTracker:
             "largest_win": winners["pnl_pct"].max() if len(winners) > 0 else 0,
             "largest_loss": losers["pnl_pct"].min() if len(losers) > 0 else 0,
             "avg_hold_time_hours": closed_df["hold_time"].mean(),
-            "open_positions": sum(len(pos) for pos in positions.values()),
+            "open_positions": len(open_quantities(trades)),
             "trades": closed_trades,
         }
 
