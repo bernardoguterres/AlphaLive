@@ -239,7 +239,8 @@ def _signal_check(signal, positions):
     broker = mock.Mock()
     broker.get_all_positions.return_value = positions
     broker.get_account.return_value = mock.Mock(equity=110.0)
-    import tempfile, os
+    import tempfile
+    import os
 
     st = BotState(os.path.join(tempfile.mkdtemp(), "s.json"))
     st.record_position_open("AAPL", 0.33, 100.0)

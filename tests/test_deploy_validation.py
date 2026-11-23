@@ -1,11 +1,9 @@
 """Pre-deploy validation (Nov 2026 audit L10/L11)."""
 
-import json
 import shutil
 import sys
 from pathlib import Path
 
-import pytest
 
 from alphalive.config import load_config_path, position_budget_issue
 
