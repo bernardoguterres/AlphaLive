@@ -10,13 +10,14 @@ broker or network calls.
     python scripts/release_quarantine.py --state-file state.json \
         --release <intent_id> --operator "Name" --note "verified at broker"
 """
+
 import argparse
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from alphalive.state import INTENT_UNCERTAIN, BotState  # noqa: E402
+from alphalive.state import INTENT_UNCERTAIN, BotState, StateLockError  # noqa: E402
 
 
 def main(argv=None) -> int:
@@ -30,7 +31,18 @@ def main(argv=None) -> int:
     if not Path(args.state_file).exists():
         print(f"state file not found: {args.state_file}", file=sys.stderr)
         return 2
-    state = BotState(state_file=args.state_file)
+    try:
+        # Same exclusive lock the bot takes: refuse while it is running. Without
+        # it the script edited the file under a live bot, whose next routine
+        # save put the intent back (or the script overwrote fresh fills).
+        state = BotState(state_file=args.state_file, exclusive=True)
+    except StateLockError:
+        print(
+            "state file is locked by a running AlphaLive process - stop the bot "
+            "first, then rerun",
+            file=sys.stderr,
+        )
+        return 3
     if not args.release:
         rows = [
             i
@@ -38,13 +50,18 @@ def main(argv=None) -> int:
             if i["status"] == INTENT_UNCERTAIN and i.get("is_quarantine")
         ]
         for i in rows:
-            print(f"{i['intent_id']}  {i['ticker']} {i['side']} qty={i['qty']}  {i.get('last_error')}")
+            print(
+                f"{i['intent_id']}  {i['ticker']} {i['side']} qty={i['qty']}  {i.get('last_error')}"
+            )
         print(f"{len(rows)} quarantined intent(s)")
         return 0
     if state.release_quarantine_intent(args.release, args.operator, args.note):
         print(f"released {args.release}")
         return 0
-    print("not released: unknown intent, not a quarantine, or --operator/--note missing", file=sys.stderr)
+    print(
+        "not released: unknown intent, not a quarantine, or --operator/--note missing",
+        file=sys.stderr,
+    )
     return 1
 
 
