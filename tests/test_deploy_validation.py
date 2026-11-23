@@ -41,3 +41,14 @@ def test_validate_offline_rejects_an_over_budget_deploy(tmp_path, capsys):
     )
     assert validate_offline(str(d)) == 1
     assert "position sizes add up to 120%" in capsys.readouterr().out
+
+
+def test_verify_deployment_runs_the_bots_offline_validation(monkeypatch):
+    """It used to only load and print configs and said 'Safe to deploy' for
+    configs/production, which the bot refuses (several strategies per ticker)."""
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import verify_deployment
+
+    monkeypatch.setenv("STRATEGY_CONFIG_DIR", str(PROD))
+    issues = verify_deployment.check_strategy_configs()
+    assert issues and "Offline validation failed" in issues[0]
