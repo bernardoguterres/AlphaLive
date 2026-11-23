@@ -21,8 +21,12 @@ from typing import Dict, List, Optional
 
 import httpx
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import GetOrdersRequest
-from alpaca.trading.enums import QueryOrderStatus
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from alphalive.utils.fill_matching import (
+    fetch_filled_orders,
+    match_fills_fifo,
+)  # noqa: E402
 
 
 def check_environment():
@@ -62,11 +66,7 @@ class WeeklyReportGenerator:
         """Fetch trades from past week"""
         start_date = datetime.now() - timedelta(days=7)
 
-        request = GetOrdersRequest(
-            status=QueryOrderStatus.FILLED, after=start_date, limit=500
-        )
-
-        orders = self.client.get_orders(filter=request)
+        orders = fetch_filled_orders(self.client, after=start_date)
 
         return [
             {
@@ -80,49 +80,22 @@ class WeeklyReportGenerator:
         ]
 
     def match_trades(self, orders: List[Dict]) -> List[Dict]:
-        """Match buy/sell orders into complete trades"""
-        by_symbol = {}
-        for order in orders:
-            symbol = order["symbol"]
-            if symbol not in by_symbol:
-                by_symbol[symbol] = []
-            by_symbol[symbol].append(order)
-
-        for symbol in by_symbol:
-            by_symbol[symbol].sort(key=lambda x: x["filled_at"])
-
-        trades = []
-        for symbol, symbol_orders in by_symbol.items():
-            open_positions = []
-
-            for order in symbol_orders:
-                if order["side"] == "buy":
-                    open_positions.append(order)
-                elif order["side"] == "sell" and open_positions:
-                    buy_order = open_positions.pop(0)
-
-                    pnl = (order["fill_price"] - buy_order["fill_price"]) * buy_order[
-                        "qty"
-                    ]
-                    pnl_pct = (
-                        (order["fill_price"] / buy_order["fill_price"]) - 1
-                    ) * 100
-
-                    trades.append(
-                        {
-                            "symbol": symbol,
-                            "entry_price": buy_order["fill_price"],
-                            "exit_price": order["fill_price"],
-                            "qty": buy_order["qty"],
-                            "pnl": pnl,
-                            "pnl_pct": pnl_pct,
-                            "outcome": "WIN" if pnl > 0 else "LOSS",
-                            "entry_time": buy_order["filled_at"],
-                            "exit_time": order["filled_at"],
-                        }
-                    )
-
-        return trades
+        """Match buy/sell orders into closed trades, FIFO by quantity
+        (alphalive/utils/fill_matching.py)."""
+        return [
+            {
+                "symbol": t["symbol"],
+                "entry_price": t["entry_price"],
+                "exit_price": t["exit_price"],
+                "qty": t["qty"],
+                "pnl": t["pnl"],
+                "pnl_pct": t["pnl_pct"],
+                "outcome": "WIN" if t["pnl"] > 0 else "LOSS",
+                "entry_time": t["entry_time"],
+                "exit_time": t["exit_time"],
+            }
+            for t in match_fills_fifo(orders)
+        ]
 
     def calculate_stats(self, trades: List[Dict]) -> Dict:
         """Calculate weekly statistics"""

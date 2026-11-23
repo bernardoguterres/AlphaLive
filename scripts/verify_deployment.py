@@ -72,12 +72,24 @@ def check_strategy_configs():
 
     issues = []
 
-    # Get strategy path from env or default
-    config_path = os.getenv("STRATEGY_CONFIG", "configs/")
+    # Same resolution as run.py: a directory (multi-strategy) wins over a file.
+    config_path = (
+        os.getenv("STRATEGY_CONFIG_DIR") or os.getenv("STRATEGY_CONFIG") or "configs/"
+    )
 
     if not os.path.exists(config_path):
         print(f"Strategy config not found: {config_path}")
         issues.append(f"Strategy config not found: {config_path}")
+        return issues
+
+    # Run the bot's own offline validation (schema, one strategy per ticker,
+    # trailing stop vs PERSISTENT_STORAGE, position budget, signal code). This
+    # script used to only load and print the configs, so it said "Safe to
+    # deploy" for a folder the bot refuses at startup (duplicate tickers).
+    from run import validate_offline
+
+    if validate_offline(config_path) != 0:
+        issues.append(f"Offline validation failed for {config_path} (see above)")
         return issues
 
     try:
