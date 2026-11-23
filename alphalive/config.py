@@ -498,6 +498,23 @@ def _warn_if_ephemeral_state_path(app_config: "AppConfig") -> None:
 # =============================================================================
 
 
+def position_budget_issue(strategies: List[StrategySchema]) -> Optional[str]:
+    """Message when the strategies' max_position_size_pct add up to more than
+    100% of equity, else None. Each strategy sizes against total equity, so
+    four 30% configs can submit $120k of BUYs on a $100k account - borrowing
+    on margin without anything saying so (Nov 2026 audit, L11)."""
+    total = sum(float(s.risk.max_position_size_pct) for s in strategies)
+    if total <= 100.0 + 1e-9:
+        return None
+    parts = ", ".join(
+        f"{s.ticker} {s.risk.max_position_size_pct:g}%" for s in strategies
+    )
+    return (
+        f"position sizes add up to {total:g}% of equity ({parts}): if every "
+        f"strategy is long at once the account is over 100% invested (margin)"
+    )
+
+
 def validate_strategies(
     strategies: List[StrategySchema],
     portfolio_strategies: Optional[List[PortfolioStrategySchema]] = None,

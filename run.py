@@ -84,7 +84,11 @@ def _synthetic_bars(n: int = 300) -> pd.DataFrame:
 
 def validate_offline(config_path: str) -> int:
     """Validate strategy configuration offline; returns a process exit code."""
-    from alphalive.config import load_config_path, validate_strategies
+    from alphalive.config import (
+        load_config_path,
+        position_budget_issue,
+        validate_strategies,
+    )
     from alphalive.state import check_trailing_stop_requirements
     from alphalive.strategy.signal_engine import SignalEngine
 
@@ -97,6 +101,9 @@ def validate_offline(config_path: str) -> int:
     print(f"Loaded {len(strategies)} strategy/strategies")
 
     errors = validate_strategies(strategies)
+    budget = position_budget_issue(strategies)
+    if budget:
+        errors.append(budget)
     for strategy in strategies:
         try:
             check_trailing_stop_requirements(strategy)
