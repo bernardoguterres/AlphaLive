@@ -855,22 +855,27 @@ def _check_signal_for_strategy(
                 )
 
             _gate_status = _sentiment_pred.get("gate_status", "N/A")
-            logger.debug(
-                f"AlphaSignal gate status for {strat_cfg.ticker}: {_gate_status}"
+            _score = _sentiment_pred.get("sentiment_score")
+            _gate_detail = (
+                (
+                    f"sentiment_score={_score:.3f} "
+                    if isinstance(_score, (int, float))
+                    else "sentiment_score=none (no usable evidence) "
+                )
+                + f"gate_status={_gate_status} "
+                f"fail_policy={_sentiment_pred.get('fail_policy', 'n/a')}"
             )
+            if alphasignal_client is not None and signal_result["signal"] == "BUY":
+                # Logged at INFO either way: an entry that went through on a
+                # fail-open bypass (AlphaSignal down/no data) must be as
+                # visible in the logs as one that was blocked.
+                logger.info(
+                    f"Sentiment gate {'passed' if _sentiment_allowed else 'blocked'} "
+                    f"for {strat_cfg.ticker} BUY - {_gate_detail}"
+                )
 
             if not _sentiment_allowed:
-                _score = _sentiment_pred.get("sentiment_score")
-                logger.info(
-                    "Execution blocked by sentiment filter - "
-                    + (
-                        f"sentiment_score={_score:.3f} "
-                        if isinstance(_score, (int, float))
-                        else "sentiment_score=none (no usable evidence) "
-                    )
-                    + f"gate_status={_gate_status} "
-                    f"fail_policy={_sentiment_pred.get('fail_policy', 'n/a')}"
-                )
+                logger.info(f"Execution blocked by sentiment filter - {_gate_detail}")
             else:
                 try:
                     price = market_data.get_current_price(strat_cfg.ticker)
