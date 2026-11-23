@@ -11,7 +11,7 @@ mocked out. No real network or Alpaca calls are made.
 
 import time
 from datetime import datetime
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -2864,3 +2864,110 @@ def test_compute_daily_stats_uses_confirmed_fills_not_submit_prices():
     assert stats["win_rate"] == 50.0
     # Legacy path (no fills passed) must not crash on unfilled orders either.
     assert main_module._compute_daily_stats(orders, 100.0, 103.2)["win_rate"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Sentiment gate outcome is logged at INFO for every gated BUY (E2E 2026-11-23:
+# a BUY that passed, or went through on a fail-open bypass, was only visible
+# at DEBUG, so the logs could not show why an entry was allowed).
+# ---------------------------------------------------------------------------
+
+
+def _gated_buy(sample_strategy_config, real_bot_state, gate_result):
+    weekly_config = sample_strategy_config.model_copy(update={"timeframe": "1Week"})
+    signal_engine = Mock()
+    signal_engine.get_state.return_value = {}
+    signal_engine.generate_signal.return_value = {
+        "signal": "BUY",
+        "reason": "n/a",
+        "confidence": 0.5,
+    }
+    market_data = Mock()
+    market_data.get_latest_bars.return_value = _make_ohlcv_df()
+    market_data.get_current_price.return_value = 105.0
+    order_manager = Mock()
+    order_manager.execute_signal.return_value = {"status": "blocked", "reason": "x"}
+    broker = Mock()
+    broker.get_account.return_value = Mock(equity=100000.0)
+    broker.get_all_positions.return_value = []
+
+    async def fake_gate(**_kwargs):
+        return gate_result
+
+    with patch.object(main_module, "run_pre_execution_checks", fake_gate):
+        main_module._check_signal_for_strategy(
+            weekly_config,
+            datetime(2024, 1, 8, 9, 40, tzinfo=ET),
+            set(),
+            {},
+            market_data,
+            {weekly_config.ticker: signal_engine},
+            {weekly_config.ticker: order_manager},
+            Mock(),  # alphasignal_client
+            broker,
+            Mock(),
+            main_module.GlobalRiskManager(),
+            real_bot_state,
+        )
+    return weekly_config.ticker, order_manager
+
+
+def test_gate_pass_is_logged_at_info_with_score(
+    sample_strategy_config, real_bot_state, caplog
+):
+    caplog.set_level("INFO", logger="alphalive.main")
+    ticker, order_manager = _gated_buy(
+        sample_strategy_config,
+        real_bot_state,
+        (True, {"gate_status": "available_pass", "sentiment_score": 0.5}),
+    )
+    assert order_manager.execute_signal.called
+    info = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
+    assert any(
+        f"Sentiment gate passed for {ticker} BUY - sentiment_score=0.500 "
+        "gate_status=available_pass" in m
+        for m in info
+    ), info
+
+
+def test_fail_open_bypass_is_logged_at_info(
+    sample_strategy_config, real_bot_state, caplog
+):
+    caplog.set_level("INFO", logger="alphalive.main")
+    ticker, _ = _gated_buy(
+        sample_strategy_config,
+        real_bot_state,
+        (
+            True,
+            {
+                "gate_status": "error_bypass",
+                "sentiment_score": None,
+                "fail_policy": "open",
+            },
+        ),
+    )
+    info = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
+    assert any(
+        f"Sentiment gate passed for {ticker} BUY - sentiment_score=none "
+        "(no usable evidence) gate_status=error_bypass fail_policy=open" in m
+        for m in info
+    ), info
+
+
+def test_gate_block_still_logs_execution_blocked(
+    sample_strategy_config, real_bot_state, caplog
+):
+    caplog.set_level("INFO", logger="alphalive.main")
+    _, order_manager = _gated_buy(
+        sample_strategy_config,
+        real_bot_state,
+        (False, {"gate_status": "available_block", "sentiment_score": -0.9}),
+    )
+    assert not order_manager.execute_signal.called
+    info = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
+    assert any("Sentiment gate blocked" in m for m in info)
+    assert any(
+        "Execution blocked by sentiment filter - sentiment_score=-0.900 "
+        "gate_status=available_block" in m
+        for m in info
+    )
