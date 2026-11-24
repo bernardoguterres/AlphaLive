@@ -167,8 +167,8 @@ except Exception:
 )
 @pytest.mark.parametrize("wait", [0, 1, 3])
 def test_reentry_day_matches_alphalab(sample_strategy_dict, wait):
-    """AlphaLab decides a take-profit exit on bar t (fill t+1 open) and
-    re-enters at the open of the first bar after i = t + wait + 1. Live
+    """AlphaLab fills a take-profit exit inside bar t (intrabar, like live)
+    and re-enters at the open of the first bar after i = t + wait + 1. Live
     AlphaLive exits intraday on day t; its morning check on day D sees bars
     through D-1. Both must re-enter on the same calendar day."""
     close = STEADY_RISE
@@ -199,7 +199,7 @@ def test_reentry_day_matches_alphalab(sample_strategy_dict, wait):
     days = [str(d)[:10] for d in lab.index]
     sell = next(t for t in res.trades if t["side"] == "sell")
     rebuy = next(t for t in res.trades if t["reason"].startswith("Re-entry"))
-    t_exit = days.index(str(sell["timestamp"])[:10]) - 1  # decision bar
+    t_exit = days.index(str(sell["timestamp"])[:10])  # exit fills within bar t
     lab_reentry_day = days.index(str(rebuy["timestamp"])[:10])
 
     eng = _engine(
@@ -360,7 +360,7 @@ def test_reentry_day_matches_alphalab_with_risk_cooldown(
     days = [str(d)[:10] for d in lab.index]
     entry_decision = days.index(str(res.trades[0]["timestamp"])[:10]) - 1
     sell = next(t for t in res.trades if t["side"] == "sell")
-    t_exit = days.index(str(sell["timestamp"])[:10]) - 1
+    t_exit = days.index(str(sell["timestamp"])[:10])  # intrabar exit
     lab_reentry_day = days.index(
         str(
             next(t for t in res.trades if t["reason"].startswith("Re-entry"))[
