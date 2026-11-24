@@ -27,6 +27,15 @@ from alphalive.utils.env_bool import parse_bool_env
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
+# Strategies whose position state lives in the engine (_in_position) and
+# whose AlphaLab twin keeps its own state machine running through a
+# risk-overlay exit. ma_crossover is event-driven (and its opt-in re-entry
+# needs the engine flat); the deterministic-replay strategies recompute
+# their state from history and already ignore risk exits.
+SHADOW_STRATEGIES = frozenset(
+    {"bollinger_rsi_combo", "trend_adaptive_rsi", "greenblatt_weekly", "vwap_reversion"}
+)
+
 
 class SignalEngine:
     """
@@ -70,6 +79,17 @@ class SignalEngine:
         # mark_protective_exit(); cleared by a bearish cross or once the
         # ledger shows the position re-opened. Persisted in get_state().
         self._protective_exit_ts: Optional[str] = None
+
+        # Shadow position after a protective exit (X1 parity fix). AlphaLab's
+        # stateful strategies never learn that a stop-loss/take-profit/trailing
+        # overlay closed the position: their own state machine stays "long"
+        # until it emits its own exit, and only then can it enter again. The
+        # live engine used to be reset to flat on a risk exit, so it re-bought
+        # on the next entry bar (trend_adaptive_rsi SPY: 14 live round trips
+        # vs 4 in the backtest). While this flag is set the engine keeps the
+        # strategy's own position state although the ledger is flat; the
+        # strategy's own later SELL is turned into a no-order HOLD and clears it.
+        self._shadow_position: bool = False
 
         # Minimum-hold gate for greenblatt_weekly's opt-in exits. Wired by
         # main.py to BotState.is_min_hold_met(); zero-arg, returns True when
@@ -133,7 +153,14 @@ class SignalEngine:
         except (ValueError, TypeError):
             pp = 0.0
 
+        if not has_position and self._shadow_position:
+            # Flat ledger is expected while shadowing the strategy's own
+            # position after a protective exit - keep the strategy state.
+            return
+
         if has_position:
+            if self._shadow_position:
+                self._shadow_position = False  # a real position again
             if self._protective_exit_ts is not None:
                 self._protective_exit_ts = None  # re-entered: window closed
             if not self._in_position:
@@ -183,7 +210,36 @@ class SignalEngine:
             "vwap_position": self._vwap_position,
             "vwap_bars_since_signal": self._vwap_bars_since_signal,
             "protective_exit_ts": self._protective_exit_ts,
+            "shadow_position": self._shadow_position,
         }
+
+    def on_protective_exit(self, when: Any, confirmed_flat: bool = True) -> bool:
+        """Update the engine after a stop-loss/take-profit/trailing exit.
+
+        Stateful strategies (SHADOW_STRATEGIES) keep their own position state,
+        as AlphaLab's strategy does, until they emit their own exit; returns
+        True when that shadow is engaged. Other strategies are reset to flat
+        once the close is confirmed (confirmed_flat), as before. Always opens
+        the opt-in ma_crossover re-entry window."""
+        self.mark_protective_exit(when)
+        if self.strategy_name in SHADOW_STRATEGIES and self._in_position:
+            if not self._shadow_position:
+                logger.info(
+                    f"Protective exit: {self.strategy_name} keeps its own position "
+                    "state until it signals its own exit (no re-entry before then, "
+                    "same as the AlphaLab backtest)"
+                )
+            self._shadow_position = True
+            return True
+        if confirmed_flat:
+            self._shadow_position = False
+            self._in_position = False
+            self._entry_price = 0.0
+            self._peak_price = 0.0
+            self._peak_bar_ts = None
+            if self.strategy_name == "vwap_reversion" and self._vwap_position == 1:
+                self._vwap_position = 0
+        return False
 
     def mark_protective_exit(self, when: Any) -> None:
         """Record that a stop-loss/take-profit/trailing exit just closed the
@@ -222,6 +278,7 @@ class SignalEngine:
             state.get("vwap_bars_since_signal", 10**9) or 10**9
         )
         self._protective_exit_ts = state.get("protective_exit_ts")
+        self._shadow_position = bool(state.get("shadow_position", False))
         if self._in_position:
             logger.info(
                 f"Signal engine state restored | {self.strategy_name}: in position "
@@ -304,6 +361,24 @@ class SignalEngine:
         except Exception as e:
             logger.error(f"Signal generation failed: {e}", exc_info=True)
             return self._no_signal(f"Signal generation error: {e}", start_time)
+
+        # Shadow position (see __init__): the strategy's own exit after a
+        # protective exit closes the shadow; there is nothing left to sell.
+        if self._shadow_position and not self._in_position:
+            self._shadow_position = False
+            if result.get("signal") == "SELL":
+                result = {
+                    **result,
+                    "signal": "HOLD",
+                    "confidence": 0.0,
+                    "reason": (
+                        "Strategy exit while already flat (a protective exit "
+                        "closed the position earlier) - no order; entries "
+                        f"allowed again. Strategy reason: {result.get('reason', '')}"
+                    ),
+                    "shadow_exit": True,
+                }
+                logger.info(result["reason"])
 
         # Bear market filter (AlphaLive-only ENTRY filter, default on): a BUY
         # while price is below a declining trend SMA is converted to HOLD.

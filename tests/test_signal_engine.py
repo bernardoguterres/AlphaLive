@@ -1005,6 +1005,7 @@ def test_get_state_defaults_flat(sample_strategy_dict):
         "vwap_position": 0,
         "vwap_bars_since_signal": 10**9,
         "protective_exit_ts": None,
+        "shadow_position": False,
     }
 
 
