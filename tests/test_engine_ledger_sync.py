@@ -809,20 +809,9 @@ class TestContinuousSyncAndInFlightProtection:
         assert engine._entry_price == 145.0
         assert engine._peak_price == 155.0
 
-    def test_risk_exit_close_flattens_engine_state_and_persists(self, temp_state_file):
-        """When a position is closed by SL/TP/trailing stop in _run_exit_checks,
-        the engine must be restored to flat and persisted to state.
-        """
-        strat_cfg = _make_strategy_config("bollinger_rsi_combo", {}, ticker="AAPL")
-        bot_state = BotState(state_file=temp_state_file)
-        engine = SignalEngine(strat_cfg)
-        engine._in_position = True
-        engine._entry_price = 150.0
-        bot_state.record_position_open("AAPL", qty=10, entry_price=150.0)
-        bot_state.set_position_high("AAPL", 155.0)
-
+    def _risk_exit(self, engine, bot_state, ticker="AAPL"):
         pos = Position(
-            symbol="AAPL",
+            symbol=ticker,
             qty=10.0,
             side="long",
             market_value=1400.0,
@@ -833,34 +822,70 @@ class TestContinuousSyncAndInFlightProtection:
         )
         broker = Mock()
         broker.get_all_positions.return_value = [pos]
-
         market_data = Mock()
         market_data.get_current_price.return_value = 140.0
-
         order_manager = Mock()
         order_manager.check_exits.return_value = [
-            {"ticker": "AAPL", "reason": "Stop loss hit (down 6.7%)", "current_price": 140.0}
+            {"ticker": ticker, "reason": "Stop loss hit (down 6.7%)", "current_price": 140.0}
         ]
         order_manager.close_position.return_value = {"status": "success", "order_id": "o_close_1"}
         order_manager.config.risk.commission_per_trade = 0.0
-
-        app_config = Mock(dry_run=False)
-
         main_module._run_exit_checks(
             broker=broker,
             market_data=market_data,
-            order_manager_map={"AAPL": order_manager},
+            order_manager_map={ticker: order_manager},
             bot_state=bot_state,
-            app_config=app_config,
+            app_config=Mock(dry_run=False),
             notifier=Mock(),
             global_risk=GlobalRiskManager(),
-            signal_engine_map={"AAPL": engine},
+            signal_engine_map={ticker: engine},
         )
 
-        assert engine._in_position is False
-        assert engine._entry_price == 0.0
+    def test_risk_exit_keeps_stateful_strategy_shadow_and_persists(self, temp_state_file):
+        """X1: after an SL/TP/trailing close, a stateful strategy keeps its own
+        position state (as AlphaLab's strategy does) instead of being reset to
+        flat - otherwise it re-buys on the next entry bar while the backtest
+        waits for the strategy's own exit. The flat ledger must not undo it.
+        """
+        strat_cfg = _make_strategy_config("bollinger_rsi_combo", {}, ticker="AAPL")
+        bot_state = BotState(state_file=temp_state_file)
+        engine = SignalEngine(strat_cfg)
+        engine._in_position = True
+        engine._entry_price = 150.0
+        bot_state.record_position_open("AAPL", qty=10, entry_price=150.0)
+        bot_state.set_position_high("AAPL", 155.0)
+
+        self._risk_exit(engine, bot_state)
+        bot_state.record_position_close("AAPL")  # the fill, as booked by sync
+
+        assert engine._in_position is True
+        assert engine._shadow_position is True
         persisted = bot_state.get_engine_state("AAPL")
-        assert persisted["in_position"] is False
+        assert persisted["in_position"] is True
+        assert persisted["shadow_position"] is True
+
+        main_module._sync_engines_with_ledger({"AAPL": engine}, bot_state)
+        assert engine._in_position is True  # flat ledger does not end the shadow
+
+        restored = SignalEngine(strat_cfg)
+        restored.restore_state(bot_state.get_engine_state("AAPL"))
+        assert restored._shadow_position is True and restored._in_position is True
+
+    def test_risk_exit_flattens_event_driven_strategy(self, temp_state_file):
+        """ma_crossover has no own position state to keep: reset to flat."""
+        strat_cfg = _make_strategy_config("ma_crossover", {}, ticker="AAPL")
+        bot_state = BotState(state_file=temp_state_file)
+        engine = SignalEngine(strat_cfg)
+        engine._in_position = True
+        engine._entry_price = 150.0
+        bot_state.record_position_open("AAPL", qty=10, entry_price=150.0)
+
+        self._risk_exit(engine, bot_state)
+
+        assert engine._in_position is False
+        assert engine._shadow_position is False
+        assert engine._entry_price == 0.0
+        assert bot_state.get_engine_state("AAPL")["in_position"] is False
 
 
 class TestMultipleStrategiesLedgerSync:
@@ -938,3 +963,51 @@ class TestMultipleStrategiesLedgerSync:
 
         assert engine._in_position is False
         assert engine._vwap_position == 0
+
+
+class TestShadowPositionAfterProtectiveExit:
+    """X1: what the shadowed engine emits until the strategy's own exit."""
+
+    def _df(self, n=60):
+        idx = pd.date_range("2026-01-02", periods=n, freq="B")
+        close = np.linspace(100, 110, n)
+        return pd.DataFrame(
+            {"open": close, "high": close + 1, "low": close - 1, "close": close,
+             "volume": np.full(n, 1_000_000.0)},
+            index=idx,
+        )
+
+    def _engine(self, monkeypatch, outcome):
+        monkeypatch.setenv("ENABLE_BEAR_MARKET_FILTER", "false")
+        monkeypatch.setattr(
+            "alphalive.strategy.signal_engine.indicators.add_all_for_strategy",
+            lambda df, name, params: df,
+        )
+        engine = SignalEngine(_make_strategy_config("trend_adaptive_rsi", {}))
+        engine._in_position = True
+        engine._entry_price = 100.0
+        assert engine.on_protective_exit(datetime(2026, 3, 2, 11, 0, tzinfo=ET))
+
+        def handler(df):
+            if outcome == "SELL":
+                engine._in_position = False
+            return {"signal": outcome, "confidence": 0.9, "reason": "own rule",
+                    "indicators": {}, "warmup_complete": True}
+
+        engine._dispatch["trend_adaptive_rsi"] = handler
+        return engine
+
+    def test_strategy_own_exit_becomes_no_order_hold(self, monkeypatch):
+        engine = self._engine(monkeypatch, "SELL")
+        result = engine.generate_signal(self._df())
+        assert result["signal"] == "HOLD"
+        assert result["shadow_exit"] is True
+        assert engine._shadow_position is False
+        assert engine._in_position is False
+
+    def test_holds_while_strategy_still_long(self, monkeypatch):
+        engine = self._engine(monkeypatch, "HOLD")
+        result = engine.generate_signal(self._df())
+        assert result["signal"] == "HOLD"
+        assert "shadow_exit" not in result
+        assert engine._shadow_position is True

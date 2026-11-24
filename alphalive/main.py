@@ -1113,21 +1113,14 @@ def _run_exit_checks(
                         bot_state.clear_position_high(ticker)
                         bot_state.clear_entry_timestamp(ticker)
 
-                        # SL/TP closed the position outside the signal engine -
-                        # reset the engine to flat or it thinks it's still in
-                        # position and never re-enters (nor exits again).
+                        # SL/TP closed the position outside the signal engine.
+                        # Stateful strategies keep their own position state
+                        # until their own exit (as in the AlphaLab backtest);
+                        # the others are reset to flat. Also opens the opt-in
+                        # ma_crossover re-entry window.
                         if signal_engine_map and ticker in signal_engine_map:
-                            signal_engine_map[ticker].restore_state(
-                                {
-                                    "in_position": False,
-                                    "entry_price": 0.0,
-                                    "peak_price": 0.0,
-                                }
-                            )
-                            # Opens the opt-in ma_crossover re-entry window
-                            # (no effect on other strategies).
-                            signal_engine_map[ticker].mark_protective_exit(
-                                datetime.now(ET)
+                            signal_engine_map[ticker].on_protective_exit(
+                                datetime.now(ET), confirmed_flat=True
                             )
                             bot_state.save_engine_state(
                                 ticker, signal_engine_map[ticker].get_state()
@@ -1144,8 +1137,8 @@ def _run_exit_checks(
                         # the close never completes, the ledger keeps the
                         # position and sync_position(True) clears the window.
                         if signal_engine_map and ticker in signal_engine_map:
-                            signal_engine_map[ticker].mark_protective_exit(
-                                datetime.now(ET)
+                            signal_engine_map[ticker].on_protective_exit(
+                                datetime.now(ET), confirmed_flat=False
                             )
                             bot_state.save_engine_state(
                                 ticker, signal_engine_map[ticker].get_state()
