@@ -193,6 +193,10 @@ class TelegramNotifier:
             return response
 
         def _classify(e: Exception) -> RetryOutcome:
+            if isinstance(e, _TelegramAPIError) and e.status_code in (401, 404):
+                # Rejected token (401) or malformed token path (404): no
+                # retry will ever succeed.
+                return RetryOutcome(RetryDecision.FATAL)
             if isinstance(e, _TelegramAPIError):
                 return RetryOutcome(
                     RetryDecision.RETRY,
@@ -207,15 +211,22 @@ class TelegramNotifier:
             retry_with_backoff(
                 _post_once, classify=_classify, max_retries=3, base_delay=1.0
             )
-        except Exception:
-            # All retries failed
-            self.consecutive_failures += 1
-            if self.consecutive_failures >= 3 and not self.telegram_offline:
+        except _TelegramAPIError as e:
+            if e.status_code in (401, 404):
+                # A revoked or wrong token: stop sending (and stop the
+                # 1+2+4 s retry cycle per message) for the rest of this run.
+                self.enabled = False
                 self.telegram_offline = True
                 logger.critical(
-                    "🚨 Telegram offline - trading continues but alerts lost"
+                    f"Telegram rejected the bot token ({e.status_code}): "
+                    "notifications are OFF for this run - trading continues. "
+                    "Create a new token with @BotFather, set TELEGRAM_BOT_TOKEN "
+                    "and restart the bot."
                 )
-            return False
+                return False
+            return self._record_failure()
+        except Exception:
+            return self._record_failure()
 
         # Success
         if self.telegram_offline:
@@ -225,6 +236,14 @@ class TelegramNotifier:
         self.consecutive_failures = 0
         logger.debug("Telegram message sent successfully")
         return True
+
+    def _record_failure(self) -> bool:
+        """All retries of a send failed (Telegram unreachable or erroring)."""
+        self.consecutive_failures += 1
+        if self.consecutive_failures >= 3 and not self.telegram_offline:
+            self.telegram_offline = True
+            logger.critical("🚨 Telegram offline - trading continues but alerts lost")
+        return False
 
     def send_shutdown_notification(self, daily_stats: Dict[str, Any]):
         """

@@ -293,3 +293,21 @@ def test_validate_all_prints_summary_and_returns_true(
             assert "ALL CONFIGURATIONS VALID" in log_output
     finally:
         os.unlink(temp_path)
+
+
+@pytest.mark.parametrize(
+    "given,expected",
+    [
+        ("https://paper-api.alpaca.markets/v2", "https://paper-api.alpaca.markets"),
+        ("https://paper-api.alpaca.markets/v2/", "https://paper-api.alpaca.markets"),
+        ("https://paper-api.alpaca.markets", "https://paper-api.alpaca.markets"),
+        ("http://127.0.0.1:8765", "http://127.0.0.1:8765"),
+    ],
+)
+def test_base_url_accepts_dashboard_form_with_v2(given, expected):
+    """Alpaca's dashboard shows the endpoint with /v2; alpaca-py adds /v2
+    itself, so keeping it made every request 404 (/v2/v2/account)."""
+    from alphalive.config import BrokerConfig
+
+    cfg = BrokerConfig(api_key="k", secret_key="s", paper=True, base_url=given)
+    assert cfg.base_url == expected

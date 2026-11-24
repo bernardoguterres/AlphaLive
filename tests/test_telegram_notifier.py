@@ -442,3 +442,18 @@ def test_send_daily_summary(mock_httpx_success):
     assert "100000.00" in message  # start equity
     assert "100450.00" in message  # end equity
     assert "📈" in message  # Positive pnl emoji
+
+
+@pytest.mark.parametrize("status", [401, 404])
+def test_rejected_token_turns_notifications_off_without_retrying(status):
+    """A revoked/wrong bot token can never succeed: one attempt, then the
+    notifier switches itself off for the run instead of retrying (1+2+4 s)
+    on every message. Trading is unaffected."""
+    notifier = TelegramNotifier(bot_token="revoked", chat_id="1")
+    with patch("httpx.post") as mock_post, patch("time.sleep") as mock_sleep:
+        mock_post.return_value = Mock(status_code=status, text="Unauthorized")
+        assert notifier._send_now("x") is False
+        assert mock_post.call_count == 1
+        mock_sleep.assert_not_called()
+    assert notifier.enabled is False
+    assert notifier.send_message("later") is False  # nothing queued

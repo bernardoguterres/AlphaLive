@@ -2396,9 +2396,9 @@ def test_exit_close_resets_engine_state():
         {"AAPL": engine},
     )
 
-    engine.restore_state.assert_called_once_with(
-        {"in_position": False, "entry_price": 0.0, "peak_price": 0.0}
-    )
+    # X1: the engine decides (shadow for stateful strategies, flat otherwise)
+    engine.on_protective_exit.assert_called_once()
+    assert engine.on_protective_exit.call_args.kwargs == {"confirmed_flat": True}
     bot_state.save_engine_state.assert_called()
 
 
