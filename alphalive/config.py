@@ -41,6 +41,21 @@ class BrokerConfig(BaseModel):
         description="Custom base URL (auto-set based on paper flag if None)",
     )
 
+    @field_validator("base_url")
+    @classmethod
+    def strip_api_version(cls, v: Optional[str]) -> Optional[str]:
+        """Accept the endpoint as Alpaca's dashboard shows it.
+
+        The dashboard lists ``https://paper-api.alpaca.markets/v2``; alpaca-py
+        appends ``/v2`` itself, so that value made every request go to
+        ``/v2/v2/...`` and fail with 404 Not Found at startup."""
+        if v is None:
+            return v
+        v = v.strip().rstrip("/")
+        if v.endswith("/v2"):
+            v = v[: -len("/v2")]
+        return v or None
+
     def model_post_init(self, __context):
         """Set base_url based on paper flag if not provided."""
         if self.base_url is None:
