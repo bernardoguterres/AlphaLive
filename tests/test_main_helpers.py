@@ -2971,3 +2971,46 @@ def test_gate_block_still_logs_execution_blocked(
         "gate_status=available_block" in m
         for m in info
     )
+
+
+@pytest.mark.parametrize("timeframe", ["15Min", "1Hour"])
+def test_run_startup_warmup_intraday_stale_while_closed_continues(
+    sample_strategy_config, timeframe
+):
+    """A restart outside market hours must not stop an intraday bot: its
+    last bar is legitimately hours old (found on the first paper run)."""
+    cfg = sample_strategy_config.model_copy(update={"timeframe": timeframe})
+    market_data = Mock()
+    market_data.get_latest_bars.side_effect = DataStaleError("790 minutes past")
+    notifier = Mock()
+
+    main_module._run_startup_warmup(
+        [cfg], market_data, {cfg.ticker: Mock()}, notifier, market_open=False
+    )
+
+    notifier.send_error_alert.assert_not_called()
+
+
+@pytest.mark.parametrize("market_open", [True, None])
+def test_run_startup_warmup_intraday_stale_when_open_or_unknown_exits(
+    sample_strategy_config, market_open
+):
+    cfg = sample_strategy_config.model_copy(update={"timeframe": "15Min"})
+    market_data = Mock()
+    market_data.get_latest_bars.side_effect = DataStaleError("stale")
+    with pytest.raises(SystemExit):
+        main_module._run_startup_warmup(
+            [cfg], market_data, {cfg.ticker: Mock()}, Mock(), market_open=market_open
+        )
+
+
+def test_run_startup_warmup_daily_stale_while_closed_still_exits(
+    sample_strategy_config,
+):
+    cfg = sample_strategy_config.model_copy(update={"timeframe": "1Day"})
+    market_data = Mock()
+    market_data.get_latest_bars.side_effect = DataStaleError("sessions missing")
+    with pytest.raises(SystemExit):
+        main_module._run_startup_warmup(
+            [cfg], market_data, {cfg.ticker: Mock()}, Mock(), market_open=False
+        )
