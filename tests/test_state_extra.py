@@ -168,3 +168,25 @@ def test_save_failure_logged_not_raised(temp_state_file):
         state.set_position_high("AAPL", 150.0)
 
     assert state.state["position_highs"]["AAPL"] == 150.0
+
+
+@pytest.mark.parametrize(
+    "filled_at,now_at,expected",
+    [
+        ("2026-10-13T10:05:00-04:00", "2026-10-19T09:35:00-04:00", True),
+        ("2026-10-19T10:05:00-04:00", "2026-10-26T09:35:00-04:00", True),
+        ("2026-10-19T10:05:00-04:00", "2026-10-23T09:35:00-04:00", False),
+    ],
+)
+def test_min_hold_uses_et_week_boundaries(
+    temp_state_file, monkeypatch, filled_at, now_at, expected
+):
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.fromisoformat(now_at).astimezone(tz)
+
+    monkeypatch.setattr("alphalive.state.datetime", Clock)
+    state = BotState(temp_state_file)
+    state.state["entry_timestamps"] = {"AAPL": filled_at}
+    assert state.is_min_hold_met("AAPL", min_hold_weeks=1) is expected

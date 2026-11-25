@@ -19,7 +19,7 @@ import fcntl
 import logging
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from functools import wraps
 from typing import Any, Dict, List, Optional
@@ -586,7 +586,7 @@ class BotState:
 
     @_synchronized
     def is_min_hold_met(self, ticker: str, min_hold_weeks: int) -> bool:
-        """Return True if the position has been held for at least min_hold_weeks.
+        """Check elapsed weekly periods on the strategy's US/Eastern schedule.
 
         Returns True if no entry timestamp is found (fail-safe: allow exit).
         """
@@ -597,11 +597,16 @@ class BotState:
 
         try:
             entry_dt = datetime.fromisoformat(ts_str)
-            now = datetime.now(ET)
-            weeks_held = (now - entry_dt).days / 7
+            if entry_dt.tzinfo is None:
+                raise ValueError("missing timezone")
+            entry_date = entry_dt.astimezone(ET).date()
+            today = datetime.now(ET).date()
+            entry_week = entry_date - timedelta(days=entry_date.weekday())
+            current_week = today - timedelta(days=today.weekday())
+            weeks_held = (current_week - entry_week).days // 7
             met = weeks_held >= min_hold_weeks
             logger.debug(
-                f"{ticker}: {weeks_held:.1f} weeks held, "
+                f"{ticker}: {weeks_held} weeks held, "
                 f"min_hold={min_hold_weeks} weeks → {'met' if met else 'NOT met'}"
             )
             return met
