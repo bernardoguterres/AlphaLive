@@ -366,6 +366,13 @@ class AlphaSignalClient:
         if pred.get("gate_status") in NON_EVALUATING_STATUSES:
             pred = {**pred, "fail_policy": self.fail_policy}
             allowed = self.fail_policy == "open"
+            logger.warning(
+                "AlphaSignal gate for %s: %s fail_policy=%s allowed=%s",
+                ticker,
+                pred["gate_status"],
+                self.fail_policy,
+                allowed,
+            )
         return allowed, pred
 
     async def _evaluate(
@@ -467,14 +474,14 @@ class AlphaSignalClient:
                     "http_status": code,
                 }
             logger.warning(
-                "AlphaSignal check failed for %s (failing open): %s",
+                "AlphaSignal check failed for %s: %s",
                 ticker,
                 exc,
             )
             return True, {"gate_status": GATE_STATUS_ERROR_BYPASS, "http_status": code}
         except Exception as exc:
             logger.warning(
-                "AlphaSignal check failed for %s (failing open): %s",
+                "AlphaSignal check failed for %s: %s",
                 ticker,
                 exc,
             )
@@ -484,7 +491,7 @@ class AlphaSignalClient:
         if contract_issue is not None:
             logger.warning(
                 "AlphaSignal response for %s failed a defensive contract check "
-                "(%s) - failing open (invalid_response_bypass). Not logging the "
+                "(%s) (invalid_response_bypass). Not logging the "
                 "raw response body.",
                 ticker,
                 contract_issue,
@@ -499,7 +506,7 @@ class AlphaSignalClient:
             or sentiment.get("status") == "no_data"
         ):
             logger.info(
-                "AlphaSignal has no data for %s - failing open (no_data_bypass)",
+                "AlphaSignal has no data for %s (no_data_bypass)",
                 ticker,
             )
             return True, {**sentiment, "gate_status": GATE_STATUS_NO_DATA_BYPASS}
@@ -558,7 +565,7 @@ class AlphaSignalClient:
             if reason == "full_extraction_failure" or raw_score is None:
                 logger.info(
                     "AlphaSignal fully degraded (or no usable score) for %s "
-                    "(%s) - failing open (full_degraded_bypass)",
+                    "(%s) (full_degraded_bypass)",
                     ticker,
                     reason,
                 )
@@ -573,7 +580,7 @@ class AlphaSignalClient:
             # evidence to score, fail open distinctly from full degradation.
             logger.info(
                 "AlphaSignal degraded for %s (%s, %s reliable chunks) with "
-                "no usable reliable evidence - failing open "
+                "no usable reliable evidence "
                 "(partial_degraded_bypass)",
                 ticker,
                 reason,
