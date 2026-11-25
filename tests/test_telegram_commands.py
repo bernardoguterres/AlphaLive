@@ -401,3 +401,34 @@ def test_start_stop_thread(mock_components):
 
     # Verify stopped
     assert listener._running is False
+
+
+def test_poll_network_error_is_one_warning_line(mock_components, caplog):
+    """A dropped connection/DNS failure is transient: one WARNING line per
+    attempt, no ERROR traceback (86 of them in the first paper run)."""
+    import logging
+
+    import httpx
+
+    listener = TelegramCommandListener(
+        bot_token="test_token",
+        chat_id="123456",
+        order_manager=mock_components["order_manager"],
+        risk_manager=mock_components["risk_manager"],
+        broker=mock_components["broker"],
+        notifier=mock_components["notifier"],
+        config=mock_components["config"],
+    )
+    listener._running = True
+
+    def stop_after_sleep(_):
+        listener._running = False
+
+    with patch("httpx.get", side_effect=httpx.ConnectError("nodename nor servname")), patch(
+        "time.sleep", side_effect=stop_after_sleep
+    ), caplog.at_level(logging.DEBUG):
+        listener._poll_loop()
+
+    recs = [r for r in caplog.records if "Telegram poll" in r.getMessage()]
+    assert [r.levelname for r in recs] == ["WARNING"]
+    assert recs[0].exc_info is None

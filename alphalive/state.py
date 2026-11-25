@@ -414,6 +414,8 @@ class BotState:
             # loss limits / trade counts (schema v3).
             "risk_counters": {},
             "last_startup": None,
+            # {ticker: {signal, reason, at}} - last decision, for the dashboard
+            "last_signals": {},
             "version": "1.0",  # legacy informational field, kept for backward compat
             "schema_version": CURRENT_SCHEMA_VERSION,
             # dashboard_paused deliberately does NOT live in this dict (see
@@ -992,6 +994,16 @@ class BotState:
                 f"Failed to read dashboard pause file {pause_file}: {e}. Failing safe (paused)."
             )
             return True
+
+    @_synchronized
+    def record_signal(self, ticker: str, signal: str, reason: str):
+        """Remember the latest signal decision per ticker (dashboard display)."""
+        self.state.setdefault("last_signals", {})[ticker] = {
+            "signal": signal,
+            "reason": str(reason)[:300],
+            "at": datetime.now(ET).isoformat(),
+        }
+        self.save()
 
     @_synchronized
     def mark_startup(self):
