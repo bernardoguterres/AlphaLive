@@ -44,6 +44,7 @@ except ImportError:
 
 from alphalive.broker.alpaca_broker import AlpacaBroker
 from alphalive.utils.env_bool import read_bool_env
+from alphalive.utils.fill_matching import EPS, match_fills_fifo
 from alphalive.state import default_state_file_path
 
 # Resolved once so every STATE_FILE fallback in this module (and the bot's
@@ -326,9 +327,7 @@ def _strategy_summary(state: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "timeframe": s.timeframe,
                 "description": s.strategy.description,
                 "rules": _strategy_rules(s.strategy.name, params),
-                "parameters": {
-                    k: v for k, v in params.items() if k != "strategy_type"
-                },
+                "parameters": {k: v for k, v in params.items() if k != "strategy_type"},
                 "risk": {
                     "stop_loss_pct": s.risk.stop_loss_pct,
                     "take_profit_pct": s.risk.take_profit_pct,
@@ -445,34 +444,7 @@ def _build_payload() -> Dict[str, Any]:
 
     # ---- orders ----
     try:
-        from alpaca.trading.requests import GetOrdersRequest
-        from alpaca.trading.enums import QueryOrderStatus
-
-        today = date.today()
-        since = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
-        req = GetOrdersRequest(status=QueryOrderStatus.ALL, after=since, limit=50)
-        raw_orders = _get_broker()._retry_with_backoff(
-            _get_broker().trading_client.get_orders, req
-        )
-        orders = []
-        for o in raw_orders:
-            orders.append(
-                {
-                    "id": str(o.id),
-                    "symbol": o.symbol,
-                    "side": _enum_val(o.side),
-                    "qty": float(o.qty) if o.qty else 0.0,
-                    "filled_qty": float(o.filled_qty) if o.filled_qty else 0.0,
-                    "filled_avg_price": (
-                        float(o.filled_avg_price) if o.filled_avg_price else None
-                    ),
-                    "order_type": _enum_val(o.order_type),
-                    "status": _enum_val(o.status),
-                    "submitted_at": _dt_str(o.submitted_at),
-                    "filled_at": _dt_str(o.filled_at),
-                }
-            )
-        out["orders"] = orders
+        out["orders"] = _fetch_dashboard_orders(_get_broker())
     except Exception as exc:
         out["orders"] = []
         out["orders_error"] = str(exc)
@@ -658,36 +630,67 @@ async def api_positions():
     return {"positions": result, "count": len(result)}
 
 
+def _fetch_dashboard_orders(broker) -> list[dict]:
+    """Serialize today's order window and pair the visible fills by quantity."""
+    from alpaca.trading.enums import QueryOrderStatus
+    from alpaca.trading.requests import GetOrdersRequest
+
+    today = date.today()
+    since = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
+    request = GetOrdersRequest(status=QueryOrderStatus.ALL, after=since, limit=50)
+    raw = broker._retry_with_backoff(broker.trading_client.get_orders, request)
+    orders, fills = [], []
+    for order in raw:
+        row = {
+            "id": str(order.id),
+            "symbol": order.symbol,
+            "side": _enum_val(order.side),
+            "qty": float(order.qty) if order.qty else 0.0,
+            "filled_qty": float(order.filled_qty) if order.filled_qty else 0.0,
+            "filled_avg_price": (
+                float(order.filled_avg_price) if order.filled_avg_price else None
+            ),
+            "order_type": _enum_val(order.order_type),
+            "status": _enum_val(order.status),
+            "submitted_at": _dt_str(order.submitted_at),
+            "filled_at": _dt_str(order.filled_at),
+            "realized_pnl": None,
+        }
+        orders.append(row)
+        # A canceled order can still have filled shares. Its update timestamp
+        # bounds the partial fill when the broker has no full-fill timestamp.
+        timestamp = order.filled_at or getattr(order, "updated_at", None)
+        if (
+            timestamp is not None
+            and row["filled_qty"] > 0
+            and (row["filled_avg_price"] or 0) > 0
+        ):
+            fills.append(
+                {
+                    "id": row["id"],
+                    "symbol": row["symbol"],
+                    "side": row["side"],
+                    "qty": row["filled_qty"],
+                    "fill_price": row["filled_avg_price"],
+                    "filled_at": timestamp,
+                }
+            )
+
+    by_id = {row["id"]: row for row in orders}
+    for trade in match_fills_fifo(fills):
+        row = by_id[trade["sell_order_id"]]
+        if abs(row["filled_qty"] - trade["qty"]) <= EPS:
+            row["realized_pnl"] = trade["pnl"]
+    return orders
+
+
 @app.get("/api/trades")
 async def api_trades():
     """Today's Alpaca orders + state file trades_today."""
     broker = _require_broker()
-    orders: List[Dict] = []
+    orders = []
     try:
-        from alpaca.trading.requests import GetOrdersRequest
-        from alpaca.trading.enums import QueryOrderStatus
-
-        today = date.today()
-        since = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
-        req = GetOrdersRequest(status=QueryOrderStatus.ALL, after=since, limit=50)
-        raw_orders = broker._retry_with_backoff(broker.trading_client.get_orders, req)
-        for o in raw_orders:
-            orders.append(
-                {
-                    "id": str(o.id),
-                    "symbol": o.symbol,
-                    "side": _enum_val(o.side),
-                    "qty": float(o.qty) if o.qty else 0.0,
-                    "filled_qty": float(o.filled_qty) if o.filled_qty else 0.0,
-                    "filled_avg_price": (
-                        float(o.filled_avg_price) if o.filled_avg_price else None
-                    ),
-                    "order_type": _enum_val(o.order_type),
-                    "status": _enum_val(o.status),
-                    "submitted_at": _dt_str(o.submitted_at),
-                    "filled_at": _dt_str(o.filled_at),
-                }
-            )
+        orders = _fetch_dashboard_orders(broker)
     except HTTPException:
         raise
     except Exception as exc:
@@ -1046,4 +1049,3 @@ async def serve_logo():
     if not logo_path.exists():
         raise HTTPException(status_code=404, detail="logo.png not found")
     return FileResponse(logo_path)
-
