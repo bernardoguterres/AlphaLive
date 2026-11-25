@@ -214,6 +214,11 @@ class TelegramCommandListener:
 
             except httpx.TimeoutException:
                 logger.debug("Telegram poll timeout (normal)")
+            except httpx.TransportError as e:
+                # Dropped connection / DNS failure: transient, retried in 5 s.
+                # One line, not an ERROR traceback per attempt (86 of them on
+                # the first paper run, during a 12-minute network outage).
+                logger.warning(f"Telegram poll failed (network): {e}")
             except Exception as e:
                 logger.error(f"Telegram poll error: {e}", exc_info=True)
 

@@ -820,6 +820,13 @@ def _check_signal_for_strategy(
             f"Confidence: {signal_result['confidence']:.2%}"
         )
         logger.info(f"Reason: {signal_result['reason']}")
+        try:
+            # Last decision per ticker, for the dashboard's strategy panel.
+            bot_state.record_signal(
+                strat_cfg.ticker, signal_result["signal"], signal_result["reason"]
+            )
+        except Exception as e:  # display only - never blocks a decision
+            logger.debug(f"Could not record last signal: {e}")
 
         if "indicators" in signal_result:
             indicator_str = " | ".join(
@@ -1434,6 +1441,7 @@ def main(
     except StateLockError as e:
         logger.critical(str(e))
         sys.exit(1)
+    bot_state.mark_startup()  # "Bot started" on the dashboard (was never set)
 
     # Override with command-line args
     app_config.dry_run = dry_run or app_config.dry_run
