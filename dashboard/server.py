@@ -218,6 +218,141 @@ def _load_strategies() -> List:
     return _strategies
 
 
+def _strategy_rules(name: str, p: Dict[str, Any]) -> Dict[str, str]:
+    """Plain-language entry/exit rules for the strategy panel, from the
+    loaded parameters (mirrors signal_engine.py; long-only)."""
+    g = p.get
+    if name == "bollinger_rsi_combo":
+        exit_ = f"RSI above {g('rsi_overbought', 55)}"
+        if g("exit_at_middle", True):
+            exit_ = f"Close at or above the middle band, or {exit_}"
+        return {
+            "entry": (
+                f"Close at or below the lower Bollinger band ({g('bb_period', 20)}, "
+                f"{g('bb_std', 2.0)} std) and RSI({g('rsi_period', 14)}) below "
+                f"{g('rsi_oversold', 45)}"
+            ),
+            "exit": exit_,
+        }
+    if name == "ma_crossover":
+        f, s = g("fast_period", 10), g("slow_period", 20)
+        return {
+            "entry": f"SMA({f}) crosses above SMA({s})",
+            "exit": f"SMA({f}) crosses below SMA({s})",
+        }
+    if name == "rsi_mean_reversion":
+        n = g("rsi_period") or g("period", 14)
+        return {
+            "entry": f"RSI({n}) below {g('oversold', 30)}",
+            "exit": (
+                f"RSI({n}) back above 50, an ATR stop "
+                f"({g('stop_loss_atr_mult', 2.0)}x) or after "
+                f"{g('max_holding_days', 40)} bars"
+            ),
+        }
+    if name == "momentum_breakout":
+        n = g("lookback", 20)
+        return {
+            "entry": (
+                f"Close above the prior {n}-bar high, volume over "
+                f"{g('surge_pct', 1.5)}x its average and RSI at least {g('rsi_min', 50)}"
+            ),
+            "exit": (
+                f"Trailing ATR stop ({g('trailing_stop_atr_mult', 3.0)}x) or a "
+                f"{n}-bar low breakdown"
+            ),
+        }
+    if name == "bollinger_breakout":
+        return {
+            "entry": (
+                f"{g('confirmation_bars', 2)} closes above the upper band "
+                f"({g('period', 20)}, {g('std_dev', 2.0)} std)"
+                + (
+                    f" with volume over {g('volume_threshold', 1.5)}x average"
+                    if g("volume_filter", True)
+                    else ""
+                )
+            ),
+            "exit": "Close at or below the middle band x 1.01",
+        }
+    if name == "vwap_reversion":
+        return {
+            "entry": (
+                f"Price more than {g('deviation_threshold', 2.0)} std below VWAP "
+                f"({g('vwap_period', 20)}) with RSI below {g('oversold', 30)}"
+            ),
+            "exit": "Price back at VWAP",
+        }
+    if name == "trend_adaptive_rsi":
+        return {
+            "entry": (
+                f"RSI below a trend-dependent level: {g('uptrend_buy', 45)} in an "
+                f"uptrend, {g('downtrend_buy', 35)} in a downtrend, "
+                f"{g('range_buy', 35)} in a range (SMA {g('trend_sma', 50)})"
+            ),
+            "exit": (
+                f"RSI above {g('uptrend_sell', 65)} (uptrend) / "
+                f"{g('downtrend_sell', 55)} (downtrend)"
+            ),
+        }
+    if name == "greenblatt_weekly":
+        return {
+            "entry": (
+                f"Weekly RSI below {g('rsi_oversold', 35)} or SMA({g('fast_sma', 10)}) "
+                f"crossing above SMA({g('slow_sma', 50)})"
+            ),
+            "exit": (
+                f"{float(g('trailing_stop_pct', 0.2)) * 100:.0f}% trailing stop from "
+                f"peak; minimum hold {g('min_hold_bars', 52)} weeks for other exits"
+            ),
+        }
+    return {"entry": "See parameters", "exit": "See parameters"}
+
+
+def _strategy_summary(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """What each loaded strategy trades, its rules and risk limits, the
+    engine's position state and the bot's last recorded decision."""
+    engines = state.get("engine_state") or {}
+    last_signals = state.get("last_signals") or {}
+    out = []
+    for s in _load_strategies():
+        params = s.strategy.parameters
+        params = params if isinstance(params, dict) else dict(params)
+        eng = engines.get(s.ticker) or {}
+        out.append(
+            {
+                "name": s.strategy.name,
+                "ticker": s.ticker,
+                "timeframe": s.timeframe,
+                "description": s.strategy.description,
+                "rules": _strategy_rules(s.strategy.name, params),
+                "parameters": {
+                    k: v for k, v in params.items() if k != "strategy_type"
+                },
+                "risk": {
+                    "stop_loss_pct": s.risk.stop_loss_pct,
+                    "take_profit_pct": s.risk.take_profit_pct,
+                    "max_position_size_pct": s.risk.max_position_size_pct,
+                    "max_daily_loss_pct": s.risk.max_daily_loss_pct,
+                    "trailing_stop_pct": (
+                        s.risk.trailing_stop_pct
+                        if s.risk.trailing_stop_enabled
+                        else None
+                    ),
+                    "max_trades_per_day": s.safety_limits.max_trades_per_day,
+                    "cooldown_bars": s.execution.cooldown_bars,
+                    "order_type": s.execution.order_type,
+                },
+                "engine": {
+                    "in_position": bool(eng.get("in_position", False)),
+                    "shadow_position": bool(eng.get("shadow_position", False)),
+                },
+                "last_signal": last_signals.get(s.ticker),
+            }
+        )
+    return out
+
+
 def _trailing_stop_pct(ticker: str) -> Optional[float]:
     for s in _load_strategies():
         if s.ticker.upper() == ticker.upper() and s.risk.trailing_stop_enabled:
@@ -394,6 +529,12 @@ def _build_payload() -> Dict[str, Any]:
         }
     except Exception as exc:
         broker_err = str(exc)
+
+    try:
+        out["strategies"] = _strategy_summary(state)
+    except Exception as exc:
+        out["strategies"] = []
+        out["strategies_error"] = str(exc)
 
     out["health"] = {
         "last_startup": state.get("last_startup"),
@@ -746,6 +887,14 @@ async def api_deploy():
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Railway API call failed: {exc}")
+
+
+@app.get("/api/strategies")
+async def api_strategies():
+    """Loaded strategies: rules, parameters, risk limits, engine state and
+    the bot's last recorded decision. Empty without STRATEGY_CONFIG(_DIR)."""
+    strategies = _strategy_summary(_read_state())
+    return {"strategies": strategies, "count": len(strategies)}
 
 
 @app.get("/api/screener")

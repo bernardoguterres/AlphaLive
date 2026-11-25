@@ -107,6 +107,11 @@
     .kv > div:first-child { border-top: 0; }
     .kv dt { color: var(--text-muted); }
     .kv dd { text-align: right; }
+    .strategy-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px 32px; }
+    .rule { padding: 6px 0; font-size: 13px; border-top: 1px solid var(--border-soft); }
+    .rule:first-child { border-top: 0; }
+    .rule dt { color: var(--text-muted); font-size: 11px; margin-bottom: 2px; }
+    .strategy + .strategy { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-soft); }
 
     /* Tables */
     .table-wrap { overflow-x: auto; }
@@ -217,6 +222,59 @@
         <dd x-text="orders.length ? orderCounts().filled + ' filled · ' + orderCounts().pending + ' open · ' + orderCounts().rejected + ' rejected' : 'None yet'"></dd>
       </div>
     </dl>
+
+    <section class="section" aria-labelledby="strategy-title">
+      <div class="section-head">
+        <h2 id="strategy-title" x-text="strategies.length > 1 ? 'Strategies' : 'Strategy'">Strategy</h2>
+        <span class="aside" x-show="strategies.length" x-text="strategies.length + ' running'"></span>
+      </div>
+      <template x-for="s in strategies" :key="s.ticker + s.name">
+        <div class="strategy">
+          <p style="margin-bottom: 12px;">
+            <strong x-text="s.name"></strong>
+            <span class="muted num" x-text="' · ' + s.ticker + ' · ' + s.timeframe + ' bars · long only'"></span>
+          </p>
+          <div class="strategy-grid">
+            <dl>
+              <div class="rule"><dt>Buys when</dt><dd x-text="s.rules.entry"></dd></div>
+              <div class="rule"><dt>Sells when</dt><dd x-text="s.rules.exit"></dd></div>
+              <div class="rule"><dt>Position</dt><dd x-text="engineText(s)"></dd></div>
+              <div class="rule">
+                <dt>Last check</dt>
+                <dd x-show="s.last_signal">
+                  <strong x-text="s.last_signal?.signal"></strong>
+                  <span class="muted num" x-text="' at ' + dateTime(s.last_signal?.at)"></span>
+                  <span class="small muted" style="display: block;" x-text="s.last_signal?.reason"></span>
+                </dd>
+                <dd class="muted" x-show="!s.last_signal">Not recorded yet (recorded from the next check after a bot restart)</dd>
+              </div>
+            </dl>
+            <dl class="kv">
+              <div><dt>Stop-loss</dt><dd class="num" x-text="s.risk.stop_loss_pct + '% below entry'"></dd></div>
+              <div><dt>Take-profit</dt><dd class="num" x-text="s.risk.take_profit_pct + '% above entry'"></dd></div>
+              <div><dt>Trailing stop</dt><dd class="num" x-text="s.risk.trailing_stop_pct != null ? s.risk.trailing_stop_pct + '% below peak' : 'Off'"></dd></div>
+              <div><dt>Position size</dt><dd class="num" x-text="'Up to ' + s.risk.max_position_size_pct + '% of equity'"></dd></div>
+              <div><dt>Daily loss limit</dt><dd class="num" x-text="s.risk.max_daily_loss_pct + '% of equity'"></dd></div>
+              <div><dt>Trades per day</dt><dd class="num" x-text="'At most ' + s.risk.max_trades_per_day"></dd></div>
+              <div><dt>Cooldown</dt><dd class="num" x-text="s.risk.cooldown_bars + ' bars between orders'"></dd></div>
+              <div><dt>Orders</dt><dd class="num" x-text="s.risk.order_type"></dd></div>
+            </dl>
+          </div>
+          <details style="margin-top: 12px;">
+            <summary class="small muted">All parameters</summary>
+            <dl class="kv" style="margin-top: 8px;">
+              <template x-for="[k, v] in Object.entries(s.parameters)" :key="k">
+                <div><dt x-text="k"></dt><dd class="num" x-text="String(v)"></dd></div>
+              </template>
+            </dl>
+          </details>
+        </div>
+      </template>
+      <div class="empty" x-show="!strategies.length">
+        <p>No strategy loaded.</p>
+        <p>Set <code>STRATEGY_CONFIG</code> (or <code>STRATEGY_CONFIG_DIR</code>) to the bot's config to show it here.</p>
+      </div>
+    </section>
 
     <div class="grid-main">
       <section class="section" aria-labelledby="pnl-title">
@@ -478,6 +536,7 @@ document.addEventListener('alpine:init', () => {
     orders: [],
     risk: null,
     health: null,
+    strategies: [],
     screener: null,          // null = loading, false = not generated yet
     screenerLoading: false,
     sparks: {},              // symbol -> last 20 daily closes
@@ -520,9 +579,19 @@ document.addEventListener('alpine:init', () => {
       if (d.positions !== undefined) this.applyPositions(d.positions);
       if (d.orders !== undefined) this.applyOrders(d.orders);
       if (d.risk !== undefined) this.risk = d.risk;
+      if (d.strategies !== undefined) this.strategies = d.strategies;
       if (this.risk) this.recordPnl(this.risk.daily_pnl ?? 0);
       this.lastPushAt = Date.now();
       this.drawPnl();
+    },
+
+    engineText(s) {
+      if (s.engine?.shadow_position) {
+        return 'Flat - a stop closed the trade; no new buy until the strategy signals its own exit';
+      }
+      const held = this.positions.find((p) => p.symbol === s.ticker);
+      if (held) return `Long ${held.qty} shares`;
+      return 'Flat - waiting for a buy setup';
     },
 
     applyPositions(next) {
