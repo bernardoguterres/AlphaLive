@@ -532,8 +532,15 @@ def _run_startup_warmup(
     market_data,
     signal_engine_map: dict,
     notifier,
+    market_open: bool | None = True,
 ) -> None:
-    """Fetch and validate startup bars for every strategy before the first signal check."""
+    """Fetch and validate startup bars for every strategy before the first signal check.
+
+    Stale data at startup exits, except for an intraday (15Min/1Hour)
+    strategy while the market is closed (market_open is False): its newest
+    bar is then legitimately hours old, and every signal check re-checks
+    freshness during the session anyway. A restart outside market hours used
+    to stop an intraday bot for good."""
     logger.info("Running startup data backfill and warmup validation...")
     for strategy_config in all_strategy_configs:
         ticker = strategy_config.ticker
@@ -575,6 +582,13 @@ def _run_startup_warmup(
                         parse_mode="HTML",
                     )
         except DataStaleError as e:
+            if market_open is False and strategy_config.timeframe in ("15Min", "1Hour"):
+                logger.warning(
+                    f"Startup warmup for {ticker} skipped: market closed, so the last "
+                    f"{strategy_config.timeframe} bar is old ({e}). Freshness is "
+                    "checked again at every signal check once the market opens."
+                )
+                continue
             logger.critical(f"Startup data staleness for {ticker}: {e}")
             notifier.send_error_alert(f"❌ Startup failed for {ticker}: {str(e)}")
             sys.exit(1)
@@ -1666,7 +1680,18 @@ def main(
     logger.info("All subsystems initialized successfully")
 
     # Startup data backfill and warmup validation
-    _run_startup_warmup(all_strategy_configs, market_data, signal_engine_map, notifier)
+    try:
+        _market_open_at_start = broker.is_market_open()
+    except Exception as e:  # unknown -> strict (stale data exits)
+        logger.warning(f"Could not read market status at startup: {e}")
+        _market_open_at_start = None
+    _run_startup_warmup(
+        all_strategy_configs,
+        market_data,
+        signal_engine_map,
+        notifier,
+        market_open=_market_open_at_start,
+    )
 
     # 3. Send startup message
     mode = "DRY RUN" if app_config.dry_run else ("PAPER" if paper else "🔴 LIVE")
