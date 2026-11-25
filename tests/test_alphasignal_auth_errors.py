@@ -56,3 +56,11 @@ async def test_server_error_is_still_an_outage(policy, expected):
     allowed, pred = await _gate(503, policy)
     assert allowed is expected
     assert pred["gate_status"] == GATE_STATUS_ERROR_BYPASS
+
+
+async def test_closed_policy_logs_blocked_entry_on_outage(caplog):
+    allowed, _ = await _gate(503, "closed")
+    assert not allowed
+    assert "failing open" not in caplog.text
+    assert "fail_policy=closed" in caplog.text
+    assert "allowed=False" in caplog.text
