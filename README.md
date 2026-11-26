@@ -208,12 +208,40 @@ Multi-strategy mode (`STRATEGY_CONFIG_DIR`) enforces one strategy per ticker at 
 ## Verification
 
 ```bash
-pytest tests/ -v                              # 956 passed (2026-10-21)
+pytest tests/ -v                              # 1,092 passed (2026-11-26)
 pytest tests/test_multi_ticker_parity.py      # CI-enforced parity checks
 python run.py --validate-only --config <file>  # offline: no credentials, broker or network
 ```
 
 The pytest suite mocks all external integrations and needs no API keys or network access; `run.py --validate-only` is offline too: it validates the strategy config without loading `.env`, credentials or a broker (verified through the real entry point with credential and network access made to fail). `tests/test_signal_parity.py` is excluded here since it writes report files. CI runs the suite on every push/PR to `main` with dummy credentials.
+
+### Cross-repository regression workflow
+
+With `AlphaLab`, `AlphaLive`, and `AlphaSignal` checked out side by side, run these from `AlphaLive`. Use a Python environment with the three suites' test dependencies and Black installed, and install AlphaLab's frontend dependencies before running the checks.
+
+```bash
+python3 scripts/verify_ecosystem.py quick
+python3 scripts/verify_ecosystem.py full
+```
+
+The **quick** profile targets backtest API and strategy regressions, export schema and re-entry parity, sentiment and broker-gate contracts, and the frontend suite. The **full** profile runs all three Python suites and adds frontend lint, type checking, and a production build. Both run AlphaLab's Black check and two offline smoke checks. A synthetic weekly backtest goes through AlphaLab's Flask export endpoint and AlphaLive's strategy loader, which must preserve the timeframe and non-default settings. The real AlphaSignal ASGI app runs in-process with an isolated SQLite corpus and stubbed model. AlphaLive's client checks service identity, refuses an invalid API key, and applies the gate to ticker-specific evidence, missing evidence, and stale data. The gate smoke check also reloads persisted scores, verifies 32 concurrent requests without new model calls, and simulates an outage under both failure policies. The smoke checks stop before broker execution.
+
+Each run produces a `summary.json` and a log per check in a new temporary directory. Use `--reports-dir <directory>` to retain reports together. The summary records Git revisions, worktree status, commands, and outcomes. Pytest and Vitest reports include test and skip counts. Skipped coverage, missing result reports, and zero-test runs cannot produce a passing verification, even when a test process exits successfully. Failed or incomplete checks make the run exit nonzero while the runner continues collecting independent results.
+
+1. **Reproduce.** Record the input, observed behavior, expected behavior, affected boundary, and revisions in the bug tracker. Prefer a small fixture over production state.
+2. **Prove the regression.** Run the new test against the unfixed code and save the expected failure. For a cross-service defect, exercise the actual caller and response contract with external dependencies stubbed.
+3. **Fix and validate.** Run the focused test, then the quick profile during iteration. Run the full profile before merging a change that spans repositories or modifies a shared contract.
+4. **Close with evidence.** Require CI to pass on the PR head before merging. Record the regression, result, and merge commit in the tracker. Describe any runtime condition still unverified, such as real model quality or corpus freshness.
+
+### Local AlphaSignal data readiness
+
+```bash
+python3 scripts/verify_signal_readiness.py AAPL MSFT JPM NVDA
+```
+
+This check opens the configured AlphaSignal SQLite database in read-only mode. It reports each ticker's latest eligible document, its age, and whether the data is fresh, stale, or absent. It exits with code 1 when a requested ticker lacks fresh evidence and code 2 when the inputs or database cannot be checked. Omit tickers to check the entire configured universe. Use `--as-of YYYY-MM-DD` for a historical check or `--database` to inspect a specific local snapshot.
+
+Keep readiness and regression results together when evaluating the app. Fresh data is a prerequisite for current sentiment scores. The check ends at evidence availability and eligibility.
 
 ### Read-only paper check (`scripts/paper_readonly_check.py`)
 
