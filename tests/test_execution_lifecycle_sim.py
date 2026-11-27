@@ -967,7 +967,9 @@ def test_reconciliation_does_not_reopen_terminal_intent(sim, tmp_path):
         filled_avg_price=100,
         status="partially_filled",
     )
-    om._reconcile_intent(earlier_intent)
+    assert om._reconcile_intent(earlier_intent)["action"] == "superseded"
+    # Even a matching terminal response cannot resume an in-flight caller.
+    assert om._reconcile_intent(earlier_intent)["action"] == "superseded"
     assert state.get_open_intent("AAPL", "BUY") is None
     assert ledger_qty(state) == 100
 
