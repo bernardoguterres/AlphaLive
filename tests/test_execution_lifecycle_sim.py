@@ -805,3 +805,49 @@ def test_partial_close_booked_after_trading_day_rollover(
     assert restored["daily_pnl"] == rm.daily_pnl == pytest.approx(-200.0)
     assert restored["trades_today"] == rm.trades_today == 0
     assert restored["consecutive_losses"] == rm.consecutive_losses == 1
+
+
+def test_order_counter_write_preserves_concurrent_fill_loss(sim, tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    state_path = tmp_path / "s.json"
+    om, rm, state = build(sim, state_path, exclusive=True)
+    assert submit(om, BUY)["status"] == "success"
+    ctl(sim, "fill", client_order_id=last_coid(sim), qty=100, price=100.0)
+    om.sync_open_intents()
+    assert om.close_position("AAPL", "stop loss")["status"] == "pending"
+    ctl(sim, "fill", client_order_id=last_coid(sim), qty=50, price=97.0)
+
+    submission_started = Event()
+    submission_finished = Event()
+    record_fill = rm.record_fill_result
+
+    def count_submission():
+        submission_started.set()
+        rm.record_order_submitted("AAPL")
+        submission_finished.set()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = []
+
+        def interleave_submission(fill):
+            # The ledger write is complete but the risk manager hasn't
+            # adopted it yet. Try persisting another order at this boundary.
+            pending.append(pool.submit(count_submission))
+            assert submission_started.wait(timeout=2)
+            submission_finished.wait(timeout=0.2)
+            record_fill(fill)
+
+        monkeypatch.setattr(rm, "record_fill_result", interleave_submission)
+        om.sync_open_intents()
+        pending[0].result(timeout=2)
+
+    assert rm.daily_pnl == pytest.approx(-150.0)
+    assert rm.trades_today == 3
+    state.close()
+
+    _, restored, state2 = build(sim, state_path, exclusive=True)
+    assert ledger_qty(state2) == 50.0
+    assert restored.daily_pnl == pytest.approx(-150.0)
+    assert restored.trades_today == 3
