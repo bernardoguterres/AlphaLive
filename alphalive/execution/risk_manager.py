@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 from alphalive.strategy_schema import Risk, Execution, SafetyLimits
 from alphalive.utils.env_bool import read_bool_env
+from alphalive.utils.fill_accounting import project_fill_risk
 
 logger = logging.getLogger(__name__)
 
@@ -552,28 +553,44 @@ class RiskManager:
         """Book a broker-confirmed fill delta (BotState.apply_intent_fill_progress
         result): realised P&L into daily_pnl; a completed round trip updates
         the consecutive-loss circuit breaker."""
-        self.reset_daily()
-        self.daily_pnl += float(fill.get("realized_pnl", 0.0))
-        if fill.get("round_trip_closed") and fill.get("round_trip_pnl") is not None:
-            rt = float(fill["round_trip_pnl"])
-            if rt < 0:
-                self.consecutive_losses += 1
-            else:
-                self.consecutive_losses = 0
-            if self.consecutive_losses >= self.max_consecutive_losses:
-                if not self.trading_paused_by_circuit_breaker:
-                    logger.critical(
-                        f"[{self.strategy_name}] CIRCUIT BREAKER TRIGGERED | "
-                        f"{self.consecutive_losses} consecutive losing round trips - "
-                        f"new entries paused for the rest of the day"
-                    )
-                    if self.notifier:
-                        self.notifier.send_alert(
-                            f"🚨 Circuit breaker: {self.consecutive_losses} consecutive "
-                            f"losing round trips ({self.strategy_name}). New entries "
-                            f"paused for the day."
-                        )
-                self.trading_paused_by_circuit_breaker = True
+        persisted = fill.get("risk_counters")
+        if persisted is None:
+            self.reset_daily()
+            counters = project_fill_risk(
+                {
+                    "daily_pnl": self.daily_pnl,
+                    "consecutive_losses": self.consecutive_losses,
+                    "circuit_breaker": self.trading_paused_by_circuit_breaker,
+                },
+                fill,
+                self.max_consecutive_losses,
+            )
+        else:
+            counters = persisted
+            today = date.fromisoformat(counters["date"])
+            if self.last_reset_date != today:
+                self.daily_trades = []
+                self._trade_limit_alerted = False
+                self.last_reset_date = today
+                self.trades_today = counters["trades_today"]
+                self.trading_paused_by_circuit_breaker = False
+
+        previously_paused = self.trading_paused_by_circuit_breaker
+        self.daily_pnl = counters["daily_pnl"]
+        self.consecutive_losses = counters["consecutive_losses"]
+        self.trading_paused_by_circuit_breaker = counters["circuit_breaker"]
+        if self.trading_paused_by_circuit_breaker and not previously_paused:
+            logger.critical(
+                f"[{self.strategy_name}] CIRCUIT BREAKER TRIGGERED | "
+                f"{self.consecutive_losses} consecutive losing round trips - "
+                f"new entries paused for the rest of the day"
+            )
+            if self.notifier:
+                self.notifier.send_alert(
+                    f"🚨 Circuit breaker: {self.consecutive_losses} consecutive "
+                    f"losing round trips ({self.strategy_name}). New entries "
+                    f"paused for the day."
+                )
         self.daily_trades.append(
             {
                 "ticker": fill.get("ticker"),
@@ -581,7 +598,8 @@ class RiskManager:
                 "timestamp": datetime.now(ET).isoformat(),
             }
         )
-        self._persist()
+        if persisted is None:
+            self._persist()
 
     def check_cooldown(self, ticker: str, current_bar) -> bool:
         """
