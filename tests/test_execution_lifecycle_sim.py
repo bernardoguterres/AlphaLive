@@ -851,3 +851,186 @@ def test_order_counter_write_preserves_concurrent_fill_loss(sim, tmp_path, monke
     assert ledger_qty(state2) == 50.0
     assert restored.daily_pnl == pytest.approx(-150.0)
     assert restored.trades_today == 3
+
+
+@pytest.mark.parametrize(
+    "terminal_status", ["canceled", "expired", "filled", "rejected"]
+)
+def test_stale_terminal_report_does_not_drop_partial_intent(
+    sim, tmp_path, terminal_status
+):
+    path = tmp_path / "s.json"
+    om, _, state = build(sim, path, exclusive=True)
+    assert submit(om, BUY)["status"] == "success"
+    coid = last_coid(sim)
+    ctl(sim, "fill", client_order_id=coid, qty=70, price=100)
+    om.sync_open_intents()
+    assert ledger_qty(state) == 70
+
+    # Two broker lookups briefly return a contradictory terminal snapshot.
+    # The simulated order and its actual position are unchanged underneath.
+    stale = {
+        "client_order_id": coid,
+        "filled_qty": 20,
+        "filled_avg_price": 100,
+        "status": terminal_status,
+    }
+    ctl(sim, "report", **stale)
+    om.sync_open_intents()
+    assert ledger_qty(state) == 70
+    assert state.get_open_intent("AAPL", "BUY")["client_order_id"] == coid
+    ctl(sim, "report", **stale)
+    result = submit(om, SELL)
+    assert result["status"] == "blocked" and "in flight/unresolved" in result["reason"]
+    assert sim.client_ids() == [coid]
+    state.close()
+
+    ctl(sim, "fill", client_order_id=coid, qty=30, price=101)
+    restored, _, persisted = build(sim, path, exclusive=True)
+    from alphalive.main import _reconcile_open_submission_intents
+
+    _reconcile_open_submission_intents({"AAPL": restored}, persisted, _Notifier())
+    restored.sync_open_intents()
+    assert sim.client_ids() == [coid]
+    assert ledger_qty(persisted) == 100.0
+    assert persisted.get_open_positions()["AAPL"]["entry_price"] == pytest.approx(
+        100.30
+    )
+    persisted.close()
+
+
+def test_close_rejects_stale_cancellation_then_recovers_same_order(sim, tmp_path):
+    path = tmp_path / "s.json"
+    om, _, state = build(sim, path, exclusive=True)
+    assert submit(om, BUY)["status"] == "success"
+    entry_id = last_coid(sim)
+    ctl(sim, "fill", client_order_id=entry_id, qty=100, price=100)
+    om.sync_open_intents()
+    assert om.close_position("AAPL", "stop loss")["status"] == "pending"
+    close_id = last_coid(sim)
+    ctl(sim, "fill", client_order_id=close_id, qty=70, price=97)
+    om.sync_open_intents()
+
+    ctl(
+        sim,
+        "report",
+        client_order_id=close_id,
+        filled_qty=20,
+        filled_avg_price=97,
+        status="canceled",
+    )
+    assert om.close_position("AAPL", "stop loss")["status"] == "blocked"
+    assert state.get_open_intent("AAPL", "CLOSE")["client_order_id"] == close_id
+    assert sim.client_ids() == [entry_id, close_id]
+    state.close()
+
+    ctl(sim, "fill", client_order_id=close_id, qty=30, price=96)
+    restored, risk, persisted = build(sim, path, exclusive=True)
+    restored.sync_open_intents()
+    assert ledger_qty(persisted) == 0
+    assert risk.daily_pnl == pytest.approx(-330)
+    assert persisted.list_open_intents() == []
+    assert sim.client_ids() == [entry_id, close_id]
+    persisted.close()
+
+
+def test_partial_cancellation_with_current_quantity_is_terminal(sim, tmp_path):
+    om, _, state = build(sim, tmp_path / "s.json")
+    assert submit(om, BUY)["status"] == "success"
+    coid = last_coid(sim)
+    ctl(sim, "fill", client_order_id=coid, qty=70, price=100)
+    om.sync_open_intents()
+
+    ctl(sim, "status", client_order_id=coid, status="canceled")
+    om.sync_open_intents()
+    assert state.get_open_intent("AAPL", "BUY") is None
+    assert state.list_all_intents()[-1]["status"] == "cancelled"
+    assert ledger_qty(state) == 70
+
+
+def test_reconciliation_does_not_reopen_terminal_intent(sim, tmp_path):
+    om, _, state = build(sim, tmp_path / "s.json")
+    assert submit(om, BUY)["status"] == "success"
+    coid = last_coid(sim)
+    earlier_intent = state.get_open_intent("AAPL", "BUY")
+    ctl(sim, "fill", client_order_id=coid, qty=100, price=100)
+    om.sync_open_intents()
+    assert state.get_open_intent("AAPL", "BUY") is None
+
+    # Another reconciliation took its open-intent snapshot before the fill
+    # committed but processes its older response afterward.
+    ctl(
+        sim,
+        "report",
+        client_order_id=coid,
+        filled_qty=20,
+        filled_avg_price=100,
+        status="partially_filled",
+    )
+    om._reconcile_intent(earlier_intent)
+    assert state.get_open_intent("AAPL", "BUY") is None
+    assert ledger_qty(state) == 100
+
+
+def test_startup_stale_close_does_not_throw_away_cost_basis(sim, tmp_path):
+    from alphalive.main import _reconcile_open_submission_intents, _sync_position_ledger
+
+    path = tmp_path / "s.json"
+    om, _, state = build(sim, path, exclusive=True)
+    assert submit(om, BUY)["status"] == "success"
+    entry_id = last_coid(sim)
+    ctl(sim, "fill", client_order_id=entry_id, qty=100, price=100)
+    om.sync_open_intents()
+    assert om.close_position("AAPL", "stop loss")["status"] == "pending"
+    close_id = last_coid(sim)
+    ctl(sim, "fill", client_order_id=close_id, qty=70, price=97)
+    om.sync_open_intents()
+    assert ledger_qty(state) == 30
+    state.close()
+
+    ctl(sim, "fill", client_order_id=close_id, qty=30, price=96)
+    ctl(
+        sim,
+        "report",
+        client_order_id=close_id,
+        filled_qty=20,
+        filled_avg_price=97,
+        status="canceled",
+    )
+    restored, risk, persisted = build(sim, path, exclusive=True)
+    _reconcile_open_submission_intents({"AAPL": restored}, persisted, _Notifier())
+    _sync_position_ledger(restored.broker, persisted, _Notifier())
+    restored.sync_open_intents()
+    assert ledger_qty(persisted) == 0
+    assert sim.client_ids() == [entry_id, close_id]
+    assert risk.daily_pnl == pytest.approx(-330)
+    persisted.close()
+
+
+def test_startup_does_not_adopt_shares_a_pending_buy_will_book(sim, tmp_path):
+    from alphalive.main import _reconcile_open_submission_intents, _sync_position_ledger
+
+    path = tmp_path / "s.json"
+    om, _, state = build(sim, path, exclusive=True)
+    assert submit(om, BUY)["status"] == "success"
+    coid = last_coid(sim)
+    state.close()
+
+    ctl(sim, "fill", client_order_id=coid, qty=100, price=99)
+    ctl(
+        sim,
+        "report",
+        client_order_id=coid,
+        filled_qty=0,
+        filled_avg_price=0,
+        status="accepted",
+    )
+    restored, _, persisted = build(sim, path, exclusive=True)
+    _reconcile_open_submission_intents({"AAPL": restored}, persisted, _Notifier())
+    _sync_position_ledger(restored.broker, persisted, _Notifier())
+    restored.sync_open_intents()
+    assert ledger_qty(persisted) == 100
+    assert persisted.get_open_positions()["AAPL"]["entry_price"] == pytest.approx(99)
+    assert not persisted.list_open_intents()
+    assert sim.client_ids() == [coid]
+    persisted.close()
