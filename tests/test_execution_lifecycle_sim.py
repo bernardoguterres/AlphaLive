@@ -704,3 +704,104 @@ def test_without_read_only_mutations_still_reach_the_broker(sim, tmp_path, monke
     om, rm, state = build(sim, tmp_path / "s.json")
     assert submit(om, BUY)["status"] == "success"
     assert ("POST", "/v2/orders") in _mutations_seen(sim)
+
+
+@pytest.mark.parametrize("write_fails", [False, True])
+def test_restart_during_partial_close_booking_preserves_loss(
+    sim, tmp_path, monkeypatch, write_fails
+):
+    from alphalive import main as main_module
+
+    class SimulatedCrash(BaseException):
+        pass
+
+    def crash_after_fill_cursor(_):
+        raise SimulatedCrash
+
+    state_path = tmp_path / "s.json"
+    om, rm, state = build(sim, state_path, exclusive=True)
+    assert submit(om, BUY)["status"] == "success"
+    ctl(sim, "fill", client_order_id=last_coid(sim), qty=100, price=100.0)
+    om.sync_open_intents()
+    assert om.close_position("AAPL", "stop loss")["status"] == "pending"
+    close_id = last_coid(sim)
+    ctl(sim, "fill", client_order_id=close_id, qty=50, price=97.0)
+
+    if write_fails:
+        original_save = state.save
+
+        def fail_partial_fill_write():
+            # Fail exactly when the in-memory ledger advances, leaving
+            # the previously published state file intact.
+            if ledger_qty(state) == 50.0:
+                return False
+            return original_save()
+
+        monkeypatch.setattr(state, "save", fail_partial_fill_write)
+    monkeypatch.setattr(rm, "record_fill_result", crash_after_fill_cursor)
+    with pytest.raises(SimulatedCrash):
+        om.sync_open_intents()
+    assert ledger_qty(state) == 50.0
+    assert state.list_open_intents()[0]["filled_qty_applied"] == 50.0
+    persisted = json.loads(state_path.read_text())
+    position = persisted["open_positions"]["AAPL"]
+    assert position["qty"] == (100.0 if write_fails else 50.0)
+    assert persisted["daily_pnl"] == (0.0 if write_fails else -150.0)
+    state.close()
+
+    om2, rm2, state2 = build(sim, state_path, exclusive=True)
+    main_module._reconcile_open_submission_intents({"AAPL": om2}, state2, _Notifier())
+    main_module._sync_position_ledger(om2.broker, state2, _Notifier())
+    assert ledger_qty(state2) == 50.0
+    assert rm2.daily_pnl == pytest.approx(-150.0)
+    ctl(sim, "fill", client_order_id=close_id, qty=50, price=96.0)
+    om2.sync_open_intents()
+    om2.sync_open_intents()
+    assert len(sim.client_ids()) == 2
+    assert ledger_qty(state2) == 0.0
+    assert rm2.consecutive_losses == 1
+    assert rm2.daily_pnl == pytest.approx(-350.0)
+    assert state2.state["daily_pnl"] == pytest.approx(-350.0)
+    assert submit(om2, BUY, equity=10_000.0)["status"] == "blocked"
+    assert len(sim.client_ids()) == 2
+
+
+@pytest.mark.parametrize("has_previous_counters", [False, True])
+def test_partial_close_booked_after_trading_day_rollover(
+    sim, tmp_path, monkeypatch, has_previous_counters
+):
+    from datetime import datetime, timedelta
+
+    from alphalive import state as state_module
+    from alphalive.execution import risk_manager as risk_module
+
+    om, rm, state = build(sim, tmp_path / "s.json")
+    assert submit(om, BUY)["status"] == "success"
+    ctl(sim, "fill", client_order_id=last_coid(sim), qty=100, price=100.0)
+    om.sync_open_intents()
+    assert om.close_position("AAPL", "stop loss")["status"] == "pending"
+    close_id = last_coid(sim)
+    ctl(sim, "fill", client_order_id=close_id, qty=50, price=97.0)
+    om.sync_open_intents()
+    assert rm.daily_pnl == pytest.approx(-150.0)
+
+    tomorrow = datetime.now(state_module.ET) + timedelta(days=1)
+
+    class NextDay(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return tomorrow.astimezone(tz) if tz else tomorrow.replace(tzinfo=None)
+
+    monkeypatch.setattr(state_module, "datetime", NextDay)
+    monkeypatch.setattr(risk_module, "datetime", NextDay)
+    if not has_previous_counters:
+        state.state["risk_counters"].pop("AAPL")
+    ctl(sim, "fill", client_order_id=close_id, qty=50, price=96.0)
+    om.sync_open_intents()
+    om.sync_open_intents()
+
+    assert state.state["daily_pnl"] == pytest.approx(-200.0)
+    restored = state.get_risk_counters("AAPL", tomorrow.date().isoformat())
+    assert restored["daily_pnl"] == rm.daily_pnl == pytest.approx(-200.0)
+    assert restored["trades_today"] == rm.trades_today == 0
+    assert restored["consecutive_losses"] == rm.consecutive_losses == 1

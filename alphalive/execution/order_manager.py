@@ -11,6 +11,7 @@ Handles order placement, tracking, and position management with:
 
 import os
 import logging
+from threading import Lock
 from decimal import Decimal, InvalidOperation
 from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime
@@ -156,6 +157,7 @@ class OrderManager:
         # Order tracking
         # Broker-confirmed fill deltas booked by this manager (for logs/tests).
         self.fill_events: List[Dict[str, Any]] = []
+        self._fill_lock = Lock()
         self.order_history: List[Dict[str, Any]] = []  # All orders placed today
         self.pending_orders: Dict[str, str] = {}  # {ticker: order_id}
         # O(1) duplicate-check index: (ticker, side) → most recent order record
@@ -553,16 +555,19 @@ class OrderManager:
         price = getattr(order, "filled_avg_price", None)
         if not filled or not price:
             return None
-        fill = self.state.apply_intent_fill_progress(
-            intent["intent_id"],
-            filled,
-            price,
-            commission=float(self.config.risk.commission_per_trade or 0.0),
-        )
-        if fill is None:
-            return None
-        self.risk.record_fill_result(fill)
-        self.state.add_daily_pnl(fill["realized_pnl"])
+        # The main loop and a manual close can both observe broker fills.
+        # Adopt the corresponding risk snapshots in their publication order.
+        with self._fill_lock:
+            fill = self.state.apply_intent_fill_progress(
+                intent["intent_id"],
+                filled,
+                price,
+                commission=float(self.config.risk.commission_per_trade or 0.0),
+                loss_limit=getattr(self.risk, "max_consecutive_losses", None),
+            )
+            if fill is None:
+                return None
+            self.risk.record_fill_result(fill)
         # Global stats count completed round trips, not individual fill reports.
         if self.risk.global_risk is not None and fill.get("round_trip_closed"):
             self.risk.global_risk.record_trade(
@@ -570,20 +575,6 @@ class OrderManager:
                 pnl=fill.get("round_trip_pnl") or 0.0,
             )
         ticker = fill["ticker"]
-        if fill["side"] == "BUY":
-            if fill.get("opened_from_flat"):
-                # A new position must not inherit a previous position's
-                # trailing-stop high or entry time (left behind when a position
-                # was closed outside the bot): with an old high of $200 a fresh
-                # entry at $150 was sold on the first exit check.
-                self.state.clear_position_high(ticker)
-                self.state.clear_entry_timestamp(ticker)
-                self.state.record_entry(ticker)
-            elif ticker not in self.state.state.get("entry_timestamps", {}):
-                self.state.record_entry(ticker)
-        elif fill["round_trip_closed"]:
-            self.state.clear_position_high(ticker)
-            self.state.clear_entry_timestamp(ticker)
         self.fill_events.append(fill)
         if self.notifier:
             try:
