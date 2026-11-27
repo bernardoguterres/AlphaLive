@@ -9,11 +9,14 @@ Critical: This is the last line of defense against runaway losses.
 
 import logging
 from datetime import datetime, date
+from functools import wraps
+from threading import RLock
 from typing import Dict, List, Tuple, Optional
 from zoneinfo import ZoneInfo
 
 from alphalive.strategy_schema import Risk, Execution, SafetyLimits
 from alphalive.utils.env_bool import read_bool_env
+from alphalive.utils.fill_accounting import project_fill_risk
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +27,15 @@ ET = ZoneInfo("America/New_York")
 def pd_timestamp_iso(ts) -> str:
     """ISO string for a bar timestamp (pandas/datetime/str)."""
     return ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+
+
+def _serialize_accounting(method):
+    @wraps(method)
+    def locked(self, *args, **kwargs):
+        with self.accounting_lock:
+            return method(self, *args, **kwargs)
+
+    return locked
 
 
 class RiskManager:
@@ -64,6 +76,10 @@ class RiskManager:
         self.strategy_name = strategy_name
         self.notifier = notifier
         self.global_risk = global_risk
+        # An order manager holds the same lock while publishing a fill and
+        # adopting its durable snapshot. Another writer must not persist
+        # stale daily counters between those steps.
+        self.accounting_lock = RLock()
 
         # Daily tracking
         self.daily_pnl = 0.0
@@ -116,6 +132,7 @@ class RiskManager:
             f"Broker Failure Threshold: {self.broker_failure_threshold}"
         )
 
+    @_serialize_accounting
     def reset_daily(self) -> None:
         """
         Reset daily counters.
@@ -494,6 +511,7 @@ class RiskManager:
     # counter and the circuit breaker.
     # ------------------------------------------------------------------
 
+    @_serialize_accounting
     def attach_state(self, bot_state, key: str) -> None:
         """Persist/restore this manager's daily counters via BotState under
         `key`. Restores today's (ET) counters if present."""
@@ -538,6 +556,7 @@ class RiskManager:
             },
         )
 
+    @_serialize_accounting
     def record_order_submitted(self, ticker: str, bar_timestamp=None) -> None:
         """Count a submitted order (BUY or SELL) against max_trades_per_day
         and start the cooldown from the decision bar. Called for every order
@@ -548,32 +567,49 @@ class RiskManager:
             self.last_trade_bar_ts[ticker] = str(pd_timestamp_iso(bar_timestamp))
         self._persist()
 
+    @_serialize_accounting
     def record_fill_result(self, fill: Dict) -> None:
         """Book a broker-confirmed fill delta (BotState.apply_intent_fill_progress
         result): realised P&L into daily_pnl; a completed round trip updates
         the consecutive-loss circuit breaker."""
-        self.reset_daily()
-        self.daily_pnl += float(fill.get("realized_pnl", 0.0))
-        if fill.get("round_trip_closed") and fill.get("round_trip_pnl") is not None:
-            rt = float(fill["round_trip_pnl"])
-            if rt < 0:
-                self.consecutive_losses += 1
-            else:
-                self.consecutive_losses = 0
-            if self.consecutive_losses >= self.max_consecutive_losses:
-                if not self.trading_paused_by_circuit_breaker:
-                    logger.critical(
-                        f"[{self.strategy_name}] CIRCUIT BREAKER TRIGGERED | "
-                        f"{self.consecutive_losses} consecutive losing round trips - "
-                        f"new entries paused for the rest of the day"
-                    )
-                    if self.notifier:
-                        self.notifier.send_alert(
-                            f"🚨 Circuit breaker: {self.consecutive_losses} consecutive "
-                            f"losing round trips ({self.strategy_name}). New entries "
-                            f"paused for the day."
-                        )
-                self.trading_paused_by_circuit_breaker = True
+        persisted = fill.get("risk_counters")
+        if persisted is None:
+            self.reset_daily()
+            counters = project_fill_risk(
+                {
+                    "daily_pnl": self.daily_pnl,
+                    "consecutive_losses": self.consecutive_losses,
+                    "circuit_breaker": self.trading_paused_by_circuit_breaker,
+                },
+                fill,
+                self.max_consecutive_losses,
+            )
+        else:
+            counters = persisted
+            today = date.fromisoformat(counters["date"])
+            if self.last_reset_date != today:
+                self.daily_trades = []
+                self._trade_limit_alerted = False
+                self.last_reset_date = today
+                self.trades_today = counters["trades_today"]
+                self.trading_paused_by_circuit_breaker = False
+
+        previously_paused = self.trading_paused_by_circuit_breaker
+        self.daily_pnl = counters["daily_pnl"]
+        self.consecutive_losses = counters["consecutive_losses"]
+        self.trading_paused_by_circuit_breaker = counters["circuit_breaker"]
+        if self.trading_paused_by_circuit_breaker and not previously_paused:
+            logger.critical(
+                f"[{self.strategy_name}] CIRCUIT BREAKER TRIGGERED | "
+                f"{self.consecutive_losses} consecutive losing round trips - "
+                f"new entries paused for the rest of the day"
+            )
+            if self.notifier:
+                self.notifier.send_alert(
+                    f"🚨 Circuit breaker: {self.consecutive_losses} consecutive "
+                    f"losing round trips ({self.strategy_name}). New entries "
+                    f"paused for the day."
+                )
         self.daily_trades.append(
             {
                 "ticker": fill.get("ticker"),
@@ -581,7 +617,8 @@ class RiskManager:
                 "timestamp": datetime.now(ET).isoformat(),
             }
         )
-        self._persist()
+        if persisted is None:
+            self._persist()
 
     def check_cooldown(self, ticker: str, current_bar) -> bool:
         """
@@ -642,6 +679,7 @@ class RiskManager:
 
         return can_trade
 
+    @_serialize_accounting
     def can_trade(
         self,
         ticker: str,
@@ -877,6 +915,7 @@ class RiskManager:
         )
         return (True, "OK")
 
+    @_serialize_accounting
     def record_trade(
         self, ticker: str, pnl: float, current_bar: Optional[int] = None
     ) -> None:

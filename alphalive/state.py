@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from alphalive.utils.env_bool import read_bool_env
+from alphalive.utils.fill_accounting import project_fill_risk
 
 logger = logging.getLogger(__name__)
 
@@ -651,9 +652,13 @@ class BotState:
         broker_filled_qty: Any,
         broker_avg_price: Any,
         commission: float = 0.0,
+        *,
+        loss_limit: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
         """Apply the NEW part of a broker-confirmed cumulative fill to the
-        position ledger, exactly once, atomically with the intent update.
+        position ledger, exactly once, atomically with the intent update,
+        daily P&L and position lifecycle. When the caller supplies the
+        consecutive loss limit, also persist the per-ticker risk counters.
 
         The broker reports cumulative ``filled_qty`` and the cumulative
         ``filled_avg_price`` for an order. Each intent remembers how much of
@@ -760,7 +765,6 @@ class BotState:
         intent["filled_qty_applied"] = float(new_qty)
         intent["filled_value_applied"] = float(total_value)
         intent["updated_at"] = now_iso
-        self.save()
         result = {
             "ticker": ticker,
             "side": side,
@@ -770,10 +774,39 @@ class BotState:
             "position_qty_after": float(position_after),
             "round_trip_closed": round_trip_closed,
             "round_trip_pnl": round_trip_pnl,
-            # True on the first BUY fill of a new position (ledger was flat):
-            # the caller starts its trailing-stop high / entry time fresh.
+            # True on the first BUY fill of a new position (ledger was flat).
             "opened_from_flat": opened_from_flat,
         }
+        # Commit every durable part of fill accounting with the cumulative
+        # cursor. A replay deliberately ignores an already-applied fill.
+        today = now_iso[:10]
+        self._roll_daily_pnl(today)
+        self.state["daily_pnl"] += result["realized_pnl"]
+
+        entry_timestamps = self.state.setdefault("entry_timestamps", {})
+        if opened_from_flat or round_trip_closed:
+            self.state.setdefault("position_highs", {}).pop(ticker, None)
+            entry_timestamps.pop(ticker, None)
+        if side == "BUY":
+            entry_timestamps.setdefault(ticker, now_iso)
+
+        if isinstance(loss_limit, int):
+            risk_counters = self.state.setdefault("risk_counters", {})
+            previous = risk_counters.get(ticker, {})
+            counters = (
+                dict(previous)
+                if previous.get("date") == today
+                else {
+                    "date": today,
+                    "trades_today": 0,
+                    "last_trade_bar_ts": previous.get("last_trade_bar_ts", {}),
+                }
+            )
+            counters.update(project_fill_risk(counters, result, loss_limit))
+            risk_counters[ticker] = counters
+            result["risk_counters"] = counters
+
+        self.save()
         logger.info(
             f"Fill applied (intent {intent_id}): {side} {result['delta_qty']} {ticker} "
             f"@ ${result['delta_price']:.4f} | position now {result['position_qty_after']} "
