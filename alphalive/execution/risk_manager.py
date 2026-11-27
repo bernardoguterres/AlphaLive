@@ -9,6 +9,8 @@ Critical: This is the last line of defense against runaway losses.
 
 import logging
 from datetime import datetime, date
+from functools import wraps
+from threading import RLock
 from typing import Dict, List, Tuple, Optional
 from zoneinfo import ZoneInfo
 
@@ -25,6 +27,15 @@ ET = ZoneInfo("America/New_York")
 def pd_timestamp_iso(ts) -> str:
     """ISO string for a bar timestamp (pandas/datetime/str)."""
     return ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+
+
+def _serialize_accounting(method):
+    @wraps(method)
+    def locked(self, *args, **kwargs):
+        with self.accounting_lock:
+            return method(self, *args, **kwargs)
+
+    return locked
 
 
 class RiskManager:
@@ -65,6 +76,10 @@ class RiskManager:
         self.strategy_name = strategy_name
         self.notifier = notifier
         self.global_risk = global_risk
+        # An order manager holds the same lock while publishing a fill and
+        # adopting its durable snapshot. Another writer must not persist
+        # stale daily counters between those steps.
+        self.accounting_lock = RLock()
 
         # Daily tracking
         self.daily_pnl = 0.0
@@ -117,6 +132,7 @@ class RiskManager:
             f"Broker Failure Threshold: {self.broker_failure_threshold}"
         )
 
+    @_serialize_accounting
     def reset_daily(self) -> None:
         """
         Reset daily counters.
@@ -495,6 +511,7 @@ class RiskManager:
     # counter and the circuit breaker.
     # ------------------------------------------------------------------
 
+    @_serialize_accounting
     def attach_state(self, bot_state, key: str) -> None:
         """Persist/restore this manager's daily counters via BotState under
         `key`. Restores today's (ET) counters if present."""
@@ -539,6 +556,7 @@ class RiskManager:
             },
         )
 
+    @_serialize_accounting
     def record_order_submitted(self, ticker: str, bar_timestamp=None) -> None:
         """Count a submitted order (BUY or SELL) against max_trades_per_day
         and start the cooldown from the decision bar. Called for every order
@@ -549,6 +567,7 @@ class RiskManager:
             self.last_trade_bar_ts[ticker] = str(pd_timestamp_iso(bar_timestamp))
         self._persist()
 
+    @_serialize_accounting
     def record_fill_result(self, fill: Dict) -> None:
         """Book a broker-confirmed fill delta (BotState.apply_intent_fill_progress
         result): realised P&L into daily_pnl; a completed round trip updates
@@ -660,6 +679,7 @@ class RiskManager:
 
         return can_trade
 
+    @_serialize_accounting
     def can_trade(
         self,
         ticker: str,
@@ -895,6 +915,7 @@ class RiskManager:
         )
         return (True, "OK")
 
+    @_serialize_accounting
     def record_trade(
         self, ticker: str, pnl: float, current_bar: Optional[int] = None
     ) -> None:

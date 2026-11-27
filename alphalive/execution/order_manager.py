@@ -157,7 +157,11 @@ class OrderManager:
         # Order tracking
         # Broker-confirmed fill deltas booked by this manager (for logs/tests).
         self.fill_events: List[Dict[str, Any]] = []
-        self._fill_lock = Lock()
+        self._fill_lock = (
+            risk_manager.accounting_lock
+            if isinstance(risk_manager, RiskManager)
+            else Lock()
+        )
         self.order_history: List[Dict[str, Any]] = []  # All orders placed today
         self.pending_orders: Dict[str, str] = {}  # {ticker: order_id}
         # O(1) duplicate-check index: (ticker, side) → most recent order record
@@ -555,8 +559,8 @@ class OrderManager:
         price = getattr(order, "filled_avg_price", None)
         if not filled or not price:
             return None
-        # The main loop and a manual close can both observe broker fills.
-        # Adopt the corresponding risk snapshots in their publication order.
+        # Serialize publication and adoption against other risk-counter
+        # writers, including submissions and the trading-day reset.
         with self._fill_lock:
             fill = self.state.apply_intent_fill_progress(
                 intent["intent_id"],
