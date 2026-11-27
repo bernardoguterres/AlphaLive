@@ -836,15 +836,21 @@ class OrderManager:
             # taken before the broker lookup. Another caller may have applied
             # a fill or completed reconciliation in the meantime.
             current = self.state.get_submission_intent(intent_id)
-            if current is None or current["status"] in TERMINAL_INTENT_STATUSES:
-                return {
-                    "action": "superseded",
-                    "detail": "intent no longer open",
-                }
+            if current is None:
+                return {"action": "superseded", "detail": "intent no longer open"}
 
             reported_qty = _to_decimal(getattr(broker_order, "filled_qty", None))
             applied_qty = _to_decimal(current.get("filled_qty_applied"))
-            if (
+            if current["status"] in TERMINAL_INTENT_STATUSES:
+                # An explicit repeat lookup of the same settled outcome is
+                # idempotent. An in-flight caller superseded by another
+                # reconciliation must not act on its stale context.
+                if not (
+                    intent["status"] == current["status"] == mapped
+                    and _qty_equal(reported_qty, applied_qty)
+                ):
+                    return {"action": "superseded", "detail": "intent no longer open"}
+            elif (
                 mapped in TERMINAL_INTENT_STATUSES
                 and reported_qty + QTY_TOLERANCE < applied_qty
             ):
@@ -864,7 +870,7 @@ class OrderManager:
                 )
                 return {"action": "quarantine", "detail": detail}
 
-            if mapped is None:
+            elif mapped is None:
                 logger.warning(
                     f"Reconciliation: intent {intent_id} has unrecognized broker "
                     f"status '{broker_order.status}'. Quarantining."
@@ -877,9 +883,10 @@ class OrderManager:
                     "detail": f"unrecognized broker status: {broker_order.status}",
                 }
 
-            self.state.update_submission_intent(
-                intent_id, status=mapped, broker_order_id=broker_order.id
-            )
+            else:
+                self.state.update_submission_intent(
+                    intent_id, status=mapped, broker_order_id=broker_order.id
+                )
 
         if mapped == INTENT_FILLED:
             return {"action": "filled", "order": broker_order, "detail": mapped}
