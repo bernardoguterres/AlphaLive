@@ -1174,8 +1174,9 @@ def _sync_position_ledger(broker, bot_state, notifier) -> None:
     """Reconcile the persisted position ledger with the broker at startup.
 
     A restart with a lost/stale state file is expected (ephemeral STATE_FILE,
-    first boot, manual cleanup) - absorb differences here with a warning
-    instead of letting the mid-session drift check auto-halt on them.
+    first boot, manual cleanup) - absorb unexplained differences with a warning.
+    Leave positions with unresolved orders to fill reconciliation so broker
+    positions do not preemptively book a buy or erase a sell's cost basis.
     """
     try:
         alpaca_positions = broker.get_all_positions()
@@ -1185,9 +1186,10 @@ def _sync_position_ledger(broker, bot_state, notifier) -> None:
 
     alpaca_by_ticker = {pos.symbol: pos for pos in alpaca_positions}
     ledger = bot_state.get_open_positions()
+    unresolved = {intent["ticker"] for intent in bot_state.list_open_intents()}
 
     for symbol, pos in alpaca_by_ticker.items():
-        if symbol not in ledger:
+        if symbol not in ledger and symbol not in unresolved:
             logger.warning(
                 f"Startup sync: broker holds {symbol} ({pos.qty} @ "
                 f"${pos.avg_entry_price:.2f}) not in ledger - adopting it."
@@ -1199,7 +1201,7 @@ def _sync_position_ledger(broker, bot_state, notifier) -> None:
             )
 
     for symbol in ledger:
-        if symbol not in alpaca_by_ticker:
+        if symbol not in alpaca_by_ticker and symbol not in unresolved:
             logger.warning(
                 f"Startup sync: ledger tracks {symbol} but broker shows no "
                 f"position - removing from ledger (closed while bot was down?)."
@@ -1632,8 +1634,9 @@ def main(
 
     # Only AFTER intents are reconciled (fills that happened while the bot
     # was down are now booked once, through their intents) reconcile the
-    # ledger with broker positions. Anything still unexplained is adopted
-    # (or removed) with an alert; only mid-session drift auto-halts.
+    # ledger with broker positions. Tickers with unresolved intents are
+    # left for fill reconciliation; other discrepancies are adopted or
+    # removed with an alert. Only mid-session drift auto-halts.
     _sync_position_ledger(broker, bot_state, notifier)
 
     # Restore stateful signal-engine state (in_position/entry/peak) from the

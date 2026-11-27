@@ -25,6 +25,7 @@ from alphalive.execution.risk_manager import RiskManager
 from alphalive.strategy_schema import StrategySchema
 from alphalive.utils.retry import RetryDecision, RetryOutcome, retry_with_backoff
 from alphalive.state import (
+    TERMINAL_INTENT_STATUSES,
     INTENT_ABANDONED,
     INTENT_CANCELLED,
     INTENT_EXPIRED,
@@ -756,8 +757,9 @@ class OrderManager:
                            period. Closed out - never resubmitted, because
                            its decision context no longer exists.
             "quarantine" - outcome unknown (lookup failed, not-found within
-                           the grace period, unrecognized status). No new
-                           order for this ticker while quarantined.
+                           the grace period, unrecognized or contradictory
+                           status). No new order while it remains unresolved.
+            "superseded" - another reconciliation finalized this intent.
         """
         intent_id = intent["intent_id"]
         client_order_id = intent["client_order_id"]
@@ -828,24 +830,56 @@ class OrderManager:
             }
 
         mapped = _map_broker_order_status(getattr(broker_order, "status", None))
-        if mapped is None:
-            logger.warning(
-                f"Reconciliation: intent {intent_id} has unrecognized broker "
-                f"status '{broker_order.status}'. Quarantining."
-            )
-            self._apply_order_progress(intent, broker_order)
-            self.state.update_submission_intent(
-                intent_id, status=INTENT_UNCERTAIN, broker_order_id=broker_order.id
-            )
-            return {
-                "action": "quarantine",
-                "detail": f"unrecognized broker status: {broker_order.status}",
-            }
-
         self._apply_order_progress(intent, broker_order)
-        self.state.update_submission_intent(
-            intent_id, status=mapped, broker_order_id=broker_order.id
-        )
+        with self._fill_lock:
+            # Compare against current durable fill progress, not the snapshot
+            # taken before the broker lookup. Another caller may have applied
+            # a fill or completed reconciliation in the meantime.
+            current = self.state.get_submission_intent(intent_id)
+            if current is None or current["status"] in TERMINAL_INTENT_STATUSES:
+                return {
+                    "action": "superseded",
+                    "detail": "intent no longer open",
+                }
+
+            reported_qty = _to_decimal(getattr(broker_order, "filled_qty", None))
+            applied_qty = _to_decimal(current.get("filled_qty_applied"))
+            if (
+                mapped in TERMINAL_INTENT_STATUSES
+                and reported_qty + QTY_TOLERANCE < applied_qty
+            ):
+                detail = (
+                    f"terminal broker status {mapped} reports {reported_qty} filled "
+                    f"but {applied_qty} is already booked"
+                )
+                logger.warning(f"Reconciliation: intent {intent_id}: {detail}")
+                # The stale terminal response cannot settle a previously
+                # confirmed partial order. Keep it working for close/cancel
+                # coordination and retry reconciliation on the original ID.
+                self.state.update_submission_intent(
+                    intent_id,
+                    status=INTENT_PARTIALLY_FILLED,
+                    broker_order_id=broker_order.id,
+                    last_error=detail,
+                )
+                return {"action": "quarantine", "detail": detail}
+
+            if mapped is None:
+                logger.warning(
+                    f"Reconciliation: intent {intent_id} has unrecognized broker "
+                    f"status '{broker_order.status}'. Quarantining."
+                )
+                self.state.update_submission_intent(
+                    intent_id, status=INTENT_UNCERTAIN, broker_order_id=broker_order.id
+                )
+                return {
+                    "action": "quarantine",
+                    "detail": f"unrecognized broker status: {broker_order.status}",
+                }
+
+            self.state.update_submission_intent(
+                intent_id, status=mapped, broker_order_id=broker_order.id
+            )
 
         if mapped == INTENT_FILLED:
             return {"action": "filled", "order": broker_order, "detail": mapped}
@@ -1253,7 +1287,7 @@ class OrderManager:
         reconciliation = self._reconcile_intent(existing)
         action = reconciliation["action"]
 
-        if action == "quarantine":
+        if action in ("quarantine", "superseded"):
             return {"outcome": "quarantine", "detail": reconciliation["detail"]}
 
         if action == "abandoned":
