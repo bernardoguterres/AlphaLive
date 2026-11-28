@@ -902,6 +902,55 @@ def test_stale_terminal_report_does_not_drop_partial_intent(
     persisted.close()
 
 
+@pytest.mark.parametrize(
+    "status,qty", [("accepted", 0), ("partially_filled", 20), ("partially_filled", 40)]
+)
+def test_repeat_close_preserves_booked_fill_after_stale_working_lookup(
+    sim, tmp_path, status, qty
+):
+    path = tmp_path / "s.json"
+    om, _, state = build(sim, path, exclusive=True)
+    assert submit(om, BUY)["status"] == "success"
+    entry_id = last_coid(sim)
+    ctl(sim, "fill", client_order_id=entry_id, qty=100, price=100)
+    om.sync_open_intents()
+    assert om.close_position("AAPL", "stop loss")["status"] == "pending"
+    close_id = last_coid(sim)
+    ctl(sim, "fill", client_order_id=close_id, qty=40, price=101)
+    om.sync_open_intents()
+    state.close()
+
+    restored, risk, persisted = build(sim, path, exclusive=True)
+    ctl(
+        sim,
+        "report",
+        client_order_id=close_id,
+        filled_qty=qty,
+        filled_avg_price=99 if qty else None,
+        status=status,
+    )
+    repeated = restored.close_position("AAPL", "stop loss")
+    intent = persisted.get_open_intent("AAPL", "CLOSE")
+    assert ledger_qty(persisted) == 60
+    assert intent["filled_qty_applied"] == 40
+    assert sim.client_ids() == [entry_id, close_id]
+    assert (
+        intent["status"],
+        repeated["status"],
+        repeated["filled_qty"],
+        repeated["filled_price"],
+    ) == ("partially_filled", "partial", 40, 101)
+
+    ctl(sim, "fill", client_order_id=close_id, qty=60, price=102)
+    restored.sync_open_intents()
+    restored.sync_open_intents()
+    assert ledger_qty(persisted) == 0
+    assert risk.daily_pnl == pytest.approx(160)
+    assert persisted.list_open_intents() == []
+    assert sim.client_ids() == [entry_id, close_id]
+    persisted.close()
+
+
 def test_close_rejects_stale_cancellation_then_recovers_same_order(sim, tmp_path):
     path = tmp_path / "s.json"
     om, _, state = build(sim, path, exclusive=True)
@@ -934,6 +983,50 @@ def test_close_rejects_stale_cancellation_then_recovers_same_order(sim, tmp_path
     assert risk.daily_pnl == pytest.approx(-330)
     assert persisted.list_open_intents() == []
     assert sim.client_ids() == [entry_id, close_id]
+    persisted.close()
+
+
+@pytest.mark.parametrize("status,qty", [("accepted", 0), ("partially_filled", 40)])
+def test_stale_working_lookup_preserves_full_close_quarantine(
+    sim, tmp_path, status, qty
+):
+    path = tmp_path / "s.json"
+    om, _, state = build(sim, path, exclusive=True)
+    assert submit(om, BUY)["status"] == "success"
+    entry_id = last_coid(sim)
+    ctl(sim, "fill", client_order_id=entry_id, qty=100, price=100)
+    om.sync_open_intents()
+    assert om.close_position("AAPL", "stop loss")["status"] == "pending"
+    close_id = last_coid(sim)
+    om.broker.place_market_order(
+        symbol="AAPL", qty=30, side="buy", client_order_id="external"
+    )
+    ctl(sim, "fill", client_order_id="external", qty=30, price=100)
+    ctl(sim, "fill", client_order_id=close_id, qty=100, price=101)
+    om.sync_open_intents()
+    assert state.get_open_intent("AAPL", "CLOSE")["status"] == "uncertain"
+    state.close()
+
+    restored, _, persisted = build(sim, path, exclusive=True)
+    ctl(
+        sim,
+        "report",
+        client_order_id=close_id,
+        filled_qty=qty,
+        filled_avg_price=99 if qty else None,
+        status=status,
+    )
+    repeated = restored.close_position("AAPL", "stop loss")
+    intent = persisted.get_open_intent("AAPL", "CLOSE")
+    assert intent["filled_qty_applied"] == 100
+    assert float(restored.broker.get_position("AAPL").qty) == 30
+    assert ledger_qty(persisted) == 0
+    assert sim.client_ids() == [entry_id, close_id, "external"]
+    assert (intent["status"], repeated["status"], repeated["fill_status"]) == (
+        "uncertain",
+        "blocked",
+        "uncertain",
+    )
     persisted.close()
 
 
