@@ -1036,3 +1036,82 @@ def test_startup_does_not_adopt_shares_a_pending_buy_will_book(sim, tmp_path):
     assert not persisted.list_open_intents()
     assert sim.client_ids() == [coid]
     persisted.close()
+
+
+@pytest.mark.parametrize(
+    "lookup_raises", [True, False], ids=["late-error", "late-not-found"]
+)
+def test_delayed_lookup_failure_does_not_reopen_terminal(
+    sim, tmp_path, monkeypatch, lookup_raises
+):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    path = tmp_path / "s.json"
+    om, _, state = build(sim, path)
+    assert submit(om, BUY)["status"] == "success"
+    intent_id = state.get_open_intent("AAPL", "BUY")["intent_id"]
+    coid = last_coid(sim)
+    original = om.broker.get_order_by_client_id
+    started = Event()
+    finished = Event()
+
+    def lookup(order_id):
+        if not started.is_set():
+            started.set()
+            assert finished.wait(5)
+            if lookup_raises:
+                raise RuntimeError("simulated late transport failure")
+            return None
+        return original(order_id)
+
+    monkeypatch.setattr(om.broker, "get_order_by_client_id", lookup)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        earlier = pool.submit(om.sync_open_intents)
+        try:
+            assert started.wait(5)
+            ctl(sim, "fill", client_order_id=coid, qty=100, price=100)
+            om.sync_open_intents()
+            assert state.get_open_intent("AAPL", "BUY") is None
+        finally:
+            finished.set()
+        assert earlier.result(timeout=5)[0]["action"] == "superseded"
+    restored = BotState(str(path))
+    assert ledger_qty(restored) == 100
+    assert restored.get_open_intent("AAPL", "BUY") is None
+    assert restored.get_submission_intent(intent_id)["status"] == "filled"
+    assert sim.client_ids() == [coid]
+
+
+def test_recovered_order_starts_a_fresh_missing_grace_period(
+    sim, tmp_path, monkeypatch
+):
+    from datetime import datetime, timedelta
+    from unittest.mock import Mock
+    from zoneinfo import ZoneInfo
+
+    from alphalive.execution import order_manager
+
+    om, _, state = build(sim, tmp_path / "s.json")
+    assert submit(om, BUY)["status"] == "success"
+    coid = last_coid(sim)
+    lookup = om.broker.get_order_by_client_id
+    monkeypatch.setattr(om.broker, "get_order_by_client_id", lambda _: None)
+    now = datetime(2026, 11, 27, 9, 45, tzinfo=ZoneInfo("America/New_York"))
+    clock = Mock(wraps=datetime)
+    clock.now.return_value = now
+    monkeypatch.setattr(order_manager, "datetime", clock)
+    monkeypatch.setenv("ALPHALIVE_UNKNOWN_ORDER_GRACE_SECONDS", "60")
+
+    [first] = om.sync_open_intents()
+    assert first["action"] == "quarantine"
+    monkeypatch.setattr(om.broker, "get_order_by_client_id", lookup)
+    [recovered] = om.sync_open_intents()
+    assert recovered["action"] == "in_flight"
+    # The broker recognized the order between outages; a new 404 has age 0.
+    clock.now.return_value = now + timedelta(seconds=61)
+    monkeypatch.setattr(om.broker, "get_order_by_client_id", lambda _: None)
+    [second] = om.sync_open_intents()
+    assert second["action"] == "quarantine"
+    assert state.get_open_intent("AAPL", "BUY") is not None
+    assert sim.client_ids() == [coid]
