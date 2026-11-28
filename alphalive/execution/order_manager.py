@@ -836,7 +836,8 @@ class OrderManager:
         Returns a dict with an "action" key:
             "filled"     - broker reports the order fully filled (terminal).
             "in_flight"  - order live at the broker (new/accepted/partially
-                           filled); "order" holds it.
+                           filled); includes the broker order and effective
+                           status and cumulative fill for reporting.
             "terminal"   - rejected/cancelled/expired (any partial fill
                            before that has been booked); "order" holds it.
             "abandoned"  - the order never reached the broker ("prepared"
@@ -1001,17 +1002,47 @@ class OrderManager:
                 }
 
             else:
+                if (
+                    mapped in (INTENT_PARTIALLY_FILLED, INTENT_SUBMITTED)
+                    and current["status"] == INTENT_UNCERTAIN
+                    and current["side"] == "CLOSE"
+                    and applied_qty > 0
+                    and _qty_equal(applied_qty, current["qty"])
+                ):
+                    # An older working snapshot cannot resolve a full close
+                    # that still requires confirmation of the broker position.
+                    self.state.update_submission_intent(intent_id, not_found_since=None)
+                    return {
+                        "action": "quarantine",
+                        "detail": current.get("last_error")
+                        or "full close still needs position reconciliation",
+                    }
+                if mapped == INTENT_SUBMITTED and applied_qty > 0:
+                    mapped = INTENT_PARTIALLY_FILLED
                 self.state.update_submission_intent(
                     intent_id,
                     status=mapped,
                     broker_order_id=broker_order.id,
                     not_found_since=None,
                 )
+                if mapped in (INTENT_PARTIALLY_FILLED, INTENT_SUBMITTED):
+                    # A working snapshot may predate the fill already booked.
+                    if applied_qty > 0:
+                        _, filled_qty, filled_price = self._booked_outcome(current)
+                    else:
+                        filled_qty = float(reported_qty)
+                        price = getattr(broker_order, "filled_avg_price", None)
+                        filled_price = float(price) if price else None
+                    return {
+                        "action": "in_flight",
+                        "order": broker_order,
+                        "detail": mapped,
+                        "filled_qty": filled_qty,
+                        "filled_price": filled_price,
+                    }
 
         if mapped == INTENT_FILLED:
             return {"action": "filled", "order": broker_order, "detail": mapped}
-        if mapped in (INTENT_PARTIALLY_FILLED, INTENT_SUBMITTED):
-            return {"action": "in_flight", "order": broker_order, "detail": mapped}
         return {"action": "terminal", "order": broker_order, "detail": mapped}
 
     def _place_with_retry(
@@ -1424,6 +1455,15 @@ class OrderManager:
             return {"outcome": "fresh"}
 
         order = reconciliation.get("order")
+        if action == "in_flight":
+            return {
+                "outcome": "in_flight",
+                "mapped": reconciliation["detail"],
+                "order": order,
+                "filled_qty": reconciliation["filled_qty"],
+                "filled_price": reconciliation["filled_price"],
+            }
+
         requested_qty = _to_decimal(existing.get("qty"))
         cumulative_filled = _to_decimal(getattr(order, "filled_qty", None))
         filled_price = (
@@ -1432,21 +1472,7 @@ class OrderManager:
             else None
         )
 
-        if action in ("filled", "in_flight"):
-            mapped = _map_broker_order_status(getattr(order, "status", None))
-            if mapped != INTENT_FILLED:
-                # Still open (submitted/partially_filled) - report
-                # accurately, never resubmit; cumulative_filled is the
-                # broker's own absolute figure, never accumulated by us,
-                # so repeated reconciliation can't double-count it.
-                return {
-                    "outcome": "in_flight",
-                    "mapped": mapped,
-                    "order": order,
-                    "filled_qty": float(cumulative_filled),
-                    "filled_price": filled_price,
-                }
-
+        if action == "filled":
             # Broker reports the order itself fully filled - this alone is
             # NOT proof the position is flat (A). Confirm against the
             # broker's own position endpoint before declaring success.
