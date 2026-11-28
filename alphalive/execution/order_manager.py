@@ -764,70 +764,99 @@ class OrderManager:
         intent_id = intent["intent_id"]
         client_order_id = intent["client_order_id"]
 
+        lookup_error = None
         try:
             broker_order = self.broker.get_order_by_client_id(client_order_id)
-        except Exception as e:
-            logger.warning(
-                f"Reconciliation: broker lookup failed for intent {intent_id} "
-                f"({client_order_id}): {e}. Quarantining - not safe to retry "
-                f"or treat as failed."
-            )
-            if intent["status"] != INTENT_UNCERTAIN:
-                self.state.update_submission_intent(
-                    intent_id, status=INTENT_UNCERTAIN, last_error=str(e)
-                )
-            return {"action": "quarantine", "detail": f"broker lookup unavailable: {e}"}
+        except Exception as exc:
+            broker_order = None
+            lookup_error = exc
 
         if broker_order is None:
-            if intent.get("is_quarantine") or str(intent.get("last_error") or "").startswith(
-                "post-cancellation position"
-            ):
-                # The last_error prefix covers discrepancy quarantines persisted
-                # before the is_quarantine flag existed.
-                return {"action": "quarantine", "detail": "discrepancy quarantine intent (requires operator resolution)"}
+            # A concurrent reconciliation may have settled the intent while
+            # the broker lookup was in flight. Check and update under the
+            # same lock as successful broker observations.
+            with self._fill_lock:
+                current = self.state.get_submission_intent(intent_id)
+                if current is None or current["status"] in TERMINAL_INTENT_STATUSES:
+                    return {"action": "superseded", "detail": "intent no longer open"}
 
-            if intent["status"] == INTENT_PREPARED:
-                # Persisted before "submitting" was written, so it was never
-                # sent. Abandon - a stale decision must not be replayed.
-                self.state.update_submission_intent(
-                    intent_id,
-                    status=INTENT_ABANDONED,
-                    last_error="never submitted (prepared at reconciliation)",
-                )
-                return {"action": "abandoned", "detail": "prepared, never submitted"}
+                if lookup_error is not None:
+                    logger.warning(
+                        f"Reconciliation: broker lookup failed for intent {intent_id} "
+                        f"({client_order_id}): {lookup_error}. Quarantining - not safe to "
+                        f"retry or treat as failed."
+                    )
+                    if current["status"] != INTENT_UNCERTAIN:
+                        self.state.update_submission_intent(
+                            intent_id,
+                            status=INTENT_UNCERTAIN,
+                            last_error=str(lookup_error),
+                        )
+                    return {
+                        "action": "quarantine",
+                        "detail": f"broker lookup unavailable: {lookup_error}",
+                    }
 
-            now = datetime.now(ET)
-            first_missing = intent.get("not_found_since")
-            if first_missing is None:
-                self.state.update_submission_intent(
-                    intent_id, status=INTENT_UNCERTAIN, not_found_since=now.isoformat()
+                if current.get("is_quarantine") or str(
+                    current.get("last_error") or ""
+                ).startswith("post-cancellation position"):
+                    # The last_error prefix covers discrepancy quarantines persisted
+                    # before the is_quarantine flag existed.
+                    return {
+                        "action": "quarantine",
+                        "detail": "discrepancy quarantine intent (requires operator resolution)",
+                    }
+
+                if current["status"] == INTENT_PREPARED:
+                    # Persisted before "submitting" was written, so it was never
+                    # sent. Abandon - a stale decision must not be replayed.
+                    self.state.update_submission_intent(
+                        intent_id,
+                        status=INTENT_ABANDONED,
+                        last_error="never submitted (prepared at reconciliation)",
+                    )
+                    return {
+                        "action": "abandoned",
+                        "detail": "prepared, never submitted",
+                    }
+
+                now = datetime.now(ET)
+                first_missing = current.get("not_found_since")
+                if first_missing is None:
+                    self.state.update_submission_intent(
+                        intent_id,
+                        status=INTENT_UNCERTAIN,
+                        not_found_since=now.isoformat(),
+                    )
+                    first_missing = now.isoformat()
+                age = (now - datetime.fromisoformat(first_missing)).total_seconds()
+                grace = _unknown_order_grace_seconds()
+                if age >= grace:
+                    msg = (
+                        f"Intent {intent_id} ({current['ticker']} {current['side']}): broker "
+                        f"has had no order for client_order_id {client_order_id} for "
+                        f"{age:.0f}s (grace {grace:.0f}s) - abandoning. Nothing was "
+                        f"booked for it."
+                    )
+                    logger.warning(msg)
+                    self.state.update_submission_intent(
+                        intent_id, status=INTENT_ABANDONED, last_error=msg
+                    )
+                    if self.notifier:
+                        self.notifier.send_alert(f"⚠️ {msg}")
+                    return {
+                        "action": "abandoned",
+                        "detail": "not found after grace period",
+                    }
+                logger.warning(
+                    f"Reconciliation: intent {intent_id} status={current['status']} but "
+                    f"broker has no order for {client_order_id} yet ({age:.0f}s of "
+                    f"{grace:.0f}s grace). Quarantined."
                 )
-                first_missing = now.isoformat()
-            age = (now - datetime.fromisoformat(first_missing)).total_seconds()
-            grace = _unknown_order_grace_seconds()
-            if age >= grace:
-                msg = (
-                    f"Intent {intent_id} ({intent['ticker']} {intent['side']}): broker "
-                    f"has had no order for client_order_id {client_order_id} for "
-                    f"{age:.0f}s (grace {grace:.0f}s) - abandoning. Nothing was "
-                    f"booked for it."
-                )
-                logger.warning(msg)
-                self.state.update_submission_intent(
-                    intent_id, status=INTENT_ABANDONED, last_error=msg
-                )
-                if self.notifier:
-                    self.notifier.send_alert(f"⚠️ {msg}")
-                return {"action": "abandoned", "detail": "not found after grace period"}
-            logger.warning(
-                f"Reconciliation: intent {intent_id} status={intent['status']} but "
-                f"broker has no order for {client_order_id} yet ({age:.0f}s of "
-                f"{grace:.0f}s grace). Quarantined."
-            )
-            return {
-                "action": "quarantine",
-                "detail": "broker has no record of a submitted order (within grace)",
-            }
+                return {
+                    "action": "quarantine",
+                    "detail": "broker has no record of a submitted order (within grace)",
+                }
 
         mapped = _map_broker_order_status(getattr(broker_order, "status", None))
         self._apply_order_progress(intent, broker_order)
@@ -885,7 +914,10 @@ class OrderManager:
 
             else:
                 self.state.update_submission_intent(
-                    intent_id, status=mapped, broker_order_id=broker_order.id
+                    intent_id,
+                    status=mapped,
+                    broker_order_id=broker_order.id,
+                    not_found_since=None,
                 )
 
         if mapped == INTENT_FILLED:
