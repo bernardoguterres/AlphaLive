@@ -406,27 +406,28 @@ class OrderManager:
             raw_status = getattr(result, "status", None)
             mapped = _map_broker_order_status(raw_status)
 
-            # Fill state comes ONLY from the broker: cumulative filled_qty and
-            # filled_avg_price as reported. An "accepted"/"new" response has
-            # filled_qty 0 and creates no position.
-            if self.state is not None and intent is not None:
-                self._apply_order_progress(intent, result)
-                if mapped is None:
-                    self.state.update_submission_intent(
-                        intent["intent_id"],
-                        status=INTENT_UNCERTAIN,
-                        broker_order_id=order_id,
-                        last_error=f"unrecognized broker status: {raw_status}",
-                    )
-                else:
-                    self.state.update_submission_intent(
-                        intent["intent_id"], status=mapped, broker_order_id=order_id
-                    )
-
             confirmed_qty = float(result.filled_qty) if result.filled_qty else 0.0
             confirmed_price = (
                 float(result.filled_avg_price) if result.filled_avg_price else None
             )
+
+            if self.state is not None and intent is not None:
+                self._apply_order_progress(intent, result)
+                current = self._publish_submit_status(
+                    intent,
+                    mapped,
+                    broker_order_id=order_id,
+                    reported_qty=confirmed_qty,
+                    last_error=(
+                        f"unrecognized broker status: {raw_status}"
+                        if mapped is None
+                        else None
+                    ),
+                )
+                if current is not None:
+                    mapped, confirmed_qty, confirmed_price = self._booked_outcome(
+                        current
+                    )
 
             slippage_pct = None
             if confirmed_qty > 0 and confirmed_price:
@@ -471,7 +472,7 @@ class OrderManager:
 
             logger.info(
                 f"ORDER SUBMITTED: {signal_action} {qty} {ticker} (order_id: {order_id}) "
-                f"| broker status={raw_status} | confirmed filled {confirmed_qty}"
+                f"| status={mapped or 'uncertain'} | confirmed filled {confirmed_qty}"
             )
 
             return {
@@ -490,11 +491,17 @@ class OrderManager:
                 and self.state is not None
                 and intent is not None
             ):
-                current = self.state.get_submission_intent(intent["intent_id"]) or {}
-                fields = {"broker_order_id": accepted_order_id, "last_error": str(e)}
-                if current.get("status") in (INTENT_PREPARED, INTENT_SUBMITTING):
-                    fields["status"] = INTENT_SUBMITTED
-                self.state.update_submission_intent(intent["intent_id"], **fields)
+                with self._fill_lock:
+                    current = (
+                        self.state.get_submission_intent(intent["intent_id"]) or {}
+                    )
+                    fields = {
+                        "broker_order_id": accepted_order_id,
+                        "last_error": str(e),
+                    }
+                    if current.get("status") in (INTENT_PREPARED, INTENT_SUBMITTING):
+                        fields["status"] = INTENT_SUBMITTED
+                    self.state.update_submission_intent(intent["intent_id"], **fields)
                 logger.error(
                     f"Post-submission error for {ticker} {signal_action} (order "
                     f"{accepted_order_id} is live; left open for reconciliation): {e}",
@@ -508,27 +515,40 @@ class OrderManager:
                     "reason": f"post-submission error: {e}",
                 }
             if self.state is not None and intent is not None:
-                if self._is_definite_rejection(e):
-                    self.state.update_submission_intent(
-                        intent["intent_id"],
-                        status=INTENT_REJECTED,
-                        last_error=str(e),
+                rejected = self._is_definite_rejection(e)
+                current = self._publish_submit_status(
+                    intent,
+                    INTENT_REJECTED if rejected else INTENT_UNCERTAIN,
+                    last_error=str(e),
+                )
+                if current is not None:
+                    mapped, confirmed_qty, confirmed_price = self._booked_outcome(
+                        current
                     )
+                    logger.info(
+                        f"Submission exception for {ticker} {signal_action}; "
+                        f"preserved reconciled status {mapped}: {e}"
+                    )
+                    return {
+                        "status": "success",
+                        "order_status": mapped,
+                        "order_id": current["broker_order_id"],
+                        "requested_qty": qty,
+                        "filled_qty": confirmed_qty,
+                        "filled_price": confirmed_price,
+                        "slippage_pct": (
+                            abs(confirmed_price - current_price) / current_price * 100
+                            if confirmed_price is not None
+                            else None
+                        ),
+                    }
+                if rejected:
                     logger.error(
                         f"ORDER FAILED (rejected): {ticker} {signal_action} - {e}"
                     )
                 else:
-                    # Retries exhausted on a timeout/5xx/429/network error, or a
-                    # 409 whose original order couldn't be recovered - the
-                    # broker's true state for this client_order_id is unknown.
-                    # Quarantine; sync_open_intents() resolves it from the
-                    # broker (or abandons it after the grace period if the
-                    # broker never shows the order).
-                    self.state.update_submission_intent(
-                        intent["intent_id"],
-                        status=INTENT_UNCERTAIN,
-                        last_error=str(e),
-                    )
+                    # The broker outcome is unknown. Sync will resolve or abandon
+                    # this intent once the broker can be reached.
                     logger.error(
                         f"ORDER OUTCOME UNCERTAIN (quarantined): {ticker} "
                         f"{signal_action} - {e}",
@@ -547,6 +567,72 @@ class OrderManager:
     # ------------------------------------------------------------------
     # Broker-confirmed fill lifecycle (2026-10 repair)
     # ------------------------------------------------------------------
+
+    def _publish_submit_status(
+        self,
+        intent: Dict[str, Any],
+        mapped: Optional[str],
+        *,
+        broker_order_id: Optional[str] = None,
+        reported_qty: Optional[float] = None,
+        last_error: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Persist a submit outcome unless reconciliation already superseded it."""
+        intent_id = intent["intent_id"]
+        with self._fill_lock:
+            current = self.state.get_submission_intent(intent_id)
+            if current is not None:
+                status = current["status"]
+                applied_qty = _to_decimal(current.get("filled_qty_applied"))
+                if status in TERMINAL_INTENT_STATUSES and (
+                    status != INTENT_ABANDONED or reported_qty is None
+                ):
+                    return current
+                if (
+                    status == INTENT_UNCERTAIN
+                    and current["side"] == "CLOSE"
+                    and applied_qty > 0
+                    and _qty_equal(applied_qty, current["qty"])
+                ):
+                    # The reconciler may have quarantined a completed close
+                    # that disagrees with the broker's current position.
+                    return current
+                if reported_qty is None:
+                    # A lost response is weaker evidence than a broker order
+                    # already observed by reconciliation.
+                    if current.get("broker_order_id") and status in (
+                        INTENT_SUBMITTED,
+                        INTENT_PARTIALLY_FILLED,
+                    ):
+                        return current
+                elif (
+                    _to_decimal(reported_qty) + QTY_TOLERANCE < applied_qty
+                    or status == INTENT_PARTIALLY_FILLED
+                    and mapped in (INTENT_SUBMITTED, None)
+                ):
+                    return current
+
+            fields = {"status": mapped or INTENT_UNCERTAIN}
+            if broker_order_id is not None:
+                fields["broker_order_id"] = broker_order_id
+            if last_error is not None:
+                fields["last_error"] = last_error
+            self.state.update_submission_intent(intent_id, **fields)
+            return None
+
+    @staticmethod
+    def _booked_outcome(intent: Dict[str, Any]) -> Tuple[str, float, Optional[float]]:
+        status = intent["status"]
+        qty = _to_decimal(intent.get("filled_qty_applied"))
+        value = _to_decimal(intent.get("filled_value_applied"))
+        if intent["side"] == "CLOSE":
+            if status == INTENT_RECONCILED and _qty_equal(qty, intent["qty"]):
+                status = INTENT_FILLED
+            elif status == INTENT_FILLED:
+                # The broker order is filled but the close reconciler may
+                # still be checking whether the position is flat.
+                status = INTENT_UNCERTAIN
+        return status, float(qty), float(value / qty) if qty > 0 else None
 
     def _apply_order_progress(self, intent: Dict[str, Any], order) -> Optional[Dict]:
         """Apply any NEW broker-confirmed fill on `order` to the ledger and
@@ -639,7 +725,9 @@ class OrderManager:
             buy = working("BUY")
             if buy is None:
                 open_buy = self.state.get_open_intent(ticker, "BUY")
-                if open_buy and open_buy.get("intent_id") == initial_buy.get("intent_id"):
+                if open_buy and open_buy.get("intent_id") == initial_buy.get(
+                    "intent_id"
+                ):
                     buy = open_buy
             if buy is not None:
                 logger.warning(
@@ -1702,72 +1790,86 @@ class OrderManager:
 
             if self.state is not None and intent is not None:
                 self._apply_order_progress(intent, result)
-                self.state.update_submission_intent(
-                    intent["intent_id"],
-                    status=mapped or INTENT_UNCERTAIN,
+                current = self._publish_submit_status(
+                    intent,
+                    mapped,
                     broker_order_id=order_id,
+                    reported_qty=filled_qty,
+                    last_error=(
+                        f"unrecognized broker status: {getattr(result, 'status', None)}"
+                        if mapped is None
+                        else None
+                    ),
                 )
+                if current is not None:
+                    mapped, filled_qty, filled_price = self._booked_outcome(current)
 
             logger.info(
                 f"Close order placed: {ticker} qty={qty} | OrderID: {order_id} | "
                 f"status={mapped} | Reason: {reason}"
             )
-
-            if mapped == INTENT_FILLED:
-                return {
-                    "status": "success",
-                    "order_id": order_id,
-                    "reason": reason,
-                    "filled_price": filled_price,
-                    "filled_qty": filled_qty,
-                    "fill_status": "filled",
-                }
-            if mapped is None:
-                # Unrecognized broker status string - don't guess.
-                if self.state is not None and intent is not None:
-                    self.state.update_submission_intent(
-                        intent["intent_id"],
-                        status=INTENT_UNCERTAIN,
-                        last_error=f"unrecognized broker status: {getattr(result, 'status', None)}",
-                    )
-                return {
-                    "status": "blocked",
-                    "order_id": order_id,
-                    "reason": f"Unrecognized broker status for {ticker} close order",
-                    "filled_price": filled_price,
-                    "filled_qty": filled_qty,
-                    "fill_status": "uncertain",
-                }
-            return {
-                "status": "partial" if mapped == INTENT_PARTIALLY_FILLED else "pending",
-                "order_id": order_id,
-                "reason": reason,
-                "filled_price": filled_price,
-                "filled_qty": filled_qty,
-                "fill_status": mapped,
-            }
+            return self._close_submit_result(
+                ticker, reason, order_id, mapped, filled_qty, filled_price
+            )
 
         except Exception as e:
-            logger.error(f"Failed to close position {ticker}: {e}", exc_info=True)
+            fill_status = "unknown"
             if self.state is not None and intent is not None:
-                if self._is_definite_rejection(e):
-                    self.state.update_submission_intent(
-                        intent["intent_id"], status=INTENT_REJECTED, last_error=str(e)
+                fill_status = (
+                    INTENT_REJECTED
+                    if self._is_definite_rejection(e)
+                    else INTENT_UNCERTAIN
+                )
+                current = self._publish_submit_status(
+                    intent, fill_status, last_error=str(e)
+                )
+                if current is not None:
+                    mapped, filled_qty, filled_price = self._booked_outcome(current)
+                    logger.info(
+                        f"Close submission exception for {ticker}; "
+                        f"preserved reconciled status {mapped}: {e}"
                     )
-                    fill_status = "rejected"
-                else:
-                    self.state.update_submission_intent(
-                        intent["intent_id"], status=INTENT_UNCERTAIN, last_error=str(e)
+                    return self._close_submit_result(
+                        ticker,
+                        reason,
+                        current["broker_order_id"],
+                        mapped,
+                        filled_qty,
+                        filled_price,
                     )
-                    fill_status = "uncertain"
-            else:
-                fill_status = "unknown"
+            logger.error(f"Failed to close position {ticker}: {e}", exc_info=True)
             if self.notifier:
                 self.notifier.send_error_alert(
                     f"❌ Failed to close position: {ticker} - {str(e)}"
                 )
-            status = "error" if fill_status == "rejected" else "blocked"
+            status = "error" if fill_status == INTENT_REJECTED else "blocked"
             return {"status": status, "reason": str(e), "fill_status": fill_status}
+
+    @staticmethod
+    def _close_submit_result(
+        ticker, reason, order_id, mapped, filled_qty, filled_price
+    ):
+        if mapped == INTENT_FILLED:
+            status = "success"
+        elif mapped is None:
+            status = "blocked"
+            mapped = INTENT_UNCERTAIN
+            reason = f"Unrecognized broker status for {ticker} close order"
+        elif mapped == INTENT_UNCERTAIN:
+            status = "blocked"
+            reason = f"Close outcome for {ticker} still needs reconciliation"
+        elif mapped == INTENT_PARTIALLY_FILLED:
+            status = "partial"
+        else:
+            status = "pending"
+        return {
+            "status": status,
+            "order_id": order_id,
+            "reason": reason,
+            "filled_price": filled_price,
+            "filled_qty": filled_qty,
+            "fill_status": mapped,
+        }
 
     def get_order_history(self) -> List[Dict[str, Any]]:
         """
