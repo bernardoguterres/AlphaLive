@@ -219,6 +219,117 @@ def test_unrecoverable_ambiguity_quarantines_then_abandons_after_grace(
     assert ledger_qty(state) == 0.0
 
 
+@pytest.mark.parametrize("filled,keep_broker_id", [(0, True), (40, True), (40, False)])
+def test_missing_confirmed_close_cannot_be_replaced_after_grace(
+    sim, tmp_path, monkeypatch, filled, keep_broker_id
+):
+    from datetime import datetime, timedelta
+    from unittest.mock import Mock
+    from zoneinfo import ZoneInfo
+
+    from alphalive.execution import order_manager
+
+    path = tmp_path / "s.json"
+    om, _, state = build(sim, path, exclusive=True)
+    assert submit(om, BUY)["status"] == "success"
+    entry_id = last_coid(sim)
+    ctl(sim, "fill", client_order_id=entry_id, qty=100, price=100)
+    om.sync_open_intents()
+    assert om.close_position("AAPL", "stop loss")["status"] == "pending"
+    close_id = last_coid(sim)
+    if filled:
+        ctl(sim, "fill", client_order_id=close_id, qty=filled, price=101)
+        om.sync_open_intents()
+    intent = state.get_open_intent("AAPL", "CLOSE")
+    assert intent["broker_order_id"]
+    assert intent["filled_qty_applied"] == filled
+    if not keep_broker_id:
+        state.update_submission_intent(intent["intent_id"], broker_order_id=None)
+    state.close()
+
+    om, risk, restored = build(sim, path, exclusive=True)
+    clock = Mock(wraps=datetime)
+    clock.now.return_value = datetime(
+        2026, 11, 27, 9, 45, tzinfo=ZoneInfo("America/New_York")
+    )
+    monkeypatch.setattr(order_manager, "datetime", clock)
+    monkeypatch.setenv("ALPHALIVE_UNKNOWN_ORDER_GRACE_SECONDS", "60")
+    ctl(
+        sim,
+        "fault",
+        path="/v2/orders:by_client_order_id",
+        method="GET",
+        mode="error404",
+        count=2,
+    )
+    assert om.close_position("AAPL", "within grace")["status"] == "blocked"
+    clock.now.return_value += timedelta(seconds=61)
+    retry_close = om.close_position("AAPL", "after grace")
+    assert sim.order(close_id)["status"] == (
+        "partially_filled" if filled else "accepted"
+    )
+    assert ledger_qty(restored) == 100 - filled
+    assert sim.client_ids() == [entry_id, close_id]
+    assert retry_close["status"] == "blocked"
+    pending = restored.get_open_intent("AAPL", "CLOSE")
+    assert pending["intent_id"] == intent["intent_id"]
+    assert pending["status"] == "uncertain"
+    assert pending["filled_qty_applied"] == filled
+
+    ctl(sim, "fill", client_order_id=close_id, qty=100 - filled, price=102)
+    om.sync_open_intents()
+    assert om.sync_open_intents() == []
+    assert ledger_qty(restored) == 0
+    assert risk.daily_pnl == pytest.approx(200 - filled)
+    assert sim.client_ids() == [entry_id, close_id]
+    restored.close()
+
+
+@pytest.mark.parametrize("signal", [BUY, SELL], ids=["BUY", "SELL"])
+def test_protective_close_defers_while_confirmed_strategy_order_is_missing(
+    sim, tmp_path, signal
+):
+    om, _, state = build(sim, tmp_path / "s.json")
+    if signal == SELL:
+        assert submit(om, BUY)["status"] == "success"
+        ctl(sim, "fill", client_order_id=last_coid(sim), qty=100, price=100)
+        om.sync_open_intents()
+    assert submit(om, signal)["status"] == "success"
+    strategy_id = last_coid(sim)
+    ctl(sim, "fill", client_order_id=strategy_id, qty=40, price=101)
+    om.sync_open_intents()
+    strategy_orders = sim.client_ids()
+    remaining_qty = 60 if signal == SELL else 40
+    ctl(
+        sim,
+        "fault",
+        path="/v2/orders:by_client_order_id",
+        method="GET",
+        mode="error404",
+        count=2,
+    )
+
+    for _ in range(2):
+        close = om.close_position("AAPL", "stop loss")
+        assert sim.client_ids() == strategy_orders
+        assert sim.order(strategy_id)["status"] == "partially_filled"
+        assert ledger_qty(state) == remaining_qty
+        assert state.get_open_intent("AAPL", signal["signal"])["status"] == "uncertain"
+        assert (close["status"], close["fill_status"]) == ("blocked", "uncertain")
+
+    assert om.close_position("AAPL", "stop loss")["status"] == "pending"
+    if signal == BUY:
+        assert sim.order(strategy_id)["status"] == "canceled"
+        assert sim.client_ids() == [*strategy_orders, last_coid(sim)]
+    else:
+        assert sim.client_ids() == strategy_orders
+    ctl(sim, "fill", client_order_id=last_coid(sim), qty=remaining_qty, price=102)
+    order_ids = sim.client_ids()
+    assert om.close_position("AAPL", "stop loss")["status"] == "success"
+    assert ledger_qty(state) == 0
+    assert sim.client_ids() == order_ids
+
+
 def test_restart_while_order_pending_books_fill_once_on_recovery(sim, tmp_path):
     from alphalive import main as main_module
 
