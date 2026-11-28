@@ -25,7 +25,7 @@ import logging
 import os
 import secrets
 import sys
-from datetime import date, datetime, timezone
+from datetime import datetime, time, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -45,7 +45,7 @@ except ImportError:
 from alphalive.broker.alpaca_broker import AlpacaBroker
 from alphalive.utils.env_bool import read_bool_env
 from alphalive.utils.fill_matching import EPS, match_fills_fifo
-from alphalive.state import default_state_file_path
+from alphalive.state import ET, default_state_file_path
 
 # Resolved once so every STATE_FILE fallback in this module (and the bot's
 # own alphalive/config.py) agrees on the same default path - required for
@@ -631,12 +631,12 @@ async def api_positions():
 
 
 def _fetch_dashboard_orders(broker) -> list[dict]:
-    """Serialize today's order window and pair the visible fills by quantity."""
+    """Serialize today's Eastern order window and pair visible fills by quantity."""
     from alpaca.trading.enums import QueryOrderStatus
     from alpaca.trading.requests import GetOrdersRequest
 
-    today = date.today()
-    since = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
+    today = datetime.now(ET).date()
+    since = datetime.combine(today, time.min, tzinfo=ET).astimezone(timezone.utc)
     request = GetOrdersRequest(status=QueryOrderStatus.ALL, after=since, limit=50)
     raw = broker._retry_with_backoff(broker.trading_client.get_orders, request)
     orders, fills = [], []
@@ -708,10 +708,8 @@ def _todays_daily_pnl(state: dict) -> float:
     """The bot's persisted daily P&L, but only if it belongs to today's ET
     trading date - otherwise yesterday's total would show as today's until
     the bot's first fill or new-day roll."""
-    from zoneinfo import ZoneInfo
-
     stamped = state.get("daily_pnl_date")
-    today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+    today = datetime.now(ET).date().isoformat()
     if stamped is not None and stamped != today:
         return 0.0
     return float(state.get("daily_pnl", 0.0))
