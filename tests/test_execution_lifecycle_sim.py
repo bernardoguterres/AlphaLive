@@ -14,6 +14,8 @@ import os
 import subprocess
 import sys
 import textwrap
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event, get_ident
 
 import pandas as pd
 import pytest
@@ -24,6 +26,7 @@ from alphalive.execution.order_manager import OrderManager
 from alphalive.execution.risk_manager import GlobalRiskManager, RiskManager
 from alphalive.state import BotState, StateLockError
 from alphalive.strategy_schema import StrategySchema
+from alphalive.utils import retry
 from tests.broker_sim.alpaca_sim import AlpacaSim
 
 CONFIG = {
@@ -809,7 +812,7 @@ def test_partial_close_booked_after_trading_day_rollover(
 
 def test_order_counter_write_preserves_concurrent_fill_loss(sim, tmp_path, monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
-    from threading import Event
+    from threading import Event, get_ident
 
     state_path = tmp_path / "s.json"
     om, rm, state = build(sim, state_path, exclusive=True)
@@ -1045,7 +1048,7 @@ def test_delayed_lookup_failure_does_not_reopen_terminal(
     sim, tmp_path, monkeypatch, lookup_raises
 ):
     from concurrent.futures import ThreadPoolExecutor
-    from threading import Event
+    from threading import Event, get_ident
 
     path = tmp_path / "s.json"
     om, _, state = build(sim, path)
@@ -1115,3 +1118,173 @@ def test_recovered_order_starts_a_fresh_missing_grace_period(
     assert second["action"] == "quarantine"
     assert state.get_open_intent("AAPL", "BUY") is not None
     assert sim.client_ids() == [coid]
+
+
+@pytest.mark.parametrize("side", ["BUY", "CLOSE"])
+@pytest.mark.parametrize("filled", [40, 100])
+@pytest.mark.parametrize("late_timeout", [False, True])
+def test_late_post_cannot_regress_reconciliation(
+    sim, tmp_path, monkeypatch, side, filled, late_timeout
+):
+    path = tmp_path / "s.json"
+    om, _, state = build(sim, path)
+    if side == "CLOSE":
+        assert submit(om, BUY)["status"] == "success"
+        ctl(sim, "fill", client_order_id=last_coid(sim), qty=100, price=100)
+        om.sync_open_intents()
+        assert ledger_qty(state) == 100
+    original = om.broker.place_market_order
+    post_accepted = Event()
+    release_response = Event()
+
+    def delayed_post(**kwargs):
+        if not post_accepted.is_set():
+            snapshot = original(**kwargs)
+            post_accepted.set()
+            assert release_response.wait(5)
+            if not late_timeout:
+                return snapshot
+        raise TimeoutError("simulated response loss after broker acceptance")
+
+    if late_timeout:
+        monkeypatch.setattr(retry.time, "sleep", lambda _: None)
+
+    monkeypatch.setattr(om.broker, "place_market_order", delayed_post)
+    expected_status = "filled" if filled == 100 else "partially_filled"
+    expected_durable_status = (
+        "reconciled" if side == "CLOSE" and filled == 100 else expected_status
+    )
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        if side == "BUY":
+            initial = pool.submit(submit, om, BUY)
+        else:
+            initial = pool.submit(om.close_position, "AAPL", "regression")
+        try:
+            assert post_accepted.wait(5), initial.result() if initial.done() else None
+            coid = last_coid(sim)
+            (intent,) = state.list_open_intents()
+            ctl(sim, "fill", client_order_id=coid, qty=filled, price=101)
+            om.sync_open_intents()
+            om.sync_open_intents()  # duplicate observation
+            assert (
+                state.get_submission_intent(intent["intent_id"])["status"]
+                == expected_durable_status
+            )
+        finally:
+            release_response.set()
+        result = initial.result(timeout=5)
+    restored = BotState(str(path))
+    assert ledger_qty(restored) == (filled if side == "BUY" else 100 - filled)
+    recovered_status, recovered_qty = (
+        restored.get_submission_intent(intent["intent_id"])[key]
+        for key in ("status", "filled_qty_applied")
+    )
+    assert float(recovered_qty) == filled
+    assert len(sim.client_ids()) == (1 if side == "BUY" else 2)
+    assert recovered_status == expected_durable_status, result
+    assert bool(restored.list_open_intents()) == (filled != 100)
+    assert result["order_status" if side == "BUY" else "fill_status"] == expected_status
+    assert result["filled_qty"] == filled
+
+
+def test_protective_close_cancellation_cannot_be_undone_by_late_buy_response(
+    sim, tmp_path, monkeypatch
+):
+    path = tmp_path / "s.json"
+    om, _, state = build(sim, path)
+    original = om.broker.place_market_order
+    post_accepted = Event()
+    release_response = Event()
+
+    def delayed_buy(**kwargs):
+        snapshot = original(**kwargs)
+        if kwargs["side"] == "buy":
+            post_accepted.set()
+            assert release_response.wait(5)
+        return snapshot
+
+    monkeypatch.setattr(om.broker, "place_market_order", delayed_buy)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending_buy = pool.submit(submit, om, BUY)
+        try:
+            assert post_accepted.wait(5)
+            coid = last_coid(sim)
+            (entry,) = state.list_open_intents()
+            ctl(sim, "fill", client_order_id=coid, qty=40, price=101)
+            close = om.close_position("AAPL", reason="protective close")
+            assert close["status"] == "pending", close
+            assert (
+                state.get_submission_intent(entry["intent_id"])["status"] == "cancelled"
+            )
+            assert len(sim.client_ids()) == 2
+        finally:
+            release_response.set()
+        result = pending_buy.result(timeout=5)
+
+    restored = BotState(str(path))
+    assert ledger_qty(restored) == 40
+    assert (
+        restored.get_submission_intent(entry["intent_id"])["status"] == "cancelled"
+    ), result
+    assert restored.get_open_intent("AAPL", "BUY") is None
+    assert result["order_status"] == "cancelled"
+    assert result["filled_qty"] == 40
+
+
+def test_failed_bookkeeping_cannot_overwrite_newer_fill(sim, tmp_path, monkeypatch):
+    state_path = tmp_path / "state.json"
+    manager, risk, state = build(sim, state_path)
+    read_ack = Event()
+    release = Event()
+    submit_thread = None
+    original_get = state.get_submission_intent
+    original_api_call = risk.record_api_call
+
+    def place_then_fail_bookkeeping(operation, *args, **kwargs):
+        if operation == "place_market_order":
+            raise RuntimeError("simulated post-acceptance bookkeeping failure")
+        return original_api_call(operation, *args, **kwargs)
+
+    def delay_status_read(intent_id):
+        current = original_get(intent_id)
+        if get_ident() == submit_thread and current["status"] == "submitting":
+            read_ack.set()
+            assert release.wait(5)
+        return current
+
+    monkeypatch.setattr(risk, "record_api_call", place_then_fail_bookkeeping)
+    monkeypatch.setattr(state, "get_submission_intent", delay_status_read)
+
+    def worker():
+        nonlocal submit_thread
+        submit_thread = get_ident()
+        return submit(manager, BUY)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        outcome = pool.submit(worker)
+        try:
+            assert read_ack.wait(5)
+            (intent,) = state.list_open_intents()
+            ctl(sim, "fill", client_order_id=last_coid(sim), qty=100, price=101)
+            # A guarded writer must finish before reconciliation can proceed.
+            # When running against the old code, force reconciliation into
+            # the gap between the status read and the unguarded write.
+            unguarded = manager._fill_lock.acquire(blocking=False)
+            if unguarded:
+                manager._fill_lock.release()
+                manager.sync_open_intents()
+                assert (
+                    state.get_submission_intent(intent["intent_id"])["status"]
+                    == "filled"
+                )
+        finally:
+            release.set()
+        result = outcome.result(timeout=5)
+    if not unguarded:
+        manager.sync_open_intents()
+    restored = BotState(str(state_path))
+    assert len(sim.client_ids()) == 1
+    assert ledger_qty(restored) == 100
+    assert (
+        restored.get_submission_intent(intent["intent_id"])["status"] == "filled"
+    ), result
