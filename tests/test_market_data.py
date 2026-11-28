@@ -17,6 +17,12 @@ from alpaca.common.exceptions import APIError as AlpacaAPIError
 ET = ZoneInfo("America/New_York")
 
 
+def _daily_bar_dates(periods):
+    # Daily Alpaca bars use local midnight. Reusing the wall-clock time can
+    # produce ambiguous or nonexistent timestamps across a DST transition.
+    return pd.date_range(end=datetime.now(ET).date(), periods=periods, tz=ET)
+
+
 @pytest.fixture
 def mock_alpaca_client():
     """Create a mock Alpaca client."""
@@ -31,9 +37,7 @@ def mock_alpaca_client():
 @pytest.fixture
 def sample_bars_data():
     """Generate sample bar data for testing."""
-    dates = pd.date_range(
-        start=datetime.now(ET) - timedelta(days=100), end=datetime.now(ET), freq="D"
-    )
+    dates = _daily_bar_dates(101)
 
     df = pd.DataFrame(
         {
@@ -52,6 +56,18 @@ def sample_bars_data():
     )
 
     return df
+
+
+def test_sample_bars_cross_fall_back_when_run_at_1_am(request):
+    now = datetime(2026, 11, 28, 1, 23, tzinfo=ET)
+    with patch(f"{__name__}.datetime", wraps=datetime) as clock:
+        clock.now.return_value = now
+        bars = request.getfixturevalue("sample_bars_data")
+
+    dates = bars.index.get_level_values("timestamp")
+    assert len(dates) == 101
+    assert dates[-1].date() == now.date()
+    assert set(dates.hour) == {0}
 
 
 @pytest.fixture
@@ -192,9 +208,7 @@ def test_get_latest_bars_empty_data(market_data_fetcher, mock_alpaca_client):
 def test_get_latest_bars_insufficient_bars(market_data_fetcher, mock_alpaca_client):
     """Test error when insufficient bars returned."""
     # Mock response with only 10 bars (less than minimum 20)
-    dates = pd.date_range(
-        start=datetime.now(ET) - timedelta(days=10), end=datetime.now(ET), freq="D"
-    )
+    dates = _daily_bar_dates(11)
 
     df = pd.DataFrame(
         {
