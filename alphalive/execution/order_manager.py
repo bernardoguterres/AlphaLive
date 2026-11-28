@@ -96,6 +96,12 @@ def _qty_equal(a: Any, b: Any, tolerance: Decimal = QTY_TOLERANCE) -> bool:
     return abs(_to_decimal(a) - _to_decimal(b)) <= tolerance
 
 
+def _has_confirmed_broker_order(intent: Dict[str, Any]) -> bool:
+    return bool(intent.get("broker_order_id")) or (
+        _to_decimal(intent.get("filled_qty_applied")) > 0
+    )
+
+
 # Eastern Time (US stock market timezone)
 ET = ZoneInfo("America/New_York")
 
@@ -688,10 +694,17 @@ class OrderManager:
         so no second sell is sent. A working entry BUY is cancelled first
         (its partial fill is kept and booked); closing while it can still
         fill would leave the CLOSE "filled but not flat" and quarantine the
-        ticker. Returns a "pending" result to retry at the next exit check,
-        or None when the close may proceed. Quarantined (uncertain) intents
-        have no confirmed live order and do not hold the close back."""
+        ticker. Returns "pending" for a working order, "blocked" when a
+        previously confirmed order cannot be reconciled, or None when the
+        close may proceed. An uncertain intent that was never confirmed
+        does not hold the close back."""
         live = (INTENT_SUBMITTING, INTENT_SUBMITTED, INTENT_PARTIALLY_FILLED)
+
+        def could_be_working(intent: Dict[str, Any]) -> bool:
+            return intent["status"] in live or (
+                intent["status"] == INTENT_UNCERTAIN
+                and _has_confirmed_broker_order(intent)
+            )
 
         def working(side: str) -> Optional[Dict[str, Any]]:
             intent = self.state.get_open_intent(ticker, side)
@@ -699,13 +712,24 @@ class OrderManager:
                 return None
             if intent["status"] == INTENT_SUBMITTING:
                 return intent
-            if intent["status"] not in live:
+            if not could_be_working(intent):
                 return None
             self._reconcile_intent(intent)
             intent = self.state.get_open_intent(ticker, side)
-            return intent if intent and intent["status"] in live else None
+            return intent if intent and could_be_working(intent) else None
 
         sell = working("SELL")
+        initial_buy = working("BUY") if sell is None else None
+        unresolved = sell or initial_buy
+        if unresolved is not None and unresolved["status"] == INTENT_UNCERTAIN:
+            detail = f"previously confirmed strategy {unresolved['side']} needs reconciliation"
+            logger.warning(f"Close for {ticker} blocked: {detail} ({reason})")
+            return {
+                "status": "blocked",
+                "order_id": unresolved.get("broker_order_id"),
+                "reason": f"{reason} ({detail})",
+                "fill_status": INTENT_UNCERTAIN,
+            }
         if sell is not None:
             logger.info(
                 f"Close for {ticker} deferred: strategy SELL "
@@ -719,7 +743,6 @@ class OrderManager:
                 "filled_qty": None,
                 "fill_status": sell["status"],
             }
-        initial_buy = working("BUY")
         if initial_buy is not None:
             self.cancel_open_entry_orders(f"protective close: {reason}")
             buy = working("BUY")
@@ -841,13 +864,13 @@ class OrderManager:
             "terminal"   - rejected/cancelled/expired (any partial fill
                            before that has been booked); "order" holds it.
             "abandoned"  - the order never reached the broker ("prepared"
-                           at reconciliation time), or the broker still has
-                           no record of it after the uncertainty grace
-                           period. Closed out - never resubmitted, because
-                           its decision context no longer exists.
-            "quarantine" - outcome unknown (lookup failed, not-found within
-                           the grace period, unrecognized or contradictory
-                           status). No new order while it remains unresolved.
+                           at reconciliation time), or a never-confirmed order
+                           still cannot be found after the uncertainty grace
+                           period. Its expired decision is never resubmitted.
+            "quarantine" - outcome unknown (lookup failed, confirmed order
+                           missing, unconfirmed order within grace, or
+                           unrecognized or contradictory status). No new order
+                           while it remains unresolved.
             "superseded" - another reconciliation finalized this intent.
         """
         intent_id = intent["intent_id"]
@@ -911,6 +934,23 @@ class OrderManager:
 
                 now = datetime.now(ET)
                 first_missing = current.get("not_found_since")
+                if _has_confirmed_broker_order(current):
+                    # A 404 cannot undo an acknowledged order or a booked fill.
+                    # Replacing it could overlap an order still working at the broker.
+                    detail = "previously confirmed broker order cannot be found"
+                    if first_missing is None or current["status"] != INTENT_UNCERTAIN:
+                        self.state.update_submission_intent(
+                            intent_id,
+                            status=INTENT_UNCERTAIN,
+                            not_found_since=first_missing or now.isoformat(),
+                            last_error=detail,
+                        )
+                    logger.warning(
+                        f"Reconciliation: intent {intent_id} ({client_order_id}): "
+                        f"{detail}. Keeping it quarantined."
+                    )
+                    return {"action": "quarantine", "detail": detail}
+
                 if first_missing is None:
                     self.state.update_submission_intent(
                         intent_id,

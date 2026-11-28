@@ -22,7 +22,7 @@ control call changes it. Control endpoints (JSON POST under /sim/):
                         one-shot override of the NEXT order report (stale /
                         out-of-order / duplicate fill reports); state unchanged
     /sim/fault          {"path", "method", "mode", "count", "seconds"}
-                        mode: "delay" (sleep then answer), "error500",
+                        mode: "delay" (sleep then answer), "error404", "error500",
                         "accept_then_drop" (POST /v2/orders: create the order,
                         then sleep `seconds` so the client times out)
     /sim/clock          {"is_open"}
@@ -325,6 +325,8 @@ def make_handler(state: SimState):
             fault = self._fault(method, path)
             if fault and fault["mode"] == "delay":
                 time.sleep(fault["seconds"])
+            if fault and fault["mode"] == "error404":
+                return self._send(404, {"code": 40410000, "message": "order not found"})
             if fault and fault["mode"] == "error500":
                 return self._send(
                     500, {"code": 50000000, "message": "simulated internal error"}
